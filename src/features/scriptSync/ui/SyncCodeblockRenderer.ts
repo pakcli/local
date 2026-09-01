@@ -53,11 +53,11 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
 
         // Diff Viewer (Expandable Drawer)
         this.diffContainerEl = containerEl.createDiv({ cls: 'pakcli-diff-drawer' });
-        this.diffContainerEl.style.display = 'none';
+        this.diffContainerEl.setCssStyles({ display: "none" });
 
         // Script Output Terminal Drawer
         this.outputContainerEl = containerEl.createDiv({ cls: 'pakcli-output-drawer' });
-        this.outputContainerEl.style.display = 'none';
+        this.outputContainerEl.setCssStyles({ display: "none" });
 
         // SECTION 2: Codeblock View
         const section2 = containerEl.createDiv({ cls: 'pakcli-codeblock-section' });
@@ -80,7 +80,7 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
             runBtn.setText('⏳ Running...');
             try {
                 if (this.outputContainerEl) {
-                    this.outputContainerEl.style.display = 'block';
+                    this.outputContainerEl.setCssStyles({ display: "block" });
                     this.outputContainerEl.setText('Executing script via local shell...');
                 }
             } catch (err: any) {
@@ -96,7 +96,7 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         copyBtn.onclick = () => {
             navigator.clipboard.writeText(this.source);
             copyBtn.setText('✅ Copied!');
-            setTimeout(() => copyBtn.setText('📋 Copy'), 1500);
+            window.setTimeout(() => copyBtn.setText('📋 Copy'), 1500);
         };
     }
 
