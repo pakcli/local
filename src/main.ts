@@ -24,7 +24,7 @@ import { renderYTCaptureSettings } from './features/ytd/settings';
 import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
 
 export default class PakCLILocalPlugin extends Plugin {
-	settings!: PakCLILocalSettings;
+	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
 	badgeRenderer!: BadgeRenderer;
 	vaultRoot: string = '';

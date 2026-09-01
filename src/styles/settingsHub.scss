@@ -702,3 +702,86 @@
     }
   }
 }
+
+
+/* ==========================================================
+   Setup & Dependencies Checking Card
+   ========================================================== */
+.pakcli-deps-section {
+  margin-top: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+
+  .pakcli-deps-title {
+    margin: 0 0 4px 0 !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+
+  .pakcli-deps-desc {
+    color: var(--text-muted) !important;
+    font-size: 12px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .pakcli-deps-box {
+    background-color: #12151c !important;
+    border: 1px solid var(--background-modifier-border) !important;
+    border-radius: 8px !important;
+    padding: 10px 14px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    font-family: var(--font-monospace) !important;
+    font-size: 12.5px !important;
+    margin-bottom: 12px !important;
+
+    .pakcli-deps-item {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+
+      .pakcli-deps-icon.ok { color: #4ade80 !important; }
+      .pakcli-deps-icon.err { color: #f87171 !important; }
+
+      .pakcli-deps-name {
+        font-weight: 600 !important;
+        &.ok { color: #4ade80 !important; }
+        &.err { color: #f87171 !important; }
+      }
+
+      .pakcli-deps-msg {
+        color: var(--text-muted) !important;
+        font-size: 11.5px !important;
+      }
+    }
+  }
+
+  .pakcli-deps-actions {
+    display: flex !important;
+    gap: 8px !important;
+
+    .pakcli-deps-btn {
+      border: 1px solid var(--background-modifier-border) !important;
+      background-color: var(--background-secondary) !important;
+      color: var(--text-normal) !important;
+      font-size: 11.5px !important;
+      font-weight: 600 !important;
+      padding: 5px 12px !important;
+      border-radius: 6px !important;
+      cursor: pointer !important;
+      transition: all 0.15s ease !important;
+
+      &.primary {
+        background-color: var(--interactive-accent) !important;
+        color: var(--text-on-accent) !important;
+        border-color: var(--interactive-accent) !important;
+      }
+
+      &:hover {
+        filter: brightness(1.1) !important;
+      }
+    }
+  }
+}
