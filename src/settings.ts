@@ -7,7 +7,6 @@ export interface PakCLILocalSettings extends
     YTCaptureSettings, 
     FolderSyncSettings 
 {
-    ytDlpPath?: string;
     autoCheckDependencies?: boolean;
 }
 
@@ -15,6 +14,5 @@ export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
     ...DEFAULT_SYMLINK_SETTINGS,
     ...DEFAULT_YTCAPTURE_SETTINGS,
     ...DEFAULT_FOLDER_SYNC_SETTINGS,
-    ytDlpPath: '',
     autoCheckDependencies: true,
 };

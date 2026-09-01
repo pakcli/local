@@ -1,114 +1,246 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
-import {
-	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
-} from './settings';
+import { App, Plugin, Platform, Notice, TFolder, Menu } from 'obsidian';
+import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
-// Remember to rename these classes and interfaces!
+// Hub Imports
+import { MasterDetailSettingsTab } from './features/hub/settingsHub';
+import { eventBus } from './features/hub/eventBus';
+import { saveVaultConfig, loadVaultConfig } from './features/hub/vaultConfig';
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
+// Symlink Manager Imports
+import { SymlinkManagerSettingTab } from './features/symlink/settings';
+import { SymlinkModal } from './features/symlink/modal';
+import { BadgeRenderer } from './features/symlink/badges';
+
+// ScriptSync Imports
+import { SyncManager } from './features/scriptSync/SyncManager';
+import { ScanSyncModal } from './features/scriptSync/ui/ScanSyncModal';
+import { PendingChangesModal } from './features/scriptSync/ui/PendingChangesModal';
+import { SyncCodeblockRenderer } from './features/scriptSync/ui/SyncCodeblockRenderer';
+
+// YTD Imports
+import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
+import { renderYTCaptureSettings } from './features/ytd/settings';
+import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
+
+export default class PakCLILocalPlugin extends Plugin {
+	settings!: PakCLILocalSettings;
+	syncManager!: SyncManager;
+	badgeRenderer!: BadgeRenderer;
+	vaultRoot: string = '';
 
 	async onload() {
+		console.log('[PakCLI Local] Loading plugin...');
+
+		if (!Platform.isDesktop) {
+			new Notice('⚠️ PakCLI Local is a desktop-only plugin and requires Node.js OS APIs.');
+			return;
+		}
+
+		// 1. Resolve Vault Path
+		const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+		if (typeof adapter.getBasePath === 'function') {
+			this.vaultRoot = adapter.getBasePath();
+		}
+
+		// 2. Load Settings (with Vault Config fallback)
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
+		// 3. Initialize Hub & EventBus
+		eventBus.emit('pl:loaded', { version: this.manifest.version });
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+		// 4. Initialize Symlink Explorer Badges
+		this.badgeRenderer = new BadgeRenderer(this.app, this.vaultRoot);
+		if (this.settings.showBadges) {
+			this.applyBadgeSetting();
+		}
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		// Register Folder Context Menu for Symlinks
+		this.registerEvent(
+			this.app.workspace.on('file-menu', (menu: Menu, file) => {
+				if (file instanceof TFolder) {
+					menu.addItem((item) => {
+						item
+							.setTitle('PakCLI: Link External Folder (Symlink)...')
+							.setIcon('link')
+							.onClick(() => {
+								new SymlinkModal(this.app, {
+									vaultRoot: this.vaultRoot,
+									initialVaultPath: file.path,
+									confirmDisconnect: this.settings.confirmDisconnect,
+									onChange: () => this.applyBadgeSetting()
+								}).open();
+							});
+					});
 				}
-				return false;
-			},
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
+			})
 		);
+
+		// 5. Initialize ScriptSync Manager
+		this.syncManager = new SyncManager(
+			this.app,
+			this,
+			() => this.settings,
+			() => this.saveSettings()
+		);
+		this.syncManager.init();
+
+		// Register Script Codeblock Processors
+		['powershell', 'ps1', 'bash', 'sh', 'python', 'py'].forEach((lang) => {
+			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
+				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile as any));
+			});
+		});
+
+		// 6. Register Commands
+		this.registerPluginCommands();
+
+		// 7. Register Master-Detail Settings Tab
+		this.registerSettingsHub();
+
+		// 8. Background Health Check
+		if (this.settings.autoCheckDependencies !== false) {
+			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
+		}
+
+		console.log('[PakCLI Local] Loaded successfully.');
 	}
 
-	onunload() {}
+	onunload() {
+		console.log('[PakCLI Local] Unloading plugin...');
+		if (this.syncManager) {
+			this.syncManager.destroy();
+		}
+		eventBus.emit('pl:unloaded', { version: this.manifest.version });
+	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
+		const stored = await this.loadData();
+		const fallback = await loadVaultConfig(this.app, 'pakcli-local');
+		this.settings = Object.assign({}, DEFAULT_LOCAL_SETTINGS, fallback, stored);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+		// Auto-snapshot to vault config
+		await saveVaultConfig(this.app, 'pakcli-local', this.settings);
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	applyBadgeSetting() {
+		if (this.badgeRenderer) {
+			this.badgeRenderer.refresh();
+		}
+	}
+
+	private registerPluginCommands() {
+		// Command: Open Diagnostics Wizard
+		this.addCommand({
+			id: 'pl-open-wizard',
+			name: 'Open System Diagnostics Wizard',
+			callback: () => {
+				(this.app as any).setting?.open();
+				(this.app as any).setting?.openTabById('pakcli-local');
+			},
+		});
+
+		// Command: Create Symlink / Junction
+		this.addCommand({
+			id: 'pl-create-symlink',
+			name: 'Create Symlink / Junction...',
+			callback: () => {
+				new SymlinkModal(this.app, {
+					vaultRoot: this.vaultRoot,
+					initialVaultPath: '',
+					confirmDisconnect: this.settings.confirmDisconnect,
+					onChange: () => this.applyBadgeSetting()
+				}).open();
+			},
+		});
+
+		// Command: YTD YouTube Capture
+		this.addCommand({
+			id: 'pl-ytd-capture',
+			name: 'YTD: Capture YouTube Clip & Notes',
+			callback: () => {
+				new YTCaptureModal(this.app, this).open();
+			},
+		});
+
+		// Command: Scan & Sync Script Blocks
+		this.addCommand({
+			id: 'pl-scriptsync-scan',
+			name: 'ScriptSync: Scan & Sync Codeblock Scripts',
+			callback: () => {
+				new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+
+		// Command: View Pending Script Changes
+		this.addCommand({
+			id: 'pl-scriptsync-pending',
+			name: 'ScriptSync: View Pending Changes',
+			callback: () => {
+				new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+	}
+
+	private registerSettingsHub() {
+		const settingsTab = new MasterDetailSettingsTab(this.app, this);
+
+		// 1. Symlink Section Handler
+		const symlinkSettingTab = new SymlinkManagerSettingTab(
+			this.app,
+			this,
+			this.settings,
+			() => this.saveSettings(),
+			() => this.applyBadgeSetting()
+		);
+		settingsTab.registerLocalSection({
+			id: 'local-symlink',
+			category: 'local',
+			title: 'Symlink & Junction Manager',
+			icon: 'link',
+			isInstalled: true,
+			render: (containerEl) => {
+				symlinkSettingTab.display(containerEl);
+			}
+		});
+
+		// 2. ScriptSync Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-scriptsync',
+			category: 'local',
+			title: 'ScriptSync (PowerShell & Shell Runner)',
+			icon: 'terminal',
+			isInstalled: true,
+			render: (containerEl) => {
+				const info = containerEl.createDiv({ cls: 'setting-item-description' });
+				info.createEl('p', {
+					text: 'ScriptSync automatically tracks, compiles, and runs PowerShell, Python, and shell scripts embedded in your vault codeblocks.'
+				});
+
+				const actions = containerEl.createDiv({ cls: 'pakcli-btn-row' });
+				const scanBtn = actions.createEl('button', { text: '🔍 Scan Vault for Script Blocks', cls: 'mod-cta' });
+				scanBtn.onclick = () => new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+
+				const pendingBtn = actions.createEl('button', { text: '📝 View Pending Sync Changes' });
+				pendingBtn.onclick = () => new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			}
+		});
+
+		// 3. YTD Media Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-ytd',
+			category: 'local',
+			title: 'YTD (YouTube Downloader Engine)',
+			icon: 'video',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderYTCaptureSettings(this.app, this as any, containerEl);
+			}
+		});
+
+		this.addSettingTab(settingsTab);
 	}
 }

@@ -32,5 +32,9 @@
 		"sass": "^1.83.4",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1"
+	},
+	"dependencies": {
+		"@types/jszip": "^3.4.0",
+		"jszip": "^3.10.1"
 	}
 }
