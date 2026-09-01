@@ -107,7 +107,9 @@ export default class PakCLILocalPlugin extends Plugin {
 		console.log('[PakCLI Local] Loaded successfully.');
 	}
 
-	onunload() {
+	async onunload() {
+		// 2. Persistent Snapshot on App Close / Unload
+		try { await saveVaultConfig(this.app, 'pakcli-local', this.settings, 'session-close'); } catch {}
 		console.log('[PakCLI Local] Unloading plugin...');
 		if (this.syncManager) {
 			this.syncManager.destroy();
