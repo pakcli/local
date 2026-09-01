@@ -1,5 +1,5 @@
 {
-	"id": "sample-plugin",
+	"id": "pakcli-table",
 	"name": "Sample Plugin",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
