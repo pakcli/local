@@ -1,0 +1,20 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PakCLI Local — Main Stylesheet
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@use 'settingsHub';
+@import 'ytcapture.css';
+
+/* Symlink Status Badges in Explorer */
+.nav-folder-title[data-symlink="junction"]::after {
+  content: " 🟢";
+  font-size: 0.8em;
+}
+.nav-folder-title[data-symlink="symlink"]::after {
+  content: " 🟠";
+  font-size: 0.8em;
+}
+.nav-folder-title[data-symlink="broken"]::after {
+  content: " 🔴";
+  font-size: 0.8em;
+}

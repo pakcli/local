@@ -1,38 +1,20 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
-import MyPlugin from './main';
+import { SymlinkManagerSettings, DEFAULT_SYMLINK_SETTINGS } from './features/symlink/settings';
+import { YTCaptureSettings, DEFAULT_YTCAPTURE_SETTINGS } from './features/ytd/types';
+import { FolderSyncSettings, DEFAULT_FOLDER_SYNC_SETTINGS } from './features/scriptSync/types';
 
-export interface MyPluginSettings {
-	mySetting: string;
+export interface PakCLILocalSettings extends 
+    SymlinkManagerSettings, 
+    YTCaptureSettings, 
+    FolderSyncSettings 
+{
+    ytDlpPath?: string;
+    autoCheckDependencies?: boolean;
 }
 
-export const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default',
+export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
+    ...DEFAULT_SYMLINK_SETTINGS,
+    ...DEFAULT_YTCAPTURE_SETTINGS,
+    ...DEFAULT_FOLDER_SYNC_SETTINGS,
+    ytDlpPath: '',
+    autoCheckDependencies: true,
 };
-
-export class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Settings #1')
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder('Enter your secret')
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-	}
-}
