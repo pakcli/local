@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "pakcli-local",
+	"name": "PakCLI Local",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"minAppVersion": "1.4.0",
+	"description": "Desktop OS bridge & power utilities: PowerShell script runner, symlink manager, and yt-dlp media capture.",
+	"author": "PakCLI Team",
+	"isDesktopOnly": true
 }
