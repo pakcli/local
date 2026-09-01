@@ -16,6 +16,7 @@ import { SyncManager } from './features/scriptSync/SyncManager';
 import { ScanSyncModal } from './features/scriptSync/ui/ScanSyncModal';
 import { PendingChangesModal } from './features/scriptSync/ui/PendingChangesModal';
 import { SyncCodeblockRenderer } from './features/scriptSync/ui/SyncCodeblockRenderer';
+import { renderScriptSyncSettings } from './features/scriptSync/settings';
 
 // YTD Imports
 import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
@@ -215,17 +216,14 @@ export default class PakCLILocalPlugin extends Plugin {
 			icon: 'terminal',
 			isInstalled: true,
 			render: (containerEl) => {
-				const info = containerEl.createDiv({ cls: 'setting-item-description' });
-				info.createEl('p', {
-					text: 'ScriptSync automatically tracks, compiles, and runs PowerShell, Python, and shell scripts embedded in your vault codeblocks.'
-				});
-
-				const actions = containerEl.createDiv({ cls: 'pakcli-btn-row' });
-				const scanBtn = actions.createEl('button', { text: '🔍 Scan Vault for Script Blocks', cls: 'mod-cta' });
-				scanBtn.onclick = () => new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
-
-				const pendingBtn = actions.createEl('button', { text: '📝 View Pending Sync Changes' });
-				pendingBtn.onclick = () => new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+				renderScriptSyncSettings(
+					this.app,
+					this,
+					this.syncManager,
+					() => this.settings,
+					() => this.saveSettings(),
+					containerEl
+				);
 			}
 		});
 
