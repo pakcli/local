@@ -1,41 +1,41 @@
 {
-	"name": "pakcli-local",
-	"version": "1.0.0",
-	"description": "Desktop OS bridge & power utilities: PowerShell script runner, symlink manager, and yt-dlp media capture.",
-	"main": "main.js",
-	"type": "module",
-	"scripts": {
-		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
-	},
-	"keywords": [
-		"obsidian",
-		"obsidian-plugin",
-		"powershell",
-		"symlink",
-		"yt-dlp",
-		"desktop"
-	],
-	"license": "MIT",
-	"devDependencies": {
-		"@eslint/js": "^9.39.4",
-		"@types/node": "^22.15.17",
-		"esbuild": "0.25.5",
-		"esbuild-sass-plugin": "^3.3.1",
-		"eslint": "^9.39.4",
-		"eslint-plugin-obsidianmd": "^0.4.0",
-		"globals": "^17.6.0",
-		"jiti": "^2.6.1",
-		"obsidian": "latest",
-		"sass": "^1.77.8",
-		"typescript": "^5.8.3",
-		"typescript-eslint": "^8.59.1",
-		"esbuild-plugin-polyfill-node": "^0.3.0"
-	},
-	"dependencies": {
-		"@types/jszip": "^3.4.0",
-		"jszip": "^3.10.1"
-	}
+    "name":  "pakcli-local",
+    "version":  "1.0.9",
+    "description":  "Desktop OS bridge \u0026 power utilities: PowerShell script runner, symlink manager, and yt-dlp media capture.",
+    "main":  "main.js",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "node esbuild.config.mjs",
+                    "build":  "tsc -noEmit -skipLibCheck \u0026\u0026 node esbuild.config.mjs production",
+                    "version":  "node version-bump.mjs \u0026\u0026 git add manifest.json versions.json",
+                    "lint":  "eslint ."
+                },
+    "keywords":  [
+                     "obsidian",
+                     "obsidian-plugin",
+                     "powershell",
+                     "symlink",
+                     "yt-dlp",
+                     "desktop"
+                 ],
+    "license":  "MIT",
+    "devDependencies":  {
+                            "@eslint/js":  "^9.39.4",
+                            "@types/node":  "^22.15.17",
+                            "esbuild":  "0.25.5",
+                            "esbuild-sass-plugin":  "^3.3.1",
+                            "eslint":  "^9.39.4",
+                            "eslint-plugin-obsidianmd":  "^0.4.0",
+                            "globals":  "^17.6.0",
+                            "jiti":  "^2.6.1",
+                            "obsidian":  "latest",
+                            "sass":  "^1.77.8",
+                            "typescript":  "^5.8.3",
+                            "typescript-eslint":  "^8.59.1",
+                            "esbuild-plugin-polyfill-node":  "^0.3.0"
+                        },
+    "dependencies":  {
+                         "@types/jszip":  "^3.4.0",
+                         "jszip":  "^3.10.1"
+                     }
 }
