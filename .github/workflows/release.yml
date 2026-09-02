@@ -18,18 +18,21 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
 
-      - name: Install dependencies & Build
-        run: |
-          npm install --legacy-peer-deps
-          npm run build
+      - name: Install dependencies
+        run: npm install
 
-      - name: Check for optional styles
-        id: styles
-        run: |
-          [ -f styles.css ] && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
+      - name: Build Plugin
+        run: npm run build
+
+      - name: Generate Build Attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            styles.css
+            manifest.json
 
       - name: Create and Publish Release
         env:
@@ -37,14 +40,8 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           
-          if [ "${{ steps.styles.outputs.exists }}" = "true" ]; then
-            gh release create "$tag" \
-              --title="$tag" \
-              --notes "Release $tag of PakCLI Local" \
-              main.js manifest.json styles.css
+          if [ -f styles.css ]; then
+            gh release create "$tag"               --title="$tag"               --generate-notes               main.js manifest.json styles.css || gh release upload "$tag" main.js manifest.json styles.css --clobber
           else
-            gh release create "$tag" \
-              --title="$tag" \
-              --notes "Release $tag of PakCLI Local" \
-              main.js manifest.json
+            gh release create "$tag"               --title="$tag"               --generate-notes               main.js manifest.json || gh release upload "$tag" main.js manifest.json --clobber
           fi

@@ -674,7 +674,7 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
     // Live Interactive Simulation Form
     const form = blueprintBox.createDiv({ cls: "pakcli-preview-form is-live-sandbox" });
     new Setting(form)
-      .setName("Interactive Sandbox (Simulated Settings)")
+      .setName("Interactive Sandbox (Live Preview)")
       .setDesc("You can freely test these toggles & options in live preview.")
       .setHeading();
 
@@ -729,11 +729,10 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
 
   private renderAgentDependenciesBox(containerEl: HTMLElement, targetPlugin: any): void {
     const setupSection = containerEl.createDiv({ cls: "pakcli-deps-section" });
-    setupSection.createEl("h4", { text: "⚙️ Setup & Dependencies", cls: "pakcli-deps-title" });
-    setupSection.createEl("p", {
-      text: "Antigravity CLI (agy) and Python 3 must be installed on your system for PakCLI Agent to work.",
-      cls: "pakcli-deps-desc"
-    });
+    new Setting(setupSection)
+      .setName("⚙️ Setup & Dependencies")
+      .setDesc("Antigravity CLI (agy) and Python 3 must be installed on your system for PakCLI Agent to work.")
+      .setHeading();
 
     const depsBox = setupSection.createDiv({ cls: "pakcli-deps-box" });
     
