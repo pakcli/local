@@ -11,6 +11,8 @@ export interface RunOptions {
   onStdout?: (data: string) => void;
   onStderr?: (data: string) => void;
   onOutput?: (data: string) => void;
+  onSpawn?: (child: any) => void;
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -141,6 +143,18 @@ export function runCommand(
   return new Promise((resolve, reject) => {
     // Direct spawn on all platforms (shell: false)
     let child = cp.spawn(resolvedCmd, args, { cwd: opts.cwd, env: typeof process !== "undefined" ? process.env : {} });
+    opts.onSpawn?.(child);
+
+    if (opts.abortSignal) {
+      if (opts.abortSignal.aborted) {
+        try { child.kill(); } catch {}
+        return reject(new Error("Process aborted"));
+      }
+      opts.abortSignal.addEventListener("abort", () => {
+        try { child.kill(); } catch {}
+      });
+    }
+
     let stdout = "";
     let stderr = "";
 

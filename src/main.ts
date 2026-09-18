@@ -20,12 +20,19 @@ import { renderScriptSyncSettings } from './features/scriptSync/settings';
 
 // YTD Imports
 import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
+import { YTDownloaderView, YT_DOWNLOADER_VIEW_TYPE } from './features/ytd/ui/YTDownloaderView';
 import { renderYTCaptureSettings } from './features/ytd/settings';
 import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
+
+// GetCopy Imports
+import { GetCopyManager } from './features/getCopy/GetCopyManager';
+import { GetCopyModal } from './features/getCopy/ui/GetCopyModal';
+import { renderGetCopySettings } from './features/getCopy/settings';
 
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
+	getCopyManager!: GetCopyManager;
 	badgeRenderer!: BadgeRenderer;
 	vaultRoot: string = '';
 
@@ -93,13 +100,33 @@ export default class PakCLILocalPlugin extends Plugin {
 			});
 		});
 
-		// 6. Register Commands
+		// 6. Initialize GetCopy Manager & Startup Awake Scan
+		this.getCopyManager = new GetCopyManager(
+			this.app,
+			this,
+			() => this.settings,
+			() => this.saveSettings()
+		);
+		this.app.workspace.onLayoutReady(() => {
+			this.getCopyManager.runAwakeScan();
+		});
+
+		// 7. Register YTD Downloader View & Ribbon Icon
+		this.registerView(
+			YT_DOWNLOADER_VIEW_TYPE,
+			(leaf) => new YTDownloaderView(leaf, this)
+		);
+		this.addRibbonIcon('video', 'Open YT & IG Downloader', () => {
+			this.activateYTDownloaderView();
+		});
+
+		// 8. Register Commands
 		this.registerPluginCommands();
 
-		// 7. Register Master-Detail Settings Tab
+		// 9. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
-		// 8. Background Health Check
+		// 10. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
@@ -160,10 +187,19 @@ export default class PakCLILocalPlugin extends Plugin {
 			},
 		});
 
-		// Command: YTD YouTube Capture
+		// Command: YTD Downloader Panel (Primary)
 		this.addCommand({
 			id: 'pl-ytd-capture',
-			name: 'YTD: Capture YouTube Clip & Notes',
+			name: 'YTD: Open YT & IG Downloader Panel',
+			callback: () => {
+				void this.activateYTDownloaderView();
+			},
+		});
+
+		// Command: YTD Legacy Capture Modal (Fallback)
+		this.addCommand({
+			id: 'pl-ytd-modal',
+			name: 'YTD: Open Quick Capture Modal',
 			callback: () => {
 				new YTCaptureModal(this.app, this).open();
 			},
@@ -184,6 +220,34 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'ScriptSync: View Pending Changes',
 			callback: () => {
 				new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+
+		// Command: Open Get-Copy Pipeline Dashboard
+		this.addCommand({
+			id: 'pl-get-copy-dashboard',
+			name: 'Get-Copy: Open Directory Pipeline Dashboard',
+			callback: () => {
+				new GetCopyModal(
+					this.app,
+					this.getCopyManager,
+					() => this.settings,
+					() => this.saveSettings()
+				).open();
+			},
+		});
+
+		// Command: Batch Rescan All Get-Copy Pipelines
+		this.addCommand({
+			id: 'pl-get-copy-rescan-all',
+			name: 'Get-Copy: Batch Rescan All Pipelines',
+			callback: async () => {
+				const res = await this.getCopyManager.batchRescan();
+				if (res.errors.length === 0) {
+					new Notice(`✅ [Get-Copy] Batch rescan complete: ${res.successCount} pipelines synced (${res.totalCopied} files copied).`);
+				} else {
+					new Notice(`⚠️ [Get-Copy] Batch rescan finished with ${res.errors.length} error(s).`);
+				}
 			},
 		});
 	}
@@ -241,6 +305,45 @@ export default class PakCLILocalPlugin extends Plugin {
 			}
 		});
 
+		// 4. GetCopy Pipeline Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-get-copy',
+			category: 'local',
+			title: 'Get-Copy Pipeline Manager',
+			icon: 'folder-input',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderGetCopySettings(
+					this.app,
+					this,
+					this.getCopyManager,
+					() => this.settings,
+					() => this.saveSettings(),
+					containerEl
+				);
+			}
+		});
+
 		this.addSettingTab(settingsTab);
+	}
+
+	async activateYTDownloaderView() {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE)[0];
+
+		if (!leaf) {
+			const rightLeaf = workspace.getLeaf(false);
+			if (rightLeaf) {
+				leaf = rightLeaf;
+				await leaf.setViewState({
+					type: YT_DOWNLOADER_VIEW_TYPE,
+					active: true,
+				});
+			}
+		}
+
+		if (leaf) {
+			void workspace.revealLeaf(leaf);
+		}
 	}
 }

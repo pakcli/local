@@ -1,10 +1,33 @@
 /** File helper utilities */
 
-export function sanitizeFilename(name: string): string {
-  return name
-    .replace(/[/\\:*?"<>|]/g, "-")
-    .replace(/\s+/g, "_")
-    .slice(0, 80);
+/**
+ * Sanitize title for filenames and Obsidian notes.
+ * - Keeps original spaces as spaces ("keep them spasi, no need extra -").
+ * - Strips characters illegal on Windows filesystem (/ \ : * ? " < > |) and Obsidian Wikilinks (# ^ [ ]).
+ * - Collapses multiple spaces/tabs into a single space.
+ * - Truncates to maxLen (default 20 characters) including spaces and underscores.
+ * - Trims leading/trailing whitespace and trailing dots.
+ */
+export function sanitizeFilename(name: string, maxLen: number = 20): string {
+  if (!name) return "media";
+
+  let clean = name
+    // Strip illegal filesystem and Obsidian Wikilink characters
+    .replace(/[/\\:*?"<>|#^[\]]/g, "")
+    // Collapse newlines, tabs, and multiple spaces into a single space
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Enforce maximum length limit (default 20 characters)
+  if (maxLen > 0 && clean.length > maxLen) {
+    clean = clean.slice(0, maxLen);
+  }
+
+  // Remove trailing dots, hyphens, or spaces that could be problematic on Windows
+  clean = clean.replace(/[. ]+$/, "").trim();
+
+  return clean || "media";
 }
 
 export function formatTime(seconds: number | undefined): string {
@@ -16,6 +39,15 @@ export function formatTime(seconds: number | undefined): string {
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+export function parseTimeInput(input: string): number {
+  const parts = input.trim().split(":").map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0];
+  return 0;
 }
 
 /**
@@ -34,25 +66,66 @@ export function formatDetailedTimestamp(seconds: number): string {
 }
 
 /**
+ * Format date and time stamp using hyphens: YYYY-MM-DD and HH-mm-ss
+ */
+export function formatDateTimeStamp(d: Date = new Date()): {
+  dateStr: string;
+  timeStr: string;
+  dateTimeStr: string;
+} {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const timeStr = `${hh}-${min}-${ss}`;
+  const dateTimeStr = `${dateStr}_${timeStr}`;
+
+  return { dateStr, timeStr, dateTimeStr };
+}
+
+/**
  * Build structured filename base following pattern:
- * titlevid_[timestamp start and end]_[format]_[resolution]
+ * yt | ig_title_qty_fps_date_time
+ *
+ * Example:
+ * - YouTube Video: yt_Akhir Dari Minecraf_1080p_60_2026-09-18_12-45-53
+ * - YouTube Audio: yt_Akhir Dari Minecraf_audio_2026-09-18_12-45-53
+ * - Instagram Reel: ig_Surah Al Fajr Isma_1080p_auto_2026-09-18_12-45-53
  */
 export function buildMediaBaseName(
   title: string,
-  startSec: number,
-  endSec: number,
-  quality: string
-): { baseName: string; formatExt: "mp4" | "mp3"; resolution: string } {
-  const safeTitle = sanitizeFilename(title);
-  const startStr = formatDetailedTimestamp(startSec);
-  const endStr = formatDetailedTimestamp(endSec);
+  startSec?: number,
+  endSec?: number,
+  quality: string = "best",
+  fps: string = "auto",
+  platform: "youtube" | "instagram" | string = "youtube",
+  date: Date = new Date(),
+  maxTitleLen: number = 20
+): {
+  baseName: string;
+  formatExt: "mp4" | "mp3";
+  resolution: string;
+  prefix: string;
+  cleanTitle: string;
+  dateTimeStr: string;
+} {
+  const isIg = platform === "instagram" || String(platform).toLowerCase().includes("instagram");
+  const prefix = isIg ? "ig" : "yt";
+  const cleanTitle = sanitizeFilename(title, maxTitleLen);
   const formatExt = quality === "audio" ? "mp3" : "mp4";
   const resolution = quality || "1080p";
 
-  const timeStampStr = `${startStr}_to_${endStr}`;
-  const baseName = `${safeTitle}_${timeStampStr}_${formatExt}_${resolution}`;
+  // If audio, quality string is "audio" without fps. If video: ${resolution}_${fps}
+  const qualFps = quality === "audio" ? "audio" : `${resolution}_${fps || "auto"}`;
+  const { dateTimeStr } = formatDateTimeStamp(date);
 
-  return { baseName, formatExt, resolution };
+  const baseName = `${prefix}_${cleanTitle}_${qualFps}_${dateTimeStr}`;
+
+  return { baseName, formatExt, resolution, prefix, cleanTitle, dateTimeStr };
 }
 
 interface NoteParams {
