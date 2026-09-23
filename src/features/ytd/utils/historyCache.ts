@@ -1,9 +1,10 @@
-import { App } from "obsidian";
+import { App, TFile } from "obsidian";
 import type PakCLIPlugin from "../../../main";
 
 export interface CaptureHistoryItem {
   filePath: string;
   mediaPath?: string;
+  thumbnail?: string;
   title: string;
   url: string;
   videoId: string;
@@ -57,7 +58,7 @@ export async function getIncrementalCaptureHistory(
   // Incrementally scan new or modified files
   for (const file of currentFiles) {
     const cachedItem = cache.items[file.path];
-    if (cachedItem && cachedItem.mtime === file.stat.mtime && cachedItem.platform) {
+    if (cachedItem && cachedItem.mtime === file.stat.mtime && cachedItem.platform && cachedItem.thumbnail !== undefined) {
       // Unchanged file — skip reading/parsing!
       continue;
     }
@@ -88,9 +89,20 @@ export async function getIncrementalCaptureHistory(
         }
       }
 
+      const thumbFile = app.vault.getAbstractFileByPath(baseWithoutExt + ".jpg");
+      let thumbnail = "";
+      if (thumbFile instanceof TFile) {
+        thumbnail = app.vault.getResourcePath(thumbFile);
+      } else if (typeof parsed.yt_thumbnail === "string" && parsed.yt_thumbnail.startsWith("http")) {
+        thumbnail = parsed.yt_thumbnail;
+      } else if (typeof parsed.thumbnail === "string" && parsed.thumbnail.startsWith("http")) {
+        thumbnail = parsed.thumbnail;
+      }
+
       cache.items[file.path] = {
         filePath: file.path,
         mediaPath,
+        thumbnail,
         title: parsed.yt_title || parsed.title || file.basename,
         url: rawUrl,
         videoId: parsed.video_id || "",

@@ -178,6 +178,20 @@ export function renderYTCaptureSettings(
     );
 
   new Setting(captureSection)
+    .setName("Max title length in filename")
+    .setDesc("Maximum characters for the title in downloaded filenames. Spaces are preserved (default: 20).")
+    .addSlider((s) =>
+      s
+        .setLimits(10, 80, 5)
+        .setValue(plugin.settings.maxTitleLength || 20)
+        .setDynamicTooltip()
+        .onChange(async (v) => {
+          plugin.settings.maxTitleLength = v;
+          await plugin.saveSettings();
+        })
+    );
+
+  new Setting(captureSection)
     .setName("Create .zip archive")
     .setDesc("When enabled, additionally packages media attachments into a .zip archive. When disabled, attachments (.mp4, .jpg, .md) are saved unzipped directly into your vault.")
     .addToggle((toggle) =>

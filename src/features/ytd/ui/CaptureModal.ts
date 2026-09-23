@@ -756,16 +756,22 @@ export class CaptureModal extends Modal {
         p.original_url ||
         (p.platform === "instagram" ? this.urlValue : buildYouTubeUrl(p.video_id));
 
+      const platform = p.platform || (targetUrl.includes("instagram.com") ? "instagram" : "youtube");
+      const maxTitleLen = this.plugin.settings.maxTitleLength || 20;
       const { baseName, formatExt } = buildMediaBaseName(
         p.title,
         p.start,
         p.end,
-        p.quality
+        p.quality,
+        p.fps,
+        platform,
+        new Date(),
+        maxTitleLen
       );
       const outputFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
 
       const mp4Name = `${baseName}.${formatExt}`;
-      const thumbName = `${baseName}_thumb.jpg`;
+      const thumbName = `${baseName}.jpg`;
       const noteName = `${baseName}.md`;
       const zipName = `${baseName}.zip`;
 

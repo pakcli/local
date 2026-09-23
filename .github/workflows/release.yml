@@ -32,6 +32,12 @@ jobs:
       - name: Build Plugin
         run: npm run build
 
+      - name: Prepare Release Assets
+        run: |
+          if [ -f dist/styles.css ] && [ ! -f styles.css ]; then
+            cp dist/styles.css styles.css
+          fi
+
       - name: Generate Build Attestations
         uses: actions/attest-build-provenance@v2
         with:

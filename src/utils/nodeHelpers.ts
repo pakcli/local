@@ -9,9 +9,9 @@ export const PathUtils = {
 		return parts
 			.map((part, index) => {
 				if (index === 0) {
-					return part.trim().replace(/[\/\\]+$/, '');
+					return part.trim().replace(/[/\\]+$/, '');
 				}
-				return part.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
+				return part.trim().replace(/^[/\\]+|[/\\]+$/g, '');
 			})
 			.filter(part => part.length > 0)
 			.join('/');
@@ -36,7 +36,7 @@ export const PathUtils = {
 	},
 
 	isAbsolute(pathStr: string): boolean {
-		if (/^[a-zA-Z]:[\\\/]/.test(pathStr)) return true; // Windows drive letter
+		if (/^[a-zA-Z]:[/\\]/.test(pathStr)) return true; // Windows drive letter
 		if (pathStr.startsWith('/') || pathStr.startsWith('\\\\')) return true; // POSIX or UNC
 		return false;
 	},
@@ -53,7 +53,7 @@ export const PathUtils = {
 		const normTo = to.replace(/\\/g, '/').toLowerCase();
 		if (normTo.startsWith(normFrom)) {
 			const rel = to.slice(normFrom.length);
-			return rel.replace(/^[\/\\]+/, '');
+			return rel.replace(/^[/\\]+/, '');
 		}
 		return to;
 	},
@@ -67,11 +67,14 @@ export const PathUtils = {
  * Safely access Node.js 'fs' module if available (Desktop only).
  */
 export function getNodeFs(): any {
-	if (!Platform.isDesktop) return null;
+	if (typeof Platform !== 'undefined' && !Platform?.isDesktop) return null;
 	try {
 		const win = typeof window !== 'undefined' ? (window as any) : undefined;
 		if (win?.require) {
 			return win.require('fs');
+		}
+		if (typeof require !== 'undefined') {
+			return require('fs');
 		}
 	} catch {
 		// Ignore on environments without Node
@@ -83,11 +86,14 @@ export function getNodeFs(): any {
  * Safely access Node.js 'child_process' module if available (Desktop only).
  */
 export function getNodeChildProcess(): any {
-	if (!Platform.isDesktop) return null;
+	if (typeof Platform !== 'undefined' && !Platform?.isDesktop) return null;
 	try {
 		const win = typeof window !== 'undefined' ? (window as any) : undefined;
 		if (win?.require) {
 			return win.require('child_process');
+		}
+		if (typeof require !== 'undefined') {
+			return require('child_process');
 		}
 	} catch {
 		// Ignore on environments without Node
@@ -99,11 +105,14 @@ export function getNodeChildProcess(): any {
  * Safely access Node.js 'os' module if available (Desktop only).
  */
 export function getNodeOs(): any {
-	if (!Platform.isDesktop) return null;
+	if (typeof Platform !== 'undefined' && !Platform?.isDesktop) return null;
 	try {
 		const win = typeof window !== 'undefined' ? (window as any) : undefined;
 		if (win?.require) {
 			return win.require('os');
+		}
+		if (typeof require !== 'undefined') {
+			return require('os');
 		}
 	} catch {
 		// Ignore on environments without Node
@@ -120,6 +129,9 @@ export function getNodePath(): any {
 		if (win?.require) {
 			return win.require('path');
 		}
+		if (typeof require !== 'undefined') {
+			return require('path');
+		}
 	} catch {
 		// Fall back to PathUtils
 	}
@@ -130,7 +142,7 @@ export function getNodePath(): any {
  * Safely access Electron module if available.
  */
 export function getElectron(): any {
-	if (!Platform.isDesktop) return null;
+	if (typeof Platform !== 'undefined' && !Platform?.isDesktop) return null;
 	try {
 		const win = typeof window !== 'undefined' ? (window as any) : undefined;
 		if (win?.require) {
@@ -141,3 +153,24 @@ export function getElectron(): any {
 	}
 	return null;
 }
+
+/**
+ * Safely access Node.js 'crypto' module if available (Desktop only).
+ */
+export function getNodeCrypto(): any {
+	if (typeof Platform !== 'undefined' && !Platform?.isDesktop) return null;
+	try {
+		const win = typeof window !== 'undefined' ? (window as any) : undefined;
+		if (win?.require) {
+			return win.require('crypto');
+		}
+		if (typeof require !== 'undefined') {
+			return require('crypto');
+		}
+	} catch {
+		// Ignore
+	}
+	return null;
+}
+
+

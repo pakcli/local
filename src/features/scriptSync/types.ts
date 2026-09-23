@@ -10,13 +10,19 @@ export type SyncStatusType =
     | 'not_mapped'
     | 'cli_missing';
 
-export interface CodeBlockExtractResult {
+export interface CodeBlockMatch {
     language: string;
+    tag?: string; // e.g. "sync" if tagged as ```powershell:sync
     code: string;
     startIndex: number;
     endIndex: number;
-    header: string; // The ```lang line
+    blockIndex: number; // 0-based index among candidate script codeblocks
+    header: string; // The ```lang:tag line
+    matchedRule?: 'explicit_tag' | 'frontmatter_index' | 'language_filter';
 }
+
+/** Backward compatible alias */
+export type CodeBlockExtractResult = CodeBlockMatch;
 
 export interface SyncStatusResult {
     status: SyncStatusType;
@@ -26,6 +32,10 @@ export interface SyncStatusResult {
     cliCode: string;
     language: string;
     lastSyncedTime?: number;
+    matchedBlockIndex?: number;
+    matchedBlockTag?: string;
+    totalScriptBlocks?: number;
+    isFrontmatterOverride?: boolean;
 }
 
 export interface PendingSyncItem {
@@ -38,20 +48,29 @@ export interface PendingSyncItem {
     summary: string;
 }
 
+export type SyncStrategy = 'language_first' | 'explicit_tag_only';
+
+export interface ScriptNoteFrontmatter {
+    cli_name?: string;
+    sync_codeblock?: number;
+    [key: string]: any;
+}
+
 export interface FolderSyncSettings {
     enabled: boolean;
     cliRootFolder: string;
-    managerRootFolder: string; // Vault-relative path, e.g. "scripts" or "" for vault root
+    managerRootFolder: string; // Vault-relative path, e.g. "Digital Library/CLI & Commands"
     languageExtensionMap: Record<string, string>;
     autoWatchCliFolder: boolean;
+    syncStrategy: SyncStrategy;
     pendingChanges: PendingSyncItem[];
     ignoredHashes: Record<string, string>; // notePath -> last ignored hash pair
 }
 
 export const DEFAULT_FOLDER_SYNC_SETTINGS: FolderSyncSettings = {
     enabled: true,
-    cliRootFolder: '',
-    managerRootFolder: '',
+    cliRootFolder: 'Scripts',
+    managerRootFolder: 'Digital Library/CLI & Commands',
     languageExtensionMap: {
         powershell: 'ps1',
         ps1: 'ps1',
@@ -79,6 +98,7 @@ export const DEFAULT_FOLDER_SYNC_SETTINGS: FolderSyncSettings = {
         md: 'md'
     },
     autoWatchCliFolder: true,
+    syncStrategy: 'language_first',
     pendingChanges: [],
     ignoredHashes: {}
 };
