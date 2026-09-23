@@ -1,21 +1,31 @@
 /**
  * ScanSyncModal.ts
  *
- * Interactive Scan & Sync Dashboard Modal.
- * Scans all notes in the vault/folder, inspects codeblocks, matches them to target script files,
- * and allows 1-click individual and bulk synchronization.
+ * Interactive Scan & Sync Dashboard Modal with Split Layout:
+ *   - Left: Vault Markdown Notes with metadata and selection checkboxes
+ *   - Middle: Position/Direction Swap, Sync Action, and Diff Viewers
+ *   - Right: External Script Files on Disk with 3 icon-based actions:
+ *       1) Open in default external system application
+ *       2) Open note in Obsidian editor
+ *       3) Copy script content to clipboard
+ *   - Filters: All Files | Only Different | Only from Raw Script | Only from Note
+ *   - Batch Select All & Sync Selected capabilities
  */
-import { App, Modal, Notice, TFile } from 'obsidian';
+import { App, Modal, Notice, TFile, setIcon } from 'obsidian';
 import { SyncManager } from '../SyncManager';
 import { FolderSyncSettings, SyncStatusResult } from '../types';
-import { extractFirstCodeBlock } from '../markdownParser';
+import { extractTargetCodeblock, CodeBlockMatch } from '../markdownParser';
 import { renderDiffViewer } from '../diffViewer';
+import { getElectron, getNodeChildProcess, PathUtils } from '../../../utils/nodeHelpers';
+
+export type FilterMode = 'all' | 'different' | 'from_raw' | 'from_note';
 
 interface ScannedNoteItem {
     file: TFile;
     language: string;
     code: string;
     syncResult: SyncStatusResult;
+    targetBlock?: CodeBlockMatch;
 }
 
 export class ScanSyncModal extends Modal {
@@ -25,7 +35,11 @@ export class ScanSyncModal extends Modal {
     private scannedItems: ScannedNoteItem[] = [];
     private isScanning = false;
     private activeDiffNotePath: string | null = null;
-    private hideSynced = false;
+
+    // UI state
+    private filterMode: FilterMode = 'different';
+    private isSwapped = false; // When true, swaps default sync direction (CLI -> Manager)
+    private selectedPaths: Set<string> = new Set();
 
     constructor(
         app: App,
@@ -56,7 +70,7 @@ export class ScanSyncModal extends Modal {
         contentEl.createEl('h2', { text: '⚡ Codeblock Sync Dashboard' });
         contentEl.createEl('p', {
             cls: 'setting-item-description',
-            text: 'Scans all Markdown notes, extracts first codeblocks, and mirrors subfolder script files.'
+            text: 'Split overview of Markdown notes and parallel script files on disk.'
         });
 
         const settings = this.getSettings();
@@ -72,8 +86,10 @@ export class ScanSyncModal extends Modal {
         this.isScanning = true;
 
         this.scannedItems = [];
+        this.selectedPaths.clear();
+
         const allFiles = this.app.vault.getMarkdownFiles();
-        const managerRoot = settings.managerRootFolder.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+        const managerRoot = (settings.managerRootFolder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 
         for (const file of allFiles) {
             const normPath = file.path.replace(/\\/g, '/');
@@ -83,15 +99,27 @@ export class ScanSyncModal extends Modal {
 
             try {
                 const content = await this.app.vault.read(file);
-                const extracted = extractFirstCodeBlock(content);
+                const frontmatter = this.syncManager.parseFrontmatter(file, content);
+                const extracted = extractTargetCodeblock(
+                    content,
+                    settings.languageExtensionMap,
+                    frontmatter,
+                    settings.syncStrategy
+                );
                 if (extracted && extracted.code.trim()) {
-                    const syncResult = await this.syncManager.getSyncStatus(file, extracted.code, extracted.language);
+                    const syncResult = await this.syncManager.getSyncStatus(file, extracted.code, extracted.language, frontmatter);
                     this.scannedItems.push({
                         file,
                         language: extracted.language,
                         code: extracted.code,
-                        syncResult
+                        syncResult,
+                        targetBlock: extracted
                     });
+
+                    // By default, pre-select items that need synchronization
+                    if (syncResult.status !== 'synced') {
+                        this.selectedPaths.add(file.path);
+                    }
                 }
             } catch {
                 // Ignore vault read failure
@@ -104,6 +132,20 @@ export class ScanSyncModal extends Modal {
         this.renderDashboard();
     }
 
+    private getFilteredItems(): ScannedNoteItem[] {
+        switch (this.filterMode) {
+            case 'different':
+                return this.scannedItems.filter(i => i.syncResult.status !== 'synced');
+            case 'from_raw':
+                return this.scannedItems.filter(i => i.syncResult.status === 'cli_modified' || (Boolean(i.syncResult.cliCode) && i.syncResult.status !== 'synced'));
+            case 'from_note':
+                return this.scannedItems.filter(i => i.syncResult.status === 'manager_modified' || i.syncResult.status === 'cli_missing' || i.syncResult.status === 'conflict');
+            case 'all':
+            default:
+                return this.scannedItems;
+        }
+    }
+
     private renderDashboard(): void {
         const { contentEl } = this;
         contentEl.empty();
@@ -114,131 +156,250 @@ export class ScanSyncModal extends Modal {
         const targetFolderDisplay = settings.cliRootFolder || '(Not set)';
 
         const totalCount = this.scannedItems.length;
-        const needsSyncItems = this.scannedItems.filter(item => item.syncResult.status !== 'synced');
-        const needsSyncCount = needsSyncItems.length;
+        const needsSyncCount = this.scannedItems.filter(i => i.syncResult.status !== 'synced').length;
         const syncedCount = totalCount - needsSyncCount;
 
-        contentEl.createDiv({
-            cls: 'pakcli-scan-meta-bar',
-            text: `🎯 Target: ${targetFolderDisplay}  |  📝 Notes: ${totalCount}  |  ⚡ Changed: ${needsSyncCount}  |  ✓ Synced: ${syncedCount}`
+        // Meta Bar
+        const metaBar = contentEl.createDiv({ cls: 'pakcli-scan-meta-bar' });
+        metaBar.createSpan({ text: `Target: ${targetFolderDisplay}  •  Total: ${totalCount}  •  Changed: ${needsSyncCount}  •  Synced: ${syncedCount}` });
+
+        const dirTag = metaBar.createSpan({
+            cls: 'pakcli-scan-lang-pill',
+            text: this.isSwapped ? 'Direction: CLI ➔ Note (Pull)' : 'Direction: Note ➔ CLI (Push)'
         });
+        dirTag.style.background = this.isSwapped ? 'var(--color-yellow)' : 'var(--interactive-accent)';
+        dirTag.style.color = 'var(--text-on-accent)';
 
         if (totalCount === 0) {
             contentEl.createDiv({
                 cls: 'pakcli-pending-empty',
-                text: 'No notes with script codeblocks found in the configured folder.'
+                text: 'No notes with matching script codeblocks found in the configured folder.'
             });
             return;
         }
 
-        // Top Actions Bar
-        const topActions = contentEl.createDiv({ cls: 'pakcli-pending-top-actions' });
+        // Toolbar: Radio Filter Buttons + Select All + Swap + Sync All
+        const controlsBar = contentEl.createDiv({ cls: 'pakcli-scan-controls-bar' });
 
-        const syncAllBtn = topActions.createEl('button', {
-            cls: 'mod-cta',
-            text: `⚡ Sync ${needsSyncCount > 0 ? `Changed (${needsSyncCount})` : `All (${totalCount})`}`
+        // Left: Radio Filter Group
+        const radioGroup = controlsBar.createDiv({ cls: 'pakcli-scan-radio-group' });
+
+        const filters: { id: FilterMode; label: string }[] = [
+            { id: 'all', label: 'All Files' },
+            { id: 'different', label: `Only Different (${needsSyncCount})` },
+            { id: 'from_raw', label: 'Only from Raw Script' },
+            { id: 'from_note', label: 'Only from Note' },
+        ];
+
+        filters.forEach(f => {
+            const labelEl = radioGroup.createEl('label', {
+                cls: `pakcli-scan-radio-label ${this.filterMode === f.id ? 'active' : ''}`
+            });
+            const radio = labelEl.createEl('input', {
+                type: 'radio',
+                value: f.id
+            });
+            radio.name = 'pakcli-scan-filter';
+            radio.checked = this.filterMode === f.id;
+            radio.addEventListener('change', () => {
+                this.filterMode = f.id;
+                this.renderDashboard();
+            });
+            labelEl.createSpan({ text: f.label });
         });
-        syncAllBtn.addEventListener('click', async () => {
-            syncAllBtn.setText('⏳ Syncing...');
-            syncAllBtn.setAttribute('disabled', 'true');
-            const targetItems = needsSyncCount > 0 ? needsSyncItems : this.scannedItems;
-            let count = 0;
-            for (const item of targetItems) {
-                const ok = await this.syncManager.executeSync(item.file, 'manager_to_cli', item.code, item.language);
-                if (ok) count++;
+
+        // Right: Actions Group (Select All, Swap, Sync All)
+        const actionsGroup = controlsBar.createDiv({ cls: 'pakcli-scan-actions-group' });
+
+        const displayedItems = this.getFilteredItems();
+        const isAllSelected = displayedItems.length > 0 && displayedItems.every(i => this.selectedPaths.has(i.file.path));
+
+        // Select All Checkbox
+        const selectAllLabel = actionsGroup.createEl('label', { cls: 'pakcli-scan-select-all-label' });
+        const selectAllCheckbox = selectAllLabel.createEl('input', { type: 'checkbox' });
+        selectAllCheckbox.checked = isAllSelected;
+        selectAllCheckbox.addEventListener('change', () => {
+            if (selectAllCheckbox.checked) {
+                displayedItems.forEach(i => this.selectedPaths.add(i.file.path));
+            } else {
+                displayedItems.forEach(i => this.selectedPaths.delete(i.file.path));
             }
-            new Notice(`✓ Synced ${count} script files.`);
-            await this.scanAndRender();
-        });
-
-        const refreshBtn = topActions.createEl('button', {
-            text: '🔄 Rescan Now'
-        });
-        refreshBtn.addEventListener('click', async () => {
-            await this.scanAndRender();
-        });
-
-        // Hide Synced Toggle
-        const toggleLabel = topActions.createEl('label', { cls: 'pakcli-scan-toggle-label' });
-        const toggleCheckbox = toggleLabel.createEl('input', { type: 'checkbox' });
-        toggleCheckbox.checked = this.hideSynced;
-        toggleCheckbox.addEventListener('change', () => {
-            this.hideSynced = toggleCheckbox.checked;
             this.renderDashboard();
         });
-        toggleLabel.createSpan({ text: ` Hide Synced (${syncedCount})` });
+        selectAllLabel.createSpan({ text: 'Select All' });
 
-        // Filter Displayed Items
-        const displayedItems = this.hideSynced ? needsSyncItems : this.scannedItems;
+        // Swap Position / Direction Button
+        const swapBtn = actionsGroup.createEl('button', {
+            cls: 'pakcli-btn-reset',
+            text: this.isSwapped ? '⇄ Swap (Pull)' : '⇄ Swap (Push)'
+        });
+        swapBtn.setAttribute('title', 'Swap default sync direction between Note ➔ CLI and CLI ➔ Note');
+        swapBtn.addEventListener('click', () => {
+            this.isSwapped = !this.isSwapped;
+            this.renderDashboard();
+        });
 
-        if (displayedItems.length === 0 && this.hideSynced) {
+        // Sync All / Sync Selected Button
+        const selectedCount = displayedItems.filter(i => this.selectedPaths.has(i.file.path)).length;
+        const syncBtnText = selectedCount > 0 ? `⚡ Sync Selected (${selectedCount})` : `⚡ Sync Visible (${displayedItems.length})`;
+        const syncAllBtn = actionsGroup.createEl('button', {
+            cls: 'mod-cta',
+            text: syncBtnText
+        });
+
+        syncAllBtn.addEventListener('click', async () => {
+            const targetItems = selectedCount > 0
+                ? displayedItems.filter(i => this.selectedPaths.has(i.file.path))
+                : displayedItems;
+
+            if (targetItems.length === 0) {
+                new Notice('No items selected for sync.');
+                return;
+            }
+
+            syncAllBtn.setText('⏳ Syncing...');
+            syncAllBtn.setAttribute('disabled', 'true');
+
+            let count = 0;
+            for (const item of targetItems) {
+                // Determine direction based on swap state or natural diff state
+                let direction: 'manager_to_cli' | 'cli_to_manager' = this.isSwapped ? 'cli_to_manager' : 'manager_to_cli';
+                if (!this.isSwapped && item.syncResult.status === 'cli_modified') {
+                    direction = 'cli_to_manager';
+                }
+
+                const ok = await this.syncManager.executeSync(
+                    item.file,
+                    direction,
+                    direction === 'manager_to_cli' ? item.code : undefined,
+                    item.language
+                );
+                if (ok) count++;
+            }
+
+            new Notice(`✓ Synchronized ${count} file(s).`);
+            await this.scanAndRender();
+        });
+
+        // Rescan Button
+        const rescanBtn = actionsGroup.createEl('button', { text: '🔄' });
+        rescanBtn.setAttribute('title', 'Rescan Vault and External Directory');
+        rescanBtn.addEventListener('click', async () => {
+            await this.scanAndRender();
+        });
+
+        // Empty filtered view check
+        if (displayedItems.length === 0) {
             const emptyEl = contentEl.createDiv({ cls: 'pakcli-pending-empty' });
-            emptyEl.createEl('p', { text: `✨ All ${totalCount} script notes are currently synced!` });
-            const showAllBtn = emptyEl.createEl('button', { text: 'Show All Notes' });
+            emptyEl.createEl('p', { text: `✨ No items match the "${this.filterMode}" filter.` });
+            const showAllBtn = emptyEl.createEl('button', { text: 'Show All Files' });
             showAllBtn.addEventListener('click', () => {
-                this.hideSynced = false;
+                this.filterMode = 'all';
                 this.renderDashboard();
             });
             return;
         }
 
-        // Items List
+        // Split Layout Header
+        const splitHeader = contentEl.createDiv({ cls: 'pakcli-scan-split-header' });
+        splitHeader.createDiv({ cls: 'pakcli-header-col-left', text: 'Vault Markdown Note' });
+        splitHeader.createDiv({ cls: 'pakcli-header-col-middle', text: 'Sync Status' });
+        splitHeader.createDiv({ cls: 'pakcli-header-col-right', text: 'Raw Script File on Disk' });
+
+        // Split Items List
         const listContainer = contentEl.createDiv({ cls: 'pakcli-scan-list-container' });
 
         displayedItems.forEach((item) => {
-            const itemCard = listContainer.createDiv({ cls: 'pakcli-scan-item-card' });
+            const isSelected = this.selectedPaths.has(item.file.path);
+            const itemCard = listContainer.createDiv({
+                cls: `pakcli-scan-item-card ${isSelected ? 'is-selected' : ''}`
+            });
 
-            const row = itemCard.createDiv({ cls: 'pakcli-scan-item-row' });
+            const splitRow = itemCard.createDiv({ cls: 'pakcli-scan-split-row' });
 
-            // Left Info
-            const info = row.createDiv({ cls: 'pakcli-scan-item-info' });
+            // ==========================================
+            // LEFT COLUMN: Vault Note Details + Checkbox
+            // ==========================================
+            const colNote = splitRow.createDiv({ cls: 'pakcli-scan-col-note' });
 
-            const titleRow = info.createDiv({ cls: 'pakcli-scan-item-title-row' });
-            titleRow.createSpan({ cls: 'pakcli-scan-item-title', text: item.file.basename });
+            const rowCheckbox = colNote.createEl('input', {
+                type: 'checkbox',
+                cls: 'pakcli-row-checkbox'
+            });
+            rowCheckbox.checked = isSelected;
+            rowCheckbox.addEventListener('change', () => {
+                if (rowCheckbox.checked) {
+                    this.selectedPaths.add(item.file.path);
+                    itemCard.addClass('is-selected');
+                } else {
+                    this.selectedPaths.delete(item.file.path);
+                    itemCard.removeClass('is-selected');
+                }
+                // Update button label
+                const newSelectedCount = displayedItems.filter(i => this.selectedPaths.has(i.file.path)).length;
+                syncAllBtn.setText(newSelectedCount > 0 ? `⚡ Sync Selected (${newSelectedCount})` : `⚡ Sync Visible (${displayedItems.length})`);
+            });
 
-            const statusBadge = titleRow.createSpan({
+            const noteDetails = colNote.createDiv({ cls: 'pakcli-note-details' });
+
+            const noteTitleRow = noteDetails.createDiv({ cls: 'pakcli-note-title-row' });
+            noteTitleRow.createSpan({ cls: 'pakcli-note-title', text: item.file.basename });
+
+            // Language Pill
+            noteTitleRow.createSpan({ cls: 'pakcli-scan-lang-pill', text: item.language.toUpperCase() });
+
+            // Codeblock Index & Tag Badge
+            const blockIndex = item.syncResult.matchedBlockIndex ?? item.targetBlock?.blockIndex;
+            if (blockIndex !== undefined) {
+                const tagStr = item.syncResult.matchedBlockTag ? `:${item.syncResult.matchedBlockTag}` : '';
+                const blockBadge = noteTitleRow.createSpan({
+                    cls: 'pakcli-scan-lang-pill',
+                    text: `Block #${blockIndex + 1}${tagStr}`
+                });
+                blockBadge.style.opacity = '0.85';
+            }
+
+            // Note Path
+            noteDetails.createDiv({ cls: 'pakcli-note-path', text: item.file.path });
+
+            // ==========================================
+            // MIDDLE COLUMN: Status Badge, Swap Indicator, Single Sync & Diff
+            // ==========================================
+            const colMiddle = splitRow.createDiv({ cls: 'pakcli-scan-col-middle' });
+
+            const statusBadge = colMiddle.createSpan({
                 cls: `pakcli-sync-status-badge pakcli-sync-status-${item.syncResult.status}`
             });
             statusBadge.setText(this.getStatusBadgeText(item.syncResult.status));
 
-            titleRow.createSpan({ cls: 'pakcli-scan-lang-pill', text: item.language.toUpperCase() });
+            // Direction arrow indicator
+            let directionArrow = this.isSwapped ? '⬅ Pull' : '➔ Push';
+            if (item.syncResult.status === 'synced') {
+                directionArrow = '✓ Synced';
+            }
 
-            // Path Details
-            const pathsDiv = info.createDiv({ cls: 'pakcli-scan-item-paths' });
-            pathsDiv.createDiv({ cls: 'pakcli-scan-path-line', text: `📝 Note: ${item.file.path}` });
-            pathsDiv.createDiv({ cls: 'pakcli-scan-path-line', text: `📁 Script: ${item.syncResult.cliPath || '(None)'}` });
-
-            // Right Actions
-            const actions = row.createDiv({ cls: 'pakcli-scan-item-actions' });
-
-            // Sync to CLI Button
-            const syncBtn = actions.createEl('button', {
-                cls: 'pakcli-sync-btn pakcli-sync-btn-execute',
-                text: '⚡ Sync to Script'
+            const singleSyncBtn = colMiddle.createEl('button', {
+                cls: 'pakcli-middle-sync-btn pakcli-btn-primary',
+                text: directionArrow
             });
-            syncBtn.addEventListener('click', async () => {
-                const ok = await this.syncManager.executeSync(item.file, 'manager_to_cli', item.code, item.language);
+
+            singleSyncBtn.addEventListener('click', async () => {
+                const direction = this.isSwapped ? 'cli_to_manager' : 'manager_to_cli';
+                const ok = await this.syncManager.executeSync(
+                    item.file,
+                    direction,
+                    direction === 'manager_to_cli' ? item.code : undefined,
+                    item.language
+                );
                 if (ok) await this.scanAndRender();
             });
 
-            // Pull CLI Button (if CLI script exists on disk)
-            if (item.syncResult.cliCode) {
-                const pullBtn = actions.createEl('button', {
-                    cls: 'pakcli-sync-btn',
-                    text: '📥 Pull from Script'
-                });
-                pullBtn.addEventListener('click', async () => {
-                    const ok = await this.syncManager.executeSync(item.file, 'cli_to_manager', undefined, item.language);
-                    if (ok) await this.scanAndRender();
-                });
-            }
-
-            // Diff Button
+            // Diff button if disk code exists and differs
             if (item.syncResult.cliCode && item.syncResult.status !== 'synced') {
                 const isDiffActive = this.activeDiffNotePath === item.file.path;
-                const diffBtn = actions.createEl('button', {
-                    cls: `pakcli-sync-btn ${isDiffActive ? 'active' : ''}`,
-                    text: isDiffActive ? '👁️ Hide Diff' : '👁️ Diff'
+                const diffBtn = colMiddle.createEl('button', {
+                    cls: `pakcli-middle-sync-btn ${isDiffActive ? 'active' : ''}`,
+                    text: isDiffActive ? 'Hide Diff' : 'Diff'
                 });
                 diffBtn.addEventListener('click', () => {
                     this.activeDiffNotePath = isDiffActive ? null : item.file.path;
@@ -246,12 +407,103 @@ export class ScanSyncModal extends Modal {
                 });
             }
 
+            // ==========================================
+            // RIGHT COLUMN: Script File on Disk + 3 ICON BUTTONS
+            // ==========================================
+            const colScript = splitRow.createDiv({ cls: 'pakcli-scan-col-script' });
+
+            const scriptDetails = colScript.createDiv({ cls: 'pakcli-script-details' });
+
+            const scriptTitleRow = scriptDetails.createDiv({ cls: 'pakcli-script-title-row' });
+            const scriptBasename = item.syncResult.cliPath ? PathUtils.basename(item.syncResult.cliPath) : '(Not mapped)';
+            scriptTitleRow.createSpan({ cls: 'pakcli-script-name', text: scriptBasename });
+
+            if (item.syncResult.isFrontmatterOverride) {
+                const fmBadge = scriptTitleRow.createSpan({
+                    cls: 'pakcli-scan-lang-pill',
+                    text: '🏷️ cli_name'
+                });
+                fmBadge.style.background = 'var(--interactive-accent)';
+                fmBadge.style.color = 'var(--text-on-accent)';
+            }
+
+            scriptDetails.createDiv({ cls: 'pakcli-script-path', text: item.syncResult.cliPath || '(None)' });
+
+            // Action Icons Container (Right side)
+            const scriptActions = colScript.createDiv({ cls: 'pakcli-script-actions' });
+
+            // 1. Open in Default External Application Button
+            const openDefaultBtn = scriptActions.createEl('button', {
+                cls: 'pakcli-icon-btn',
+                attr: { 'aria-label': 'Open script in default system application' }
+            });
+            setIcon(openDefaultBtn, 'external-link');
+            openDefaultBtn.setAttribute('title', 'Open script in default system application');
+            openDefaultBtn.addEventListener('click', () => {
+                if (item.syncResult.cliPath) {
+                    this.openInDefaultApp(item.syncResult.cliPath);
+                } else {
+                    new Notice('Script file has not been created on disk yet.');
+                }
+            });
+
+            // 2. Open Note in Obsidian Editor Button
+            const openNoteBtn = scriptActions.createEl('button', {
+                cls: 'pakcli-icon-btn',
+                attr: { 'aria-label': 'Open markdown note in Obsidian' }
+            });
+            setIcon(openNoteBtn, 'file-text');
+            openNoteBtn.setAttribute('title', 'Open markdown note in Obsidian');
+            openNoteBtn.addEventListener('click', () => {
+                void this.app.workspace.openLinkText(item.file.path, '', false);
+                new Notice(`Opened ${item.file.basename}`);
+            });
+
+            // 3. Copy Script to Clipboard Button
+            const copyBtn = scriptActions.createEl('button', {
+                cls: 'pakcli-icon-btn',
+                attr: { 'aria-label': 'Copy script content to clipboard' }
+            });
+            setIcon(copyBtn, 'copy');
+            copyBtn.setAttribute('title', 'Copy script content to clipboard');
+            copyBtn.addEventListener('click', () => {
+                const codeToCopy = item.syncResult.cliCode || item.code;
+                navigator.clipboard.writeText(codeToCopy);
+                setIcon(copyBtn, 'check');
+                new Notice(`✓ Copied ${scriptBasename}`);
+                setTimeout(() => {
+                    setIcon(copyBtn, 'copy');
+                }, 1500);
+            });
+
             // Diff Viewer Accordion
             if (this.activeDiffNotePath === item.file.path && item.syncResult.cliCode) {
-                const diffEl = itemCard.createDiv({ cls: 'pakcli-sync-diff-container' });
+                const diffEl = itemCard.createDiv({ cls: 'pakcli-scan-diff-container' });
                 renderDiffViewer(diffEl, item.syncResult.cliCode, item.code);
             }
         });
+    }
+
+    private openInDefaultApp(filePath: string): void {
+        try {
+            const electron = getElectron();
+            if (electron?.shell?.openPath) {
+                electron.shell.openPath(filePath);
+                return;
+            }
+            const cp = getNodeChildProcess();
+            if (cp) {
+                if (process.platform === 'win32') {
+                    cp.exec(`start "" "${filePath}"`);
+                } else if (process.platform === 'darwin') {
+                    cp.exec(`open "${filePath}"`);
+                } else {
+                    cp.exec(`xdg-open "${filePath}"`);
+                }
+            }
+        } catch (err: any) {
+            new Notice(`Unable to open file: ${err?.message || String(err)}`);
+        }
     }
 
     private getStatusBadgeText(status?: string): string {
@@ -260,7 +512,7 @@ export class ScanSyncModal extends Modal {
             case 'manager_modified': return '⚡ Note Modified';
             case 'cli_modified': return '📥 Script Modified';
             case 'conflict': return '⚠️ Conflict';
-            case 'cli_missing': return '📄 Not Created Yet';
+            case 'cli_missing': return '📄 Not Created';
             case 'not_mapped': return '⚙️ Unmapped';
             default: return '● Pending';
         }

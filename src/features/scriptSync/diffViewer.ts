@@ -15,8 +15,10 @@ export interface DiffLine {
  * Computes simple line-by-line diff between two strings.
  */
 export function computeLineDiff(oldText: string, newText: string): DiffLine[] {
-    const oldLines = oldText.split(/\r?\n/);
-    const newLines = newText.split(/\r?\n/);
+    const cleanOld = (oldText || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    const cleanNew = (newText || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    const oldLines = cleanOld.split('\n');
+    const newLines = cleanNew.split('\n');
     const diff: DiffLine[] = [];
 
     // Simple LCS-based or line-matching diff

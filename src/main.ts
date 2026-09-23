@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, Menu } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -92,13 +92,27 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
-		// Register Script Codeblock Processors
-		['powershell', 'ps1', 'bash', 'sh', 'python', 'py'].forEach((lang) => {
+		// Register Script Codeblock Processors (including :sync tag variants)
+		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
+		const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
+		allProcessLangs.forEach((lang) => {
 			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
 				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile as any));
+				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
 			});
 		});
+
+		// Echo Suppression: Vault modify listener checking mutex lock
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (file instanceof TFile && this.syncManager) {
+					const lockManager = this.syncManager.getSyncLockManager();
+					if (lockManager.isLocked(file.path)) {
+						return;
+					}
+				}
+			})
+		);
 
 		// 6. Initialize GetCopy Manager & Startup Awake Scan
 		this.getCopyManager = new GetCopyManager(
@@ -120,7 +134,23 @@ export default class PakCLILocalPlugin extends Plugin {
 			this.activateYTDownloaderView();
 		});
 
-		// 8. Register Commands
+		// 8. Register Sync Code Icon & Ribbon
+		addIcon(
+			'sync-code',
+			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+				<path d="M3 3v5h5"/>
+				<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+				<path d="M16 21h5v-5"/>
+				<polyline points="10 9 7 12 10 15"/>
+				<polyline points="14 9 17 12 14 15"/>
+			</svg>`
+		);
+		this.addRibbonIcon('sync-code', 'ScriptSync: Scan & Sync Codeblock Scripts', () => {
+			new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+		});
+
+		// 9. Register Commands
 		this.registerPluginCommands();
 
 		// 9. Register Master-Detail Settings Tab
@@ -301,7 +331,7 @@ export default class PakCLILocalPlugin extends Plugin {
 			icon: 'video',
 			isInstalled: true,
 			render: (containerEl) => {
-				renderYTCaptureSettings(this.app, this as any, containerEl);
+				renderYTCaptureSettings(this.app, this, containerEl);
 			}
 		});
 

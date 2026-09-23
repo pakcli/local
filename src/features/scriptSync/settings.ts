@@ -1,16 +1,15 @@
 import { App, Plugin, Setting, Notice } from 'obsidian';
 import { SyncManager } from './SyncManager';
-import { FolderSyncSettings } from './types';
+import { FolderSyncSettings, SyncStrategy } from './types';
 import { ScanSyncModal } from './ui/ScanSyncModal';
 import { PendingChangesModal } from './ui/PendingChangesModal';
 import { VaultFolderSuggest, FolderPickerModal } from './ui/FolderPicker';
-import { getNodeFs } from '../../utils/nodeHelpers';
 
 export function renderScriptSyncSettings(
     app: App,
     plugin: Plugin,
     syncManager: SyncManager,
-    getSettings: () => any,
+    getSettings: () => FolderSyncSettings,
     saveSettings: () => Promise<void>,
     containerEl: HTMLElement
 ): void {
@@ -18,7 +17,7 @@ export function renderScriptSyncSettings(
 
     // 1. Header Overview & Actions
     new Setting(containerEl)
-        .setName('ScriptSync Engine')
+        .setName('ScriptSync Engine v02')
         .setDesc('Two-way live synchronization between Markdown note codeblocks and external script files on disk.')
         .setHeading();
 
@@ -44,12 +43,12 @@ export function renderScriptSyncSettings(
         .setHeading();
 
     // Markdown Root Folder Setting
-    const mdSetting = new Setting(containerEl)
+    new Setting(containerEl)
         .setName('Markdown Notes Folder (Manager Directory)')
-        .setDesc('Vault-relative folder containing markdown notes with codeblocks. Leave empty to scan the entire vault root.')
+        .setDesc('Vault-relative folder containing markdown notes with codeblocks. Default: Digital Library/CLI & Commands')
         .addText((text) => {
-            text.setPlaceholder('e.g. scripts or Notes/Automation (empty = Vault Root)')
-                .setValue(settings.managerRootFolder || '')
+            text.setPlaceholder('Digital Library/CLI & Commands')
+                .setValue(settings.managerRootFolder ?? 'Digital Library/CLI & Commands')
                 .onChange(async (val) => {
                     settings.managerRootFolder = val.trim();
                     await saveSettings();
@@ -71,24 +70,38 @@ export function renderScriptSyncSettings(
     // External Scripts Directory Setting
     new Setting(containerEl)
         .setName('External Scripts Directory (CLI Root)')
-        .setDesc('Absolute path or folder on disk where raw script files (.ps1, .py, .sh, .bat) are exported and synced.')
+        .setDesc('Path or folder on disk where raw script files (.ps1, .py, .sh, .bat) are exported and synced. Default: Scripts')
         .addText((text) => {
-            text.setPlaceholder('e.g. D:\Scripts or C:\Users\Name\Projects\scripts')
-                .setValue(settings.cliRootFolder || '')
+            text.setPlaceholder('Scripts or D:\\Scripts')
+                .setValue(settings.cliRootFolder ?? 'Scripts')
                 .onChange(async (val) => {
                     settings.cliRootFolder = val.trim();
                     await saveSettings();
                 });
         });
 
-    // 3. Automation & Watcher Preferences
+    // 3. Selection Strategy & Automation
     new Setting(containerEl)
-        .setName('Automation & File Watcher')
+        .setName('Selection Strategy & Concurrency')
         .setHeading();
 
     new Setting(containerEl)
+        .setName('Codeblock Selection Strategy')
+        .setDesc('Specify how the synchronization engine selects the target codeblock when multiple blocks exist in a note.')
+        .addDropdown((dropdown) => {
+            dropdown
+                .addOption('language_first', 'Language-Filtered First Block (Auto-Skip diff/text)')
+                .addOption('explicit_tag_only', 'Explicit :sync Tag Only (e.g. ```powershell:sync)')
+                .setValue(settings.syncStrategy || 'language_first')
+                .onChange(async (val) => {
+                    settings.syncStrategy = val as SyncStrategy;
+                    await saveSettings();
+                });
+        });
+
+    new Setting(containerEl)
         .setName('Auto-Watch External CLI Directory')
-        .setDesc('Automatically detect when external script files on disk are modified outside Obsidian.')
+        .setDesc('Automatically detect when external script files on disk are modified outside Obsidian with anti-loop echo suppression.')
         .addToggle((toggle) => {
             toggle.setValue(settings.autoWatchCliFolder !== false)
                 .onChange(async (val) => {
@@ -104,7 +117,17 @@ export function renderScriptSyncSettings(
                 });
         });
 
-    new Setting(containerEl)
-        .setName('Supported Script Languages')
-        .setDesc('ScriptSync tracks and compiles: PowerShell (.ps1), Python (.py), Bash (.sh), and Batch (.bat/.cmd).');
+    // 4. Frontmatter & Tips Information Card
+    const infoCard = containerEl.createDiv({ cls: 'pakcli-wizard-card' });
+    infoCard.createEl('h4', { text: '💡 Note Frontmatter & Custom Tagging Tips' });
+    const ul = infoCard.createEl('ul');
+    ul.createEl('li', {
+        text: 'cli_name: custom-script.ps1 — In note YAML frontmatter, overrides the disk script filename while preserving subpath mirroring.'
+    });
+    ul.createEl('li', {
+        text: 'sync_codeblock: 2 — In note YAML frontmatter, binds synchronization to the 2nd codeblock in the note.'
+    });
+    ul.createEl('li', {
+        text: '```powershell:sync or ```bash:sync — Explicitly tags a codeblock for synchronization, prioritizing it over diff or explanation blocks.'
+    });
 }

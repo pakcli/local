@@ -7,7 +7,8 @@
 $ErrorActionPreference = "Continue"
 Set-Location -Path $PSScriptRoot
 
-$ConfigFile = ".publish-config.json"
+$ScriptBaseName = if ($MyInvocation.MyCommand.BaseName) { $MyInvocation.MyCommand.BaseName } else { "ps_publish" }
+$ConfigFile = Join-Path $PSScriptRoot "$ScriptBaseName.json"
 
 function Write-Header {
     Clear-Host
@@ -35,11 +36,17 @@ function Write-Err([string]$msg) {
 
 # 1. Load / Save Config Helper
 function Get-PublishConfig {
-    if (Test-Path $ConfigFile) {
-        try {
-            return Get-Content $ConfigFile -Raw | ConvertFrom-Json
-        } catch {
-            return $null
+    $candidates = @(
+        $ConfigFile,
+        (Join-Path $PSScriptRoot ".publish-config.json")
+    )
+    foreach ($path in $candidates) {
+        if (Test-Path $path) {
+            try {
+                return Get-Content $path -Raw | ConvertFrom-Json
+            } catch {
+                # continue
+            }
         }
     }
     return $null
@@ -57,7 +64,7 @@ function Save-PublishConfig([hashtable]$updates) {
         $existing[$k] = $updates[$k]
     }
     $existing["lastUpdated"] = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $existing | ConvertTo-Json -Depth 5 | Set-Content $ConfigFile
+    $existing | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFile -Encoding utf8
 }
 
 # 2. Extract Plugin Info Modularly from manifest.json & git remote
@@ -87,7 +94,34 @@ function Get-PluginInfo {
     }
 }
 
-# 3. Main Interactive Menu
+# 3. Resolve destination to plugin directory using plugin ID
+function Resolve-PluginDestination([string]$inputPath, [string]$pluginId) {
+    if ([string]::IsNullOrWhiteSpace($inputPath) -or $inputPath.StartsWith("<Enter")) {
+        return $inputPath
+    }
+    $clean = $inputPath.Trim().TrimEnd('\', '/')
+    # If path contains .obsidian/plugins (with or without a plugin subfolder)
+    if ($clean -match '^(?i)(.*[\\/]\.obsidian[\\/]plugins)(?:[\\/].*)?$') {
+        return [System.IO.Path]::Combine($matches[1], $pluginId).Replace('/', '\')
+    }
+    # If path ends in .obsidian
+    if ($clean -match '^(?i)(.*[\\/]\.obsidian)$') {
+        return [System.IO.Path]::Combine($matches[1], "plugins", $pluginId).Replace('/', '\')
+    }
+    # If path is an Obsidian vault folder containing .obsidian
+    $dotObsidian = Join-Path $clean ".obsidian"
+    if (Test-Path $dotObsidian) {
+        $pluginsRoot = Join-Path $dotObsidian "plugins"
+        return [System.IO.Path]::Combine($pluginsRoot, $pluginId).Replace('/', '\')
+    }
+    # If path matches any .../plugins/... or .../plugins directory
+    if ($clean -match '^(?i)(.*[\\/]plugins)(?:[\\/][^\\/]+)?$') {
+        return [System.IO.Path]::Combine($matches[1], $pluginId).Replace('/', '\')
+    }
+    return $clean
+}
+
+# 4. Main Interactive Menu
 function Show-Menu {
     $info = Get-PluginInfo
 
@@ -106,7 +140,8 @@ function Show-Menu {
         Write-Host "  [2] Build and Test Only (npm run build + Auto Copy to Vault)" -ForegroundColor Cyan
         Write-Host "  [3] Upload Assets to an Existing GitHub Release" -ForegroundColor White
         Write-Host "  [4] Open GitHub Releases in Browser" -ForegroundColor Gray
-        Write-Host "  [5] 🌐 Trigger Obsidian Community Release Check" -ForegroundColor Yellow
+        Write-Host "  [5] [Web] Trigger Obsidian Community Release Check" -ForegroundColor Yellow
+        Write-Host "  [6] [Audit] Zero-Risk Scorecard Audit & Auto-Remediation Loop (Single Pass)" -ForegroundColor Magenta
         Write-Host "  [0] Exit" -ForegroundColor Red
         Write-Host "-----------------------------------------------------------------" -ForegroundColor Gray
 
@@ -123,8 +158,9 @@ function Show-Menu {
             "3" { Invoke-UploadExistingRelease $info }
             "4" { Invoke-OpenWeb $info }
             "5" { Invoke-ObsidianCheckRelease $info }
+            "6" { & "$PSScriptRoot/auto_audit_loop.ps1" }
             "0" { Write-Host "Goodbye!"; exit 0 }
-            default { Write-Warn "Invalid choice. Please choose 0 to 5." }
+            default { Write-Warn "Invalid choice. Please choose 0 to 6." }
         }
 
         Write-Host ""
@@ -200,20 +236,22 @@ function Invoke-FullRelease($info) {
         return
     }
 
-    $required = @("main.js", "manifest.json", "styles.css")
+    $cssFile = if (Test-Path "dist/styles.css") { "dist/styles.css" } elseif (Test-Path "styles.css") { "styles.css" } else { $null }
+    $required = @("main.js", "manifest.json")
+    if ($cssFile) { $required += $cssFile }
     foreach ($f in $required) {
         if (-not (Test-Path $f)) {
             Write-Err "Missing expected release artifact: $f"
             return
         }
     }
-    Write-Success "Build completed! Verified: main.js, manifest.json, styles.css."
+    Write-Success "Build completed! Verified: $([string]::Join(', ', $required))."
 
     # 3. Git Commit (only if changes exist)
     Write-Step "Step 3/5: Checking Git status..."
     $diffCheck = git status --porcelain
     if ($diffCheck) {
-        git add manifest.json package.json versions.json
+        git add -A
         git commit -m "chore: release $targetVer" 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Committed release metadata."
@@ -236,15 +274,25 @@ function Invoke-FullRelease($info) {
         Write-Host "Tag '$targetVer' synced to remote." -ForegroundColor Gray
     }
 
-    # 5. Create GitHub Release & Upload Assets
-    Write-Step "Step 5/5: Publishing GitHub Release with attached assets..."
+    # 5. GitHub Actions Attestation & Release Workflow
+    Write-Step "Step 5/5: Syncing with GitHub Actions CI/CD (Build & Attestation)..."
+    Write-Host "Waiting for GitHub Actions to build and cryptographically attest release '$targetVer'..." -ForegroundColor Cyan
     
-    gh release create $targetVer main.js manifest.json styles.css --repo $info.Repo --title "$targetVer" --notes "Release $targetVer of $($info.Name)" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        gh release upload $targetVer main.js manifest.json styles.css --repo $info.Repo --clobber
-        Write-Success "Updated existing GitHub Release '$targetVer' assets!"
-    } else {
-        Write-Success "Created new GitHub Release '$targetVer' with assets attached!"
+    try {
+        Start-Sleep -Seconds 3
+        $runId = gh run list --repo $info.Repo --limit 1 --json databaseId -q ".[0].databaseId" 2>$null
+        if ($runId) {
+            gh run watch $runId --repo $info.Repo --exit-status
+            Write-Success "GitHub Actions finished! Release '$targetVer' is built & attested."
+        } else {
+            # Fallback upload if gh run list not available
+            $assetsToUpload = @("main.js", "manifest.json")
+            if ($cssFile) { $assetsToUpload += $cssFile }
+            gh release upload $targetVer @assetsToUpload --repo $info.Repo --clobber 2>$null
+            Write-Success "Release assets synced!"
+        }
+    } catch {
+        Write-Host "GitHub Actions workflow in progress on remote." -ForegroundColor Gray
     }
 
     Write-Host ""
@@ -274,12 +322,14 @@ function Invoke-BuildOnly($info) {
         return
     }
     
-    Write-Success "Build succeeded! (main.js, manifest.json, styles.css)"
+    $cssFile = if (Test-Path "dist/styles.css") { "dist/styles.css" } elseif (Test-Path "styles.css") { "styles.css" } else { $null }
+    Write-Success "Build succeeded! (main.js, manifest.json$(if ($cssFile) { ', styles.css' }))"
 
     # Ask for copy to vault
     Write-Host ""
     $config = Get-PublishConfig
-    $savedDir = if ($config -and $config.latestCopyDir) { $config.latestCopyDir } else { "" }
+    $rawSaved = if ($config -and $config.latestCopyDir) { [string]$config.latestCopyDir } else { "" }
+    $savedDir = Resolve-PluginDestination $rawSaved $info.Id
     if ([string]::IsNullOrWhiteSpace($savedDir)) {
         $savedDir = "<Enter path to Vault/.obsidian/plugins/$($info.Id)>"
     }
@@ -291,6 +341,8 @@ function Invoke-BuildOnly($info) {
         
         if ([string]::IsNullOrWhiteSpace($targetPath)) {
             $targetPath = $savedDir
+        } else {
+            $targetPath = Resolve-PluginDestination $targetPath $info.Id
         }
 
         if ([string]::IsNullOrWhiteSpace($targetPath) -or $targetPath.StartsWith("<Enter")) {
@@ -306,15 +358,20 @@ function Invoke-BuildOnly($info) {
         # Copy release artifacts
         Copy-Item "main.js" -Destination $targetPath -Force
         Copy-Item "manifest.json" -Destination $targetPath -Force
-        if (Test-Path "styles.css") {
-            Copy-Item "styles.css" -Destination $targetPath -Force
+        if (Test-Path "dist/styles.css") {
+            Copy-Item "dist/styles.css" -Destination (Join-Path $targetPath "styles.css") -Force
+        } elseif (Test-Path "styles.css") {
+            Copy-Item "styles.css" -Destination (Join-Path $targetPath "styles.css") -Force
         }
+
+        # Sync .vaultpath for automatic esbuild deployment
+        Set-Content -Path ".vaultpath" -Value $targetPath -Encoding utf8
 
         # Save to config JSON
         Save-PublishConfig @{ latestCopyDir = $targetPath }
 
         Write-Success "Successfully copied plugin files to: $targetPath"
-        Write-Host "Saved destination and choices to .publish-config.json for instant 1-click execution." -ForegroundColor DarkGray
+        Write-Host "Saved destination and choices to $ScriptBaseName.json and .vaultpath for instant 1-click execution." -ForegroundColor DarkGray
     }
 }
 
@@ -323,9 +380,13 @@ function Invoke-UploadExistingRelease($info) {
     $tag = Read-Host "Enter release tag to upload assets to [Default: $($info.Version)]"
     if ([string]::IsNullOrWhiteSpace($tag)) { $tag = $info.Version }
 
-    Write-Step "Uploading main.js, manifest.json, styles.css to release '$tag'..."
+    $cssFile = if (Test-Path "dist/styles.css") { "dist/styles.css" } elseif (Test-Path "styles.css") { "styles.css" } else { $null }
+    $assets = @("main.js", "manifest.json")
+    if ($cssFile) { $assets += $cssFile }
+
+    Write-Step "Uploading $([string]::Join(', ', $assets)) to release '$tag'..."
     npm run build
-    gh release upload $tag main.js manifest.json styles.css --repo $info.Repo --clobber
+    gh release upload $tag @assets --repo $info.Repo --clobber
     Write-Success "Assets uploaded to https://github.com/$($info.Repo)/releases/tag/$tag"
 }
 

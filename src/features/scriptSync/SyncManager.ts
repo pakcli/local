@@ -2,11 +2,14 @@
  * SyncManager.ts
  *
  * Core engine for two-way synchronization between Manager (.md notes) and CLI (script files).
+ * Upgraded with multi-codeblock extraction, mutex anti-loop echo suppression,
+ * 1:1 directory tree mirroring, and frontmatter cli_name overrides.
  */
-import { App, FileSystemAdapter, Notice, Platform, Plugin, TFile } from 'obsidian';
+import { App, FileSystemAdapter, Notice, Platform, Plugin, TFile, parseYaml } from 'obsidian';
 import { PathUtils, getNodeFs, getNodeChildProcess } from '../../utils/nodeHelpers';
-import { FolderSyncSettings, PendingSyncItem, SyncStatusResult, SyncStatusType } from './types';
-import { extractFirstCodeBlock, injectFirstCodeBlock } from './markdownParser';
+import { FolderSyncSettings, PendingSyncItem, ScriptNoteFrontmatter, SyncStatusResult, SyncStatusType } from './types';
+import { extractTargetCodeblock, injectTargetCodeblock, computeNormalizedHash, CodeBlockMatch } from './markdownParser';
+import { SyncLockManager } from './syncLock';
 
 export class SyncManager {
     private app: App;
@@ -14,6 +17,8 @@ export class SyncManager {
     private getSettings: () => FolderSyncSettings;
     private saveSettings: () => Promise<void>;
     private fileWatchers: any[] = [];
+    private syncLockManager: SyncLockManager;
+    private watchDebounceTimer: any = null;
 
     constructor(
         app: App,
@@ -25,6 +30,7 @@ export class SyncManager {
         this.plugin = plugin;
         this.getSettings = getSettings;
         this.saveSettings = saveSettings;
+        this.syncLockManager = new SyncLockManager();
     }
 
     init(): void {
@@ -35,6 +41,14 @@ export class SyncManager {
 
     destroy(): void {
         this.stopWatcher();
+        if (this.watchDebounceTimer) {
+            clearTimeout(this.watchDebounceTimer);
+            this.watchDebounceTimer = null;
+        }
+    }
+
+    public getSyncLockManager(): SyncLockManager {
+        return this.syncLockManager;
     }
 
     private getVaultRoot(): string {
@@ -60,13 +74,14 @@ export class SyncManager {
             }
 
             if (fs.existsSync(targetDir)) {
-                const watcher = fs.watch(targetDir, { recursive: true }, () => {
-                    // Watcher event
+                const watcher = fs.watch(targetDir, { recursive: true }, (_eventType: string, filename: string | null) => {
+                    if (!filename) return;
+                    this.handleDiskFileEvent(targetDir, filename);
                 });
                 this.fileWatchers.push(watcher);
             }
         } catch (err) {
-            console.debug('[CodeblockSync] Watcher init error:', err);
+            console.debug('[ScriptSync] Watcher init error:', err);
         }
     }
 
@@ -79,24 +94,108 @@ export class SyncManager {
         this.fileWatchers = [];
     }
 
-    /** Compute simple hash of a string with normalized line endings. */
-    computeHash(text: string): string {
-        const normalized = (text || '').replace(/\r\n/g, '\n').trim();
-        let hash = 0;
-        for (let i = 0; i < normalized.length; i++) {
-            const char = normalized.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash |= 0;
+    private handleDiskFileEvent(targetDir: string, filename: string): void {
+        const fullDiskPath = PathUtils.normalize(PathUtils.join(targetDir, filename));
+        
+        // Mutex check: skip if currently being modified by plugin
+        if (this.syncLockManager.isLocked(fullDiskPath)) {
+            return;
         }
-        return Math.abs(hash).toString(16);
+
+        if (this.watchDebounceTimer) {
+            clearTimeout(this.watchDebounceTimer);
+        }
+
+        this.watchDebounceTimer = setTimeout(async () => {
+            await this.onDiskFileModified(fullDiskPath);
+        }, 300);
+    }
+
+    private async onDiskFileModified(diskPath: string): Promise<void> {
+        if (this.syncLockManager.isLocked(diskPath)) return;
+        const fs = getNodeFs();
+        if (!fs || !fs.existsSync(diskPath)) return;
+
+        const ext = PathUtils.extname(diskPath).replace(/^\./, '').toLowerCase();
+        const settings = this.getSettings();
+        const isScriptExt = Object.values(settings.languageExtensionMap).includes(ext);
+        if (!isScriptExt) return;
+
+        const allNotes = this.app.vault.getMarkdownFiles();
+        const managerRoot = (settings.managerRootFolder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+
+        for (const note of allNotes) {
+            const normNotePath = note.path.replace(/\\/g, '/');
+            if (managerRoot && !normNotePath.startsWith(managerRoot)) {
+                continue;
+            }
+
+            try {
+                const content = await this.app.vault.read(note);
+                const frontmatter = this.parseFrontmatter(note, content);
+                const targetBlock = extractTargetCodeblock(
+                    content,
+                    settings.languageExtensionMap,
+                    frontmatter,
+                    settings.syncStrategy
+                );
+                if (!targetBlock) continue;
+
+                const expectedCliPath = this.resolveCliPath(note.path, targetBlock.language, frontmatter);
+                if (!expectedCliPath) continue;
+
+                if (PathUtils.normalize(expectedCliPath).toLowerCase() === diskPath.toLowerCase()) {
+                    if (this.syncLockManager.isLocked(note.path) || this.syncLockManager.isLocked(diskPath)) {
+                        return;
+                    }
+
+                    const diskContent = await fs.promises.readFile(diskPath, 'utf8');
+                    const diskHash = computeNormalizedHash(diskContent);
+                    const noteHash = computeNormalizedHash(targetBlock.code);
+
+                    if (diskHash !== noteHash) {
+                        console.log(`[ScriptSync] External change detected in ${diskPath}, updating ${note.path}`);
+                        await this.executeSync(note, 'cli_to_manager', undefined, targetBlock.language);
+                    }
+                    break;
+                }
+            } catch (err) {
+                console.debug('[ScriptSync] Error during onDiskFileModified check:', err);
+            }
+        }
+    }
+
+    /** Compute normalized hash of a string. */
+    computeHash(text: string): string {
+        return computeNormalizedHash(text);
+    }
+
+    /**
+     * Extracts frontmatter metadata from note cache or raw content.
+     */
+    parseFrontmatter(noteFile: TFile, content?: string): ScriptNoteFrontmatter | undefined {
+        const cached = this.app.metadataCache.getFileCache(noteFile)?.frontmatter;
+        if (cached) return cached as ScriptNoteFrontmatter;
+        if (content) {
+            const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+            if (match && match[1]) {
+                try {
+                    return parseYaml(match[1]) as ScriptNoteFrontmatter;
+                } catch {
+                    // Ignore YAML parse error
+                }
+            }
+        }
+        return undefined;
     }
 
     /**
      * Resolves the corresponding script path on disk for a given note and language.
-     * Supports both self-vault relative paths (e.g. "scripts" -> "<vaultRoot>/scripts/deploy.ps1")
-     * and external absolute paths (e.g. "D:/scripts" -> "D:/scripts/deploy.ps1").
+     * Mirrors relative subdirectories between managerRootFolder and cliRootFolder.
+     * Tier 1: Frontmatter cli_name override.
+     * Tier 2: Sanitized note basename + mapped script extension.
      */
-    resolveCliPath(notePath: string, language: string): string | null {
+    resolveCliPath(notePath: string, language: string, frontmatter?: ScriptNoteFrontmatter): string | null {
         const settings = this.getSettings();
         const rawCliFolder = (settings.cliRootFolder || '').trim();
         if (!rawCliFolder) return null;
@@ -108,7 +207,7 @@ export class SyncManager {
         const normNotePath = notePath.replace(/\\/g, '/');
         let relPath = normNotePath;
 
-        const managerRoot = settings.managerRootFolder.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+        const managerRoot = (settings.managerRootFolder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
         if (managerRoot) {
             if (relPath === managerRoot) {
                 relPath = PathUtils.basename(normNotePath);
@@ -117,10 +216,21 @@ export class SyncManager {
             }
         }
 
-        // Replace .md extension with target script extension
-        const baseName = PathUtils.basename(relPath).replace(/\.md$/i, '');
         const dirName = PathUtils.dirname(relPath);
-        const scriptRel = PathUtils.join(dirName === '.' ? '' : dirName, `${baseName}.${ext}`);
+
+        // Tier 1: Check frontmatter cli_name
+        let targetFileName = '';
+        const customName = frontmatter?.cli_name?.trim();
+        if (customName) {
+            targetFileName = customName;
+        } else {
+            // Tier 2: Sanitized note basename + mapped extension
+            const baseName = PathUtils.basename(relPath).replace(/\.md$/i, '');
+            const sanitized = baseName.replace(/[<>:"/\\|?*]/g, '').trim();
+            targetFileName = `${sanitized || 'script'}.${ext}`;
+        }
+
+        const scriptRel = PathUtils.join(dirName === '.' ? '' : dirName, targetFileName);
 
         if (PathUtils.isAbsolute(rawCliFolder)) {
             return PathUtils.normalize(PathUtils.join(rawCliFolder, scriptRel));
@@ -131,26 +241,40 @@ export class SyncManager {
     }
 
     /**
-     * Inspects the note's first codeblock vs the CLI script file and determines the sync state.
+     * Inspects the note's target codeblock vs the CLI script file and determines sync state.
      */
-    async getSyncStatus(noteFile: TFile, activeCode?: string, lang?: string): Promise<SyncStatusResult> {
+    async getSyncStatus(
+        noteFile: TFile,
+        activeCode?: string,
+        lang?: string,
+        existingFrontmatter?: ScriptNoteFrontmatter
+    ): Promise<SyncStatusResult> {
         let managerCode = activeCode ?? '';
         let language = lang ?? 'powershell';
+        let frontmatter = existingFrontmatter;
+        let matchedBlock: CodeBlockMatch | null = null;
+        const settings = this.getSettings();
 
-        if (activeCode === undefined) {
+        if (activeCode === undefined || !frontmatter) {
             try {
                 const content = await this.app.vault.read(noteFile);
-                const extracted = extractFirstCodeBlock(content);
-                if (extracted) {
-                    managerCode = extracted.code;
-                    language = extracted.language;
+                frontmatter = frontmatter || this.parseFrontmatter(noteFile, content);
+                matchedBlock = extractTargetCodeblock(
+                    content,
+                    settings.languageExtensionMap,
+                    frontmatter,
+                    settings.syncStrategy
+                );
+                if (matchedBlock) {
+                    managerCode = matchedBlock.code;
+                    language = matchedBlock.language;
                 }
             } catch {
                 // Ignore vault read failure
             }
         }
 
-        const cliPath = this.resolveCliPath(noteFile.path, language);
+        const cliPath = this.resolveCliPath(noteFile.path, language, frontmatter);
         if (!cliPath) {
             return {
                 status: 'not_mapped',
@@ -158,7 +282,10 @@ export class SyncManager {
                 cliPath: null,
                 managerCode,
                 cliCode: '',
-                language
+                language,
+                matchedBlockIndex: matchedBlock?.blockIndex,
+                matchedBlockTag: matchedBlock?.tag,
+                isFrontmatterOverride: Boolean(frontmatter?.cli_name)
             };
         }
 
@@ -170,7 +297,10 @@ export class SyncManager {
                 cliPath,
                 managerCode,
                 cliCode: '',
-                language
+                language,
+                matchedBlockIndex: matchedBlock?.blockIndex,
+                matchedBlockTag: matchedBlock?.tag,
+                isFrontmatterOverride: Boolean(frontmatter?.cli_name)
             };
         }
 
@@ -184,12 +314,15 @@ export class SyncManager {
                 cliPath,
                 managerCode,
                 cliCode: '',
-                language
+                language,
+                matchedBlockIndex: matchedBlock?.blockIndex,
+                matchedBlockTag: matchedBlock?.tag,
+                isFrontmatterOverride: Boolean(frontmatter?.cli_name)
             };
         }
 
-        const managerHash = this.computeHash(managerCode);
-        const cliHash = this.computeHash(cliCode);
+        const managerHash = computeNormalizedHash(managerCode);
+        const cliHash = computeNormalizedHash(cliCode);
 
         // Check if identical
         if (managerHash === cliHash) {
@@ -199,12 +332,14 @@ export class SyncManager {
                 cliPath,
                 managerCode,
                 cliCode,
-                language
+                language,
+                matchedBlockIndex: matchedBlock?.blockIndex,
+                matchedBlockTag: matchedBlock?.tag,
+                isFrontmatterOverride: Boolean(frontmatter?.cli_name)
             };
         }
 
         // Check if this difference was previously ignored
-        const settings = this.getSettings();
         const ignoreKey = `${noteFile.path}:${managerHash}:${cliHash}`;
         if (settings.ignoredHashes[ignoreKey]) {
             return {
@@ -213,7 +348,10 @@ export class SyncManager {
                 cliPath,
                 managerCode,
                 cliCode,
-                language
+                language,
+                matchedBlockIndex: matchedBlock?.blockIndex,
+                matchedBlockTag: matchedBlock?.tag,
+                isFrontmatterOverride: Boolean(frontmatter?.cli_name)
             };
         }
 
@@ -243,12 +381,16 @@ export class SyncManager {
             cliPath,
             managerCode,
             cliCode,
-            language
+            language,
+            matchedBlockIndex: matchedBlock?.blockIndex,
+            matchedBlockTag: matchedBlock?.tag,
+            isFrontmatterOverride: Boolean(frontmatter?.cli_name)
         };
     }
 
     /**
      * Executes the sync operation in the specified direction.
+     * Protected by SyncLockManager mutex to prevent echo loops.
      */
     async executeSync(
         noteFile: TFile,
@@ -265,9 +407,16 @@ export class SyncManager {
 
         try {
             const currentContent = await this.app.vault.read(noteFile);
-            const extracted = extractFirstCodeBlock(currentContent);
-            const lang = language || extracted?.language || 'powershell';
-            const cliPath = this.resolveCliPath(noteFile.path, lang);
+            const frontmatter = this.parseFrontmatter(noteFile, currentContent);
+            const settings = this.getSettings();
+            const targetBlock = extractTargetCodeblock(
+                currentContent,
+                settings.languageExtensionMap,
+                frontmatter,
+                settings.syncStrategy
+            );
+            const lang = language || targetBlock?.language || 'powershell';
+            const cliPath = this.resolveCliPath(noteFile.path, lang, frontmatter);
 
             if (!cliPath) {
                 new Notice('Folder Sync: CLI Root Folder not configured in settings.');
@@ -275,12 +424,22 @@ export class SyncManager {
             }
 
             if (direction === 'manager_to_cli') {
-                const code = codeToSync ?? (extracted ? extracted.code : '');
+                const code = codeToSync ?? (targetBlock ? targetBlock.code : '');
                 const targetDir = PathUtils.dirname(cliPath);
-                if (!fs.existsSync(targetDir)) {
-                    await fs.promises.mkdir(targetDir, { recursive: true });
-                }
-                await fs.promises.writeFile(cliPath, code, 'utf8');
+
+                // Acquire mutex lock on disk path and note file
+                await this.syncLockManager.withLock(cliPath, async () => {
+                    this.syncLockManager.acquire(noteFile.path);
+                    try {
+                        if (!fs.existsSync(targetDir)) {
+                            await fs.promises.mkdir(targetDir, { recursive: true });
+                        }
+                        await fs.promises.writeFile(cliPath, code, 'utf8');
+                    } finally {
+                        this.syncLockManager.release(noteFile.path, 350);
+                    }
+                });
+
                 this.removeFromPending(noteFile.path);
                 new Notice(`✓ Synced to CLI: ${PathUtils.basename(cliPath)}`);
                 return true;
@@ -291,8 +450,18 @@ export class SyncManager {
                     return false;
                 }
                 const cliContent = await fs.promises.readFile(cliPath, 'utf8');
-                const updatedNote = injectFirstCodeBlock(currentContent, cliContent, lang);
-                await this.app.vault.modify(noteFile, updatedNote);
+                const updatedNote = injectTargetCodeblock(currentContent, cliContent, targetBlock, lang);
+
+                // Acquire mutex lock on note file and disk path
+                await this.syncLockManager.withLock(noteFile.path, async () => {
+                    this.syncLockManager.acquire(cliPath);
+                    try {
+                        await this.app.vault.modify(noteFile, updatedNote);
+                    } finally {
+                        this.syncLockManager.release(cliPath, 350);
+                    }
+                });
+
                 this.removeFromPending(noteFile.path);
                 new Notice(`✓ Updated note codeblock from CLI: ${PathUtils.basename(cliPath)}`);
                 return true;
@@ -307,8 +476,8 @@ export class SyncManager {
     /** Marks the current diff as ignored. */
     async ignoreSync(noteFile: TFile, managerCode: string, cliCode: string): Promise<void> {
         const settings = this.getSettings();
-        const managerHash = this.computeHash(managerCode);
-        const cliHash = this.computeHash(cliCode);
+        const managerHash = computeNormalizedHash(managerCode);
+        const cliHash = computeNormalizedHash(cliCode);
         const ignoreKey = `${noteFile.path}:${managerHash}:${cliHash}`;
 
         settings.ignoredHashes[ignoreKey] = new Date().toISOString();
@@ -320,7 +489,8 @@ export class SyncManager {
     /** Defers the prompt and adds it to the pending review queue. */
     async remindLater(noteFile: TFile, direction: 'manager_to_cli' | 'cli_to_manager', lang: string): Promise<void> {
         const settings = this.getSettings();
-        const cliPath = this.resolveCliPath(noteFile.path, lang) || '';
+        const frontmatter = this.parseFrontmatter(noteFile);
+        const cliPath = this.resolveCliPath(noteFile.path, lang, frontmatter) || '';
 
         const item: PendingSyncItem = {
             id: `${noteFile.path}_${Date.now()}`,

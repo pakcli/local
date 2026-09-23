@@ -5,8 +5,7 @@
  *   - Section 1: Interactive Sync Controller, Diff Viewer & Script Runner
  *   - Section 2: Formatted Codeblock with Copy Button
  */
-import { FileSystemAdapter, MarkdownRenderChild, Notice, TFile } from 'obsidian';
-import { PathUtils } from '../../../utils/nodeHelpers';
+import { MarkdownRenderChild, Notice, TFile } from 'obsidian';
 import { SyncManager } from '../SyncManager';
 import { renderDiffViewer } from '../diffViewer';
 
@@ -18,7 +17,6 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private noteFile: TFile | null = null;
 
     private isDiffOpen = false;
-    private isOutputOpen = false;
     private diffContainerEl: HTMLElement | null = null;
     private outputContainerEl: HTMLElement | null = null;
 
@@ -67,11 +65,44 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private renderControllerHeader(headerEl: HTMLElement): void {
         const titleRow = headerEl.createDiv({ cls: 'pakcli-sync-title-row' });
         const leftMeta = titleRow.createDiv({ cls: 'pakcli-sync-meta' });
+
+        const isSyncTagged = this.language.includes(':sync');
+        const baseLang = this.language.split(':')[0] || this.language;
         
-        const langBadge = leftMeta.createSpan({ cls: 'pakcli-lang-badge', text: this.language.toUpperCase() });
-        const statusBadge = leftMeta.createSpan({ cls: 'pakcli-status-badge', text: '⚡ Script' });
+        leftMeta.createSpan({ cls: 'pakcli-lang-badge', text: baseLang.toUpperCase() });
+        const statusBadge = leftMeta.createSpan({
+            cls: 'pakcli-status-badge',
+            text: isSyncTagged ? '⚡ :sync' : '⚡ Script'
+        });
+        if (isSyncTagged) {
+            statusBadge.style.background = 'var(--interactive-accent)';
+            statusBadge.style.color = 'var(--text-on-accent)';
+        }
 
         const actions = titleRow.createDiv({ cls: 'pakcli-sync-actions' });
+
+        // Diff Viewer Button
+        if (this.noteFile) {
+            const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy', text: '👁️ Diff' });
+            diffBtn.onclick = async () => {
+                this.isDiffOpen = !this.isDiffOpen;
+                if (this.diffContainerEl) {
+                    if (this.isDiffOpen) {
+                        this.diffContainerEl.setCssStyles({ display: "block" });
+                        diffBtn.setText('👁️ Hide');
+                        const status = await this.syncManager.getSyncStatus(this.noteFile!, this.source, baseLang);
+                        if (status.cliCode) {
+                            renderDiffViewer(this.diffContainerEl, status.cliCode, this.source);
+                        } else {
+                            this.diffContainerEl.setText(status.statusLabel);
+                        }
+                    } else {
+                        this.diffContainerEl.setCssStyles({ display: "none" });
+                        diffBtn.setText('👁️ Diff');
+                    }
+                }
+            };
+        }
 
         // Run Script Button
         const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run', text: '▶ Run' });
@@ -81,10 +112,18 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
             try {
                 if (this.outputContainerEl) {
                     this.outputContainerEl.setCssStyles({ display: "block" });
-                    this.outputContainerEl.setText('Executing script via local shell...');
+                    this.outputContainerEl.setText('⏳ Executing script via local shell...');
+                }
+
+                const cliPath = this.noteFile ? this.syncManager.resolveCliPath(this.noteFile.path, baseLang) : null;
+                const res = await this.syncManager.runScript(this.source, baseLang, cliPath);
+
+                if (this.outputContainerEl) {
+                    const text = res.stdout || (res.stderr ? `Error:\n${res.stderr}` : `(Exit code: ${res.exitCode})`);
+                    this.outputContainerEl.setText(text);
                 }
             } catch (err: any) {
-                new Notice('Execution error: ' + err.message);
+                new Notice('Execution error: ' + (err?.message || String(err)));
             } finally {
                 runBtn.disabled = false;
                 runBtn.setText('▶ Run');
@@ -103,7 +142,8 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private renderCodeblockBody(section2: HTMLElement): void {
         const codeBody = section2.createDiv({ cls: 'pakcli-codeblock-body' });
         const pre = codeBody.createEl('pre', { cls: 'pakcli-codeblock pakcli-codeblock-flowclip' });
-        const code = pre.createEl('code', { cls: `language-${this.language}` });
+        const baseLang = this.language.split(':')[0] || this.language;
+        const code = pre.createEl('code', { cls: `language-${baseLang}` });
         code.textContent = this.source;
     }
 }
