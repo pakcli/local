@@ -71,15 +71,15 @@ export const ECOSYSTEM_MODULES: BlueprintSection[] = [
     ],
   },
   {
-    id: "local-get-copy",
+    id: "local-copypaste",
     category: "local",
-    title: "Get-Copy Pipeline Manager",
+    title: "CopyPaste Manager",
     icon: "folder-input",
     storeId: "pakcli-local",
     repoUrl: "https://github.com/pakcli/local",
-    description: "Automated external directory copy-into-vault pipeline with startup awake scan and batch sync.",
+    description: "Automated target filter rules and copy-into-vault pipeline with startup awake scan and batch sync.",
     fields: [
-      { key: "getCopyAutoScanOnAwake", type: "toggle", name: "Scan on Obsidian Awake", desc: "Automatically sync pending external directories when Obsidian opens.", defaultVal: true },
+      { key: "copyPasteAutoScanOnAwake", type: "toggle", name: "Scan on Obsidian Awake", desc: "Automatically sync pending external directories when Obsidian opens.", defaultVal: true },
     ],
   },
 

@@ -1,18 +1,18 @@
 import { App, Modal } from 'obsidian';
-import { GetCopyManager } from '../GetCopyManager';
-import { GetCopySettings } from '../types';
-import { GetCopyTableView } from './GetCopyTableView';
+import { CopyPasteManager } from '../CopyPasteManager';
+import { CopyPasteSettings } from '../types';
+import { CopyPasteTableView } from './CopyPasteTableView';
 
-export class GetCopyModal extends Modal {
-    private manager: GetCopyManager;
-    private getSettings: () => GetCopySettings;
+export class CopyPasteModal extends Modal {
+    private manager: CopyPasteManager;
+    private getSettings: () => CopyPasteSettings;
     private saveSettings: () => Promise<void>;
-    private tableView!: GetCopyTableView;
+    private tableView!: CopyPasteTableView;
 
     constructor(
         app: App,
-        manager: GetCopyManager,
-        getSettings: () => GetCopySettings,
+        manager: CopyPasteManager,
+        getSettings: () => CopyPasteSettings,
         saveSettings: () => Promise<void>
     ) {
         super(app);
@@ -22,12 +22,13 @@ export class GetCopyModal extends Modal {
     }
 
     onOpen(): void {
+        this.modalEl.addClass('copypaste-modal-window');
         this.modalEl.addClass('get-copy-modal-window');
 
         const { contentEl } = this;
         contentEl.empty();
 
-        this.tableView = new GetCopyTableView(
+        this.tableView = new CopyPasteTableView(
             this.app,
             this.manager,
             this.getSettings,
@@ -41,3 +42,6 @@ export class GetCopyModal extends Modal {
         this.contentEl.empty();
     }
 }
+
+// Backward compatibility alias
+export const GetCopyModal = CopyPasteModal;

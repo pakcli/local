@@ -24,15 +24,15 @@ import { YTDownloaderView, YT_DOWNLOADER_VIEW_TYPE } from './features/ytd/ui/YTD
 import { renderYTCaptureSettings } from './features/ytd/settings';
 import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
 
-// GetCopy Imports
-import { GetCopyManager } from './features/getCopy/GetCopyManager';
-import { GetCopyModal } from './features/getCopy/ui/GetCopyModal';
-import { renderGetCopySettings } from './features/getCopy/settings';
+// CopyPaste Manager Imports
+import { CopyPasteManager } from './features/copypaste/CopyPasteManager';
+import { CopyPasteModal } from './features/copypaste/ui/CopyPasteModal';
+import { renderCopyPasteSettings } from './features/copypaste/settings';
 
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
-	getCopyManager!: GetCopyManager;
+	copyPasteManager!: CopyPasteManager;
 	badgeRenderer!: BadgeRenderer;
 	vaultRoot: string = '';
 
@@ -114,15 +114,15 @@ export default class PakCLILocalPlugin extends Plugin {
 			})
 		);
 
-		// 6. Initialize GetCopy Manager & Startup Awake Scan
-		this.getCopyManager = new GetCopyManager(
+		// 6. Initialize CopyPaste Manager & Startup Awake Scan
+		this.copyPasteManager = new CopyPasteManager(
 			this.app,
 			this,
 			() => this.settings,
 			() => this.saveSettings()
 		);
 		this.app.workspace.onLayoutReady(() => {
-			this.getCopyManager.runAwakeScan();
+			this.copyPasteManager.runAwakeScan();
 		});
 
 		// 7. Register YTD Downloader View & Ribbon Icon
@@ -150,7 +150,17 @@ export default class PakCLILocalPlugin extends Plugin {
 			new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
 		});
 
-		// 9. Register Commands
+		// 9. Register CopyPaste Manager Ribbon
+		this.addRibbonIcon('folder-input', 'CopyPaste Manager: Quick Settings & Rules Panel', () => {
+			new CopyPasteModal(
+				this.app,
+				this.copyPasteManager,
+				() => this.settings,
+				() => this.saveSettings()
+			).open();
+		});
+
+		// 10. Register Commands
 		this.registerPluginCommands();
 
 		// 9. Register Master-Detail Settings Tab
@@ -253,30 +263,30 @@ export default class PakCLILocalPlugin extends Plugin {
 			},
 		});
 
-		// Command: Open Get-Copy Pipeline Dashboard
+		// Command: Open CopyPaste Target Vault Rules Dashboard
 		this.addCommand({
-			id: 'pl-get-copy-dashboard',
-			name: 'Get-Copy: Open Directory Pipeline Dashboard',
+			id: 'pl-copypaste-dashboard',
+			name: 'CopyPaste: Open Target Vault Rules Dashboard',
 			callback: () => {
-				new GetCopyModal(
+				new CopyPasteModal(
 					this.app,
-					this.getCopyManager,
+					this.copyPasteManager,
 					() => this.settings,
 					() => this.saveSettings()
 				).open();
 			},
 		});
 
-		// Command: Batch Rescan All Get-Copy Pipelines
+		// Command: Batch Rescan All CopyPaste Rules
 		this.addCommand({
-			id: 'pl-get-copy-rescan-all',
-			name: 'Get-Copy: Batch Rescan All Pipelines',
+			id: 'pl-copypaste-rescan-all',
+			name: 'CopyPaste: Batch Rescan All Rules',
 			callback: async () => {
-				const res = await this.getCopyManager.batchRescan();
+				const res = await this.copyPasteManager.batchRescan();
 				if (res.errors.length === 0) {
-					new Notice(`✅ [Get-Copy] Batch rescan complete: ${res.successCount} pipelines synced (${res.totalCopied} files copied).`);
+					new Notice(`✅ [CopyPaste] Batch rescan complete: ${res.successCount} synced (${res.totalCopied} files copied).`);
 				} else {
-					new Notice(`⚠️ [Get-Copy] Batch rescan finished with ${res.errors.length} error(s).`);
+					new Notice(`⚠️ [CopyPaste] Batch rescan finished with ${res.errors.length} error(s).`);
 				}
 			},
 		});
@@ -335,18 +345,18 @@ export default class PakCLILocalPlugin extends Plugin {
 			}
 		});
 
-		// 4. GetCopy Pipeline Section Handler
+		// 4. CopyPaste Manager Section Handler
 		settingsTab.registerLocalSection({
-			id: 'local-get-copy',
+			id: 'local-copypaste',
 			category: 'local',
-			title: 'Get-Copy Pipeline Manager',
+			title: 'CopyPaste Manager',
 			icon: 'folder-input',
 			isInstalled: true,
 			render: (containerEl) => {
-				renderGetCopySettings(
+				renderCopyPasteSettings(
 					this.app,
 					this,
-					this.getCopyManager,
+					this.copyPasteManager,
 					() => this.settings,
 					() => this.saveSettings(),
 					containerEl

@@ -1,19 +1,19 @@
 import { App, Notice, Plugin, normalizePath } from 'obsidian';
-import { GetCopyPipelineItem, GetCopySettings } from './types';
+import { CopyPastePipelineItem, CopyPasteSettings } from './types';
 import { getNodeFs, PathUtils } from '../../utils/nodeHelpers';
 import { reindexVaultFolder } from '../symlink/reindex';
 
-export class GetCopyManager {
+export class CopyPasteManager {
     private app: App;
     private plugin: Plugin;
-    private getSettings: () => GetCopySettings;
+    private getSettings: () => CopyPasteSettings;
     private saveSettings: () => Promise<void>;
     private isScanningBatch = false;
 
     constructor(
         app: App,
         plugin: Plugin,
-        getSettings: () => GetCopySettings,
+        getSettings: () => CopyPasteSettings,
         saveSettings: () => Promise<void>
     ) {
         this.app = app;
@@ -44,13 +44,13 @@ export class GetCopyManager {
         scanOnAwake: boolean = true,
         readAllSiblings: boolean = true,
         name?: string
-    ): Promise<GetCopyPipelineItem> {
+    ): Promise<CopyPastePipelineItem> {
         const settings = this.getSettings();
         const normExternal = externalDir.trim();
         const normVault = normalizePath(vaultDir.trim() || '/');
         const label = (name && name.trim()) || PathUtils.basename(normExternal) || 'Copy Pipeline';
 
-        const newItem: GetCopyPipelineItem = {
+        const newItem: CopyPastePipelineItem = {
             id: `gc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             name: label,
             externalDir: normExternal,
@@ -66,7 +66,7 @@ export class GetCopyManager {
         return newItem;
     }
 
-    async updatePipeline(item: GetCopyPipelineItem): Promise<void> {
+    async updatePipeline(item: CopyPastePipelineItem): Promise<void> {
         const settings = this.getSettings();
         const idx = settings.getCopyPipelines.findIndex((p) => p.id === item.id);
         if (idx !== -1) {
@@ -95,7 +95,7 @@ export class GetCopyManager {
     }
 
     async copyPipeline(
-        item: GetCopyPipelineItem
+        item: CopyPastePipelineItem
     ): Promise<{ success: boolean; copied: number; error?: string }> {
         const fs = getNodeFs();
         if (!fs) {
@@ -145,10 +145,8 @@ export class GetCopyManager {
             let copiedCount = 0;
 
             if (isSingleFileMode && !sourceStat.isDirectory()) {
-                // Focus on one single file instance
                 const srcFile = sourcePath;
 
-                // If targetDiskPath is directory or has no extension, place file inside it
                 let destFile = targetDiskPath;
                 const hasExt = Boolean(PathUtils.extname(targetDiskPath));
                 if (!hasExt || (fs.existsSync(targetDiskPath) && fs.statSync(targetDiskPath).isDirectory())) {
@@ -182,7 +180,6 @@ export class GetCopyManager {
                     copiedCount = 0;
                 }
             } else {
-                // Read all siblings mode (full directory copy)
                 let sourceDir = sourcePath;
                 if (!sourceStat.isDirectory()) {
                     sourceDir = PathUtils.dirname(sourcePath);
@@ -260,7 +257,7 @@ export class GetCopyManager {
     }
 
     async batchRescan(
-        itemsToScan?: GetCopyPipelineItem[]
+        itemsToScan?: CopyPastePipelineItem[]
     ): Promise<{ successCount: number; totalCopied: number; errors: string[] }> {
         if (this.isScanningBatch) {
             new Notice('⏳ A batch copy operation is already running...');
@@ -302,17 +299,20 @@ export class GetCopyManager {
 
         if (pendingAwake.length === 0) return;
 
-        console.log(`[PakCLI Get-Copy] Running awake scan for ${pendingAwake.length} pipeline(s)...`);
+        console.log(`[PakCLI CopyPaste] Running awake scan for ${pendingAwake.length} pipeline(s)...`);
         const result = await this.batchRescan(pendingAwake);
 
         if (result.successCount > 0) {
             new Notice(
-                `⚡ [PakCLI Get-Copy] Awake scan synced ${result.successCount} pipeline(s) (${result.totalCopied} files copied).`,
+                `⚡ [PakCLI CopyPaste] Awake scan synced ${result.successCount} pipeline(s) (${result.totalCopied} files copied).`,
                 5000
             );
         }
         if (result.errors.length > 0) {
-            console.warn('[PakCLI Get-Copy] Awake scan encountered errors:', result.errors);
+            console.warn('[PakCLI CopyPaste] Awake scan encountered errors:', result.errors);
         }
     }
 }
+
+// Backward compatibility alias
+export const GetCopyManager = CopyPasteManager;
