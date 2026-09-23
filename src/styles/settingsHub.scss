@@ -524,3 +524,302 @@
     transform: translateY(0);
   }
 }
+
+/* ========================================================================= */
+/* PakCLI Dependency Table — OS Badge + Rich Table + Export Bar              */
+/* ========================================================================= */
+
+// ── OS Info Badge ────────────────────────────────────────────────────────────
+
+.pakcli-os-banner-wrap {
+  margin-bottom: 12px;
+}
+
+.pakcli-os-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 14px;
+  font-size: 0.8rem;
+
+  .pakcli-os-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    line-height: 1.4;
+
+    .pakcli-os-icon {
+      flex-shrink: 0;
+      width: 18px;
+      text-align: center;
+    }
+
+    .pakcli-os-label {
+      color: var(--text-muted);
+      font-weight: 600;
+      min-width: 80px;
+      flex-shrink: 0;
+    }
+
+    .pakcli-os-value {
+      color: var(--text-normal);
+      font-family: var(--font-monospace);
+      font-size: 0.78rem;
+      word-break: break-all;
+
+      &.pakcli-os-copyable {
+        cursor: pointer;
+        border-bottom: 1px dashed var(--background-modifier-border);
+        transition: color 0.12s ease, border-color 0.12s ease;
+
+        &:hover {
+          color: var(--interactive-accent);
+          border-color: var(--interactive-accent);
+        }
+      }
+    }
+  }
+}
+
+// ── Table Container ──────────────────────────────────────────────────────────
+
+.pakcli-deps-table-container {
+  width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
+.pakcli-deps-loading {
+  padding: 18px 14px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  font-style: italic;
+  animation: pakcli-deps-pulse 1.4s ease-in-out infinite;
+}
+
+.pakcli-deps-run-wrap {
+  padding: 14px 0;
+  display: flex;
+  justify-content: flex-start;
+}
+
+@keyframes pakcli-deps-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+// ── Export Bar ───────────────────────────────────────────────────────────────
+
+.pakcli-deps-export-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 0 10px;
+
+  .pakcli-deps-export-label {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 2px;
+  }
+
+  .pakcli-deps-export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    white-space: nowrap;
+
+    &:hover {
+      background: var(--background-modifier-hover);
+      border-color: var(--interactive-accent);
+      color: var(--interactive-accent);
+    }
+
+    &.pakcli-deps-refresh-btn {
+      margin-left: auto;
+      background: var(--interactive-accent);
+      color: var(--text-on-accent);
+      border-color: var(--interactive-accent);
+
+      &:hover {
+        opacity: 0.88;
+        color: var(--text-on-accent);
+      }
+    }
+  }
+}
+
+// ── Table ────────────────────────────────────────────────────────────────────
+
+.pakcli-deps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 860px;
+
+  th {
+    text-align: left;
+    padding: 7px 10px;
+    background: var(--background-secondary);
+    border-bottom: 2px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .pakcli-deps-td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    vertical-align: middle;
+  }
+
+  .pakcli-deps-row {
+    transition: background 0.1s ease;
+
+    &:hover td {
+      background: var(--background-modifier-hover);
+    }
+
+    &.status-error .pakcli-deps-name-cell {
+      color: var(--text-muted);
+    }
+  }
+
+  .pakcli-deps-name-cell {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .pakcli-deps-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 100px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+
+    &.status-ok {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+    }
+
+    &.status-warning {
+      background: rgba(245, 158, 11, 0.12);
+      color: #f59e0b;
+    }
+
+    &.status-error {
+      background: rgba(239, 68, 68, 0.12);
+      color: #ef4444;
+    }
+
+    &.status-checking {
+      background: var(--background-modifier-border);
+      color: var(--text-muted);
+    }
+  }
+
+  .pakcli-deps-mono {
+    font-family: var(--font-monospace);
+    font-size: 0.76rem;
+    color: var(--text-normal);
+  }
+
+  .pakcli-deps-time,
+  .pakcli-deps-dur {
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+
+  .pakcli-deps-dir-cell {
+    max-width: 220px;
+  }
+
+  .pakcli-deps-dir-text {
+    font-family: var(--font-monospace);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+
+  .pakcli-deps-action-cell {
+    white-space: nowrap;
+  }
+
+  .pakcli-deps-na {
+    color: var(--text-faint);
+    font-size: 0.8rem;
+  }
+
+  .pakcli-deps-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    white-space: nowrap;
+
+    &.pakcli-deps-copy-btn {
+      background: var(--background-primary);
+      border: 1px solid var(--background-modifier-border);
+      color: var(--text-muted);
+
+      &:hover {
+        border-color: var(--interactive-accent);
+        color: var(--interactive-accent);
+        background: rgba(100, 100, 255, 0.06);
+      }
+    }
+
+    &.pakcli-deps-install-btn {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #10b981;
+
+      &:hover {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: #10b981;
+      }
+    }
+
+    &.pakcli-deps-uninstall-btn {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      color: #ef4444;
+
+      &:hover {
+        background: rgba(239, 68, 68, 0.18);
+        border-color: #ef4444;
+      }
+    }
+  }
+}
