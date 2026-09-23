@@ -364,14 +364,11 @@ function Invoke-BuildOnly($info) {
             Copy-Item "styles.css" -Destination (Join-Path $targetPath "styles.css") -Force
         }
 
-        # Sync .vaultpath for automatic esbuild deployment
-        Set-Content -Path ".vaultpath" -Value $targetPath -Encoding utf8
-
         # Save to config JSON
         Save-PublishConfig @{ latestCopyDir = $targetPath }
 
         Write-Success "Successfully copied plugin files to: $targetPath"
-        Write-Host "Saved destination and choices to $ScriptBaseName.json and .vaultpath for instant 1-click execution." -ForegroundColor DarkGray
+        Write-Host "Saved destination and choices to $ScriptBaseName.json for instant 1-click execution." -ForegroundColor DarkGray
     }
 }
 

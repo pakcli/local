@@ -24,6 +24,7 @@ data.json
 
 # Local publisher configuration
 .publish-config.json
+.vaultpath
 dist/
 dist/manifest.json
 dist/manifest.json

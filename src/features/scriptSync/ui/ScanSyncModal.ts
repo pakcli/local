@@ -34,7 +34,8 @@ export class ScanSyncModal extends Modal {
     private saveSettings: () => Promise<void>;
     private scannedItems: ScannedNoteItem[] = [];
     private isScanning = false;
-    private activeDiffNotePath: string | null = null;
+    private activeDiffPaths: Set<string> = new Set();
+    private diffSwappedPaths: Set<string> = new Set();
 
     // UI state
     private filterMode: FilterMode = 'different';
@@ -396,19 +397,23 @@ export class ScanSyncModal extends Modal {
 
             // Diff button if disk code exists and differs
             if (item.syncResult.cliCode && item.syncResult.status !== 'synced') {
-                const isDiffActive = this.activeDiffNotePath === item.file.path;
+                const isDiffActive = this.activeDiffPaths.has(item.file.path);
                 const diffBtn = colMiddle.createEl('button', {
                     cls: `pakcli-middle-sync-btn ${isDiffActive ? 'active' : ''}`,
                     text: isDiffActive ? 'Hide Diff' : 'Diff'
                 });
                 diffBtn.addEventListener('click', () => {
-                    this.activeDiffNotePath = isDiffActive ? null : item.file.path;
+                    if (this.activeDiffPaths.has(item.file.path)) {
+                        this.activeDiffPaths.delete(item.file.path);
+                    } else {
+                        this.activeDiffPaths.add(item.file.path);
+                    }
                     this.renderDashboard();
                 });
             }
 
             // ==========================================
-            // RIGHT COLUMN: Script File on Disk + 3 ICON BUTTONS
+            // RIGHT COLUMN: Script File on Disk + 4 ICON BUTTONS
             // ==========================================
             const colScript = splitRow.createDiv({ cls: 'pakcli-scan-col-script' });
 
@@ -476,10 +481,95 @@ export class ScanSyncModal extends Modal {
                 }, 1500);
             });
 
+            // 4. Diff Current Changes Button
+            const isDiffActive = this.activeDiffPaths.has(item.file.path);
+            const diffIconBtn = scriptActions.createEl('button', {
+                cls: `pakcli-icon-btn ${isDiffActive ? 'is-active' : ''}`,
+                attr: { 'aria-label': 'Diff current changes' }
+            });
+            setIcon(diffIconBtn, 'git-compare');
+            diffIconBtn.setAttribute('title', isDiffActive ? 'Hide diff' : 'Diff current changes');
+            diffIconBtn.addEventListener('click', () => {
+                if (this.activeDiffPaths.has(item.file.path)) {
+                    this.activeDiffPaths.delete(item.file.path);
+                } else {
+                    this.activeDiffPaths.add(item.file.path);
+                }
+                this.renderDashboard();
+            });
+
             // Diff Viewer Accordion
-            if (this.activeDiffNotePath === item.file.path && item.syncResult.cliCode) {
+            if (this.activeDiffPaths.has(item.file.path)) {
                 const diffEl = itemCard.createDiv({ cls: 'pakcli-scan-diff-container' });
-                renderDiffViewer(diffEl, item.syncResult.cliCode, item.code);
+                const isDiffSwapped = this.diffSwappedPaths.has(item.file.path);
+                const noteCode = item.code;
+                const cliCode = item.syncResult.cliCode || '';
+
+                const leftText = isDiffSwapped ? cliCode : noteCode;
+                const rightText = isDiffSwapped ? noteCode : cliCode;
+
+                const noteLabel = `Note: ${item.file.basename} (${item.language})`;
+                const scriptLabel = `Script: ${scriptBasename}`;
+
+                const leftLabel = isDiffSwapped ? scriptLabel : noteLabel;
+                const rightLabel = isDiffSwapped ? noteLabel : scriptLabel;
+
+                const applyLeftLabel = isDiffSwapped ? '⬅ Apply to Script' : '⬅ Apply to Note';
+                const applyRightLabel = isDiffSwapped ? '➔ Apply to Note' : '➔ Apply to Script';
+
+                renderDiffViewer(diffEl, {
+                    leftText,
+                    rightText,
+                    leftLabel,
+                    rightLabel,
+                    isSwapped: isDiffSwapped,
+                    applyLeftLabel,
+                    applyRightLabel,
+                    onSwap: () => {
+                        if (this.diffSwappedPaths.has(item.file.path)) {
+                            this.diffSwappedPaths.delete(item.file.path);
+                        } else {
+                            this.diffSwappedPaths.add(item.file.path);
+                        }
+                        this.renderDashboard();
+                    },
+                    onApplyToLeft: async () => {
+                        // Apply right side content into left target:
+                        // If not swapped: Left = Note, Right = Script -> update Note from Script (cli_to_manager)
+                        // If swapped: Left = Script, Right = Note -> update Script from Note (manager_to_cli)
+                        const direction = isDiffSwapped ? 'manager_to_cli' : 'cli_to_manager';
+                        const targetName = isDiffSwapped ? scriptBasename : item.file.basename;
+                        new Notice(`Applying changes to ${targetName}...`);
+                        const ok = await this.syncManager.executeSync(
+                            item.file,
+                            direction,
+                            direction === 'manager_to_cli' ? item.code : undefined,
+                            item.language
+                        );
+                        if (ok) {
+                            new Notice(`✓ Successfully applied to ${targetName}`);
+                            await this.scanAndRender();
+                        }
+                    },
+                    onApplyToRight: async () => {
+                        // Apply left side content into right target:
+                        // If not swapped: Left = Note, Right = Script -> update Script from Note (manager_to_cli)
+                        // If swapped: Left = Script, Right = Note -> update Note from Script (cli_to_manager)
+                        const direction = isDiffSwapped ? 'cli_to_manager' : 'manager_to_cli';
+                        const targetName = isDiffSwapped ? item.file.basename : scriptBasename;
+                        new Notice(`Applying changes to ${targetName}...`);
+                        const ok = await this.syncManager.executeSync(
+                            item.file,
+                            direction,
+                            direction === 'manager_to_cli' ? item.code : undefined,
+                            item.language
+                        );
+                        if (ok) {
+                            new Notice(`✓ Successfully applied to ${targetName}`);
+                            await this.scanAndRender();
+                        }
+                    }
+                });
             }
         });
     }

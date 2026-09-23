@@ -497,6 +497,87 @@ body.codeblock-scalefit {
     overflow-y: auto;
 }
 
+.pakcli-diff-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    font-size: 11px;
+}
+
+.pakcli-diff-labels {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.pakcli-diff-side-label {
+    padding: 2px 7px;
+    border-radius: var(--radius-s);
+    font-size: 11px;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+}
+
+.pakcli-diff-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pakcli-diff-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: var(--radius-s);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    transition: all 0.15s ease-in-out;
+
+    &:hover {
+        background-color: var(--background-modifier-hover);
+        color: var(--text-accent);
+        border-color: var(--interactive-accent);
+    }
+
+    &.pakcli-diff-swap-btn {
+        font-weight: 600;
+        background-color: var(--background-modifier-hover);
+    }
+
+    &.pakcli-diff-apply-btn {
+        font-weight: 600;
+    }
+
+    &.pakcli-diff-apply-left,
+    &.pakcli-diff-apply-right {
+        background-color: var(--interactive-accent);
+        color: var(--text-on-accent);
+        border-color: transparent;
+
+        &:hover {
+            opacity: 0.9;
+        }
+
+        &:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    }
+}
+
 .pakcli-diff-header {
     display: flex;
     align-items: center;
@@ -510,41 +591,59 @@ body.codeblock-scalefit {
 .pakcli-diff-table {
     font-family: var(--font-monospace);
     font-size: 11px;
+    max-height: 380px;
+    overflow-y: auto;
+    padding: 6px;
+    background-color: var(--background-primary-alt, var(--background-primary));
 }
 
 .pakcli-diff-row {
     display: flex;
-    line-height: 1.4;
+    align-items: flex-start;
+    line-height: 1.45;
     white-space: pre-wrap;
     padding: 1px 4px;
     border-radius: 2px;
 
     &.pakcli-diff-added {
-        background-color: rgba(34, 197, 94, 0.15);
+        background-color: rgba(34, 197, 94, 0.14);
         color: #22c55e;
     }
     &.pakcli-diff-removed {
-        background-color: rgba(239, 68, 68, 0.15);
+        background-color: rgba(239, 68, 68, 0.14);
         color: #ef4444;
     }
     &.pakcli-diff-unchanged {
         color: var(--text-muted);
     }
 
+    .pakcli-diff-linenum {
+        width: 26px;
+        text-align: right;
+        padding-right: 6px;
+        color: var(--text-faint);
+        user-select: none;
+        font-size: 10px;
+        flex-shrink: 0;
+    }
+
     .pakcli-diff-marker {
         width: 14px;
         user-select: none;
         font-weight: bold;
+        flex-shrink: 0;
     }
     .pakcli-diff-content {
         flex: 1;
+        overflow-x: auto;
     }
 }
 
 .pakcli-diff-no-changes {
     color: var(--text-muted);
     font-style: italic;
-    padding: 4px;
+    padding: 12px;
+    text-align: center;
 }
 
 /* --- Expandable Output Container --- */
@@ -1035,12 +1134,26 @@ body.codeblock-scalefit {
         border-color: var(--interactive-accent);
         background-color: var(--background-modifier-active-hover);
     }
+
+    &.is-active {
+        background-color: var(--interactive-accent);
+        color: var(--text-on-accent);
+        border-color: var(--interactive-accent);
+
+        &:hover {
+            opacity: 0.9;
+            color: var(--text-on-accent);
+        }
+    }
 }
 
 .pakcli-scan-diff-container {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--background-modifier-border);
+    margin-top: 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    overflow: hidden;
+    background-color: var(--background-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 

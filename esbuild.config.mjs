@@ -170,10 +170,28 @@ async function postBuild() {
 		}
 	}
 
-	// Automatic copy to target Obsidian Vault folder if in watch mode and .vaultpath exists
-	if (!prod && existsSync(".vaultpath")) {
+	// Automatic copy to target Obsidian Vault folder if in watch mode
+	if (!prod) {
 		try {
-			const vaultPath = readFileSync(".vaultpath", "utf8").trim().split(/\r?\n/)[0];
+			let vaultPath = null;
+			if (existsSync("ps_publish.json")) {
+				try {
+					const cfg = JSON.parse(readFileSync("ps_publish.json", "utf8"));
+					if (cfg && cfg.latestCopyDir) vaultPath = cfg.latestCopyDir.trim();
+				} catch {}
+			}
+			if (!vaultPath && existsSync(".publish-config.json")) {
+				try {
+					const cfg = JSON.parse(readFileSync(".publish-config.json", "utf8"));
+					if (cfg && cfg.latestCopyDir) vaultPath = cfg.latestCopyDir.trim();
+				} catch {}
+			}
+			if (!vaultPath && existsSync(".vaultpath")) {
+				try {
+					vaultPath = readFileSync(".vaultpath", "utf8").trim().split(/\r?\n/)[0];
+				} catch {}
+			}
+
 			if (vaultPath) {
 				if (!existsSync(vaultPath)) {
 					mkdirSync(vaultPath, { recursive: true });
@@ -185,7 +203,7 @@ async function postBuild() {
 				console.log(`[postBuild] Automatically deployed plugin artifacts to: ${vaultPath}`);
 			}
 		} catch (err) {
-			console.error('[postBuild] Failed to copy artifacts to .vaultpath:', err);
+			console.error('[postBuild] Failed to copy artifacts to target vault:', err);
 		}
 	}
 }
