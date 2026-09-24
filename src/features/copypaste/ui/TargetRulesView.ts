@@ -18,6 +18,7 @@ import { DEFAULT_FORMAT_OPTIONS, scanDirectoryForRule } from '../ruleMatcher';
 import { browseFolder } from '../../symlink/dialog';
 import { VaultFolderSuggest, FolderPickerModal } from '../../scriptSync/ui/FolderPicker';
 import { getNodeFs, PathUtils } from '../../../utils/nodeHelpers';
+import { CopyPasteDiffModal } from './CopyPasteDiffModal';
 
 export class TargetRulesView {
     private app: App;
@@ -187,6 +188,24 @@ export class TargetRulesView {
                 await this.saveSettings();
                 this.render();
             }
+        });
+
+        // Directional Sync Bar (Push to Right / Push to Left)
+        const transferBar = card.createDiv({ cls: 'target-rule-card-transfer-bar' });
+        const pushRightBtn = transferBar.createEl('button', {
+            cls: 'target-rule-card-transfer-btn mod-push-right',
+            text: '➔ Push to Vault'
+        });
+        pushRightBtn.addEventListener('click', async () => {
+            await this.copyMatchedFilesToVault(rule);
+        });
+
+        const pushLeftBtn = transferBar.createEl('button', {
+            cls: 'target-rule-card-transfer-btn mod-push-left',
+            text: '⬅ Push to Source'
+        });
+        pushLeftBtn.addEventListener('click', async () => {
+            await this.copyVaultFilesToSource(rule);
         });
 
         // ==========================================
@@ -445,6 +464,16 @@ export class TargetRulesView {
             });
         }
 
+        const diffBtn = leftActions.createEl('button', {
+            cls: 'target-rule-btn-diff',
+            text: '⚖️ Diff'
+        });
+        diffBtn.addEventListener('click', () => {
+            new CopyPasteDiffModal(this.app, this.manager, rule, () => {
+                this.render();
+            }).open();
+        });
+
         // Right side: Duplicate & Delete
         const rightActions = actionsRow.createDiv({ cls: 'target-rule-actions-right' });
 
@@ -520,6 +549,7 @@ export class TargetRulesView {
         const headerRow = thead.createEl('tr');
         headerRow.createEl('th', { text: '#', cls: 'col-idx' });
         headerRow.createEl('th', { text: 'Source Target Path', cls: 'col-source' });
+        headerRow.createEl('th', { text: '⇄', cls: 'col-direction', attr: { title: 'Push Source to Vault (➔) or Pull Vault to Source (⬅)' } });
         headerRow.createEl('th', { text: 'Vault Destination', cls: 'col-vault' });
         headerRow.createEl('th', { text: 'Path Filter', cls: 'col-filter col-filter-path' });
         headerRow.createEl('th', { text: 'Filename Filter', cls: 'col-filter col-filter-file' });
@@ -569,6 +599,28 @@ export class TargetRulesView {
                 await this.saveSettings();
                 this.render();
             }
+        });
+
+        // 2b. Directional Transfer (between Source and Vault)
+        const dirCell = row.createEl('td', { cls: 'cell-direction' });
+        const pushGroup = dirCell.createDiv({ cls: 'target-rule-table-direction-group' });
+
+        const pushRightBtn = pushGroup.createEl('button', {
+            cls: 'target-rule-mini-btn mod-cta',
+            attr: { title: 'Push Source to Vault (➔)' }
+        });
+        setIcon(pushRightBtn, 'arrow-right');
+        pushRightBtn.addEventListener('click', async () => {
+            await this.copyMatchedFilesToVault(rule);
+        });
+
+        const pushLeftBtn = pushGroup.createEl('button', {
+            cls: 'target-rule-mini-btn',
+            attr: { title: 'Pull Vault to Source (⬅)' }
+        });
+        setIcon(pushLeftBtn, 'arrow-left');
+        pushLeftBtn.addEventListener('click', async () => {
+            await this.copyVaultFilesToSource(rule);
         });
 
         // 3. Vault Destination
@@ -708,6 +760,18 @@ export class TargetRulesView {
             await this.rescanSingleRule(rule);
         });
 
+        const diffBtn = actionGroup.createEl('button', {
+            cls: 'target-rule-mini-btn mod-diff',
+            attr: { title: '2-Way Diff & Sync Viewer' }
+        });
+        setIcon(diffBtn, 'git-compare');
+        diffBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            new CopyPasteDiffModal(this.app, this.manager, rule, () => {
+                this.render();
+            }).open();
+        });
+
         if (rule.targetVaultDir && rule.lastMatchedFiles && rule.lastMatchedFiles.length > 0) {
             const copyVaultBtn = actionGroup.createEl('button', {
                 cls: 'target-rule-mini-btn mod-cta',
@@ -740,7 +804,7 @@ export class TargetRulesView {
         // Expanded preview row if active
         if (isExpanded && rule.lastMatchedFiles && rule.lastMatchedFiles.length > 0) {
             const previewRow = tbody.createEl('tr', { cls: 'target-rule-table-preview-row' });
-            const previewCell = previewRow.createEl('td', { attr: { colspan: '8' } });
+            const previewCell = previewRow.createEl('td', { attr: { colspan: '9' } });
 
             const previewEl = previewCell.createDiv({ cls: 'target-rule-preview-container' });
             const previewHeader = previewEl.createDiv({ cls: 'target-rule-preview-header' });
@@ -1145,6 +1209,30 @@ export class TargetRulesView {
             new Notice(`✓ Copied ${copiedCount} file(s) into vault: "${rule.targetVaultDir}"`);
         } catch (err: any) {
             new Notice(`Copy to vault failed: ${err?.message || String(err)}`);
+        }
+    }
+
+    private async copyVaultFilesToSource(rule: TargetFilterRule): Promise<void> {
+        if (!rule.targetPath) {
+            new Notice('Please specify a Source Target Path first.');
+            return;
+        }
+        if (!rule.targetVaultDir) {
+            new Notice('Please specify a Target in Vault Directory first.');
+            return;
+        }
+
+        try {
+            new Notice(`⏳ Pulling vault files into "${rule.targetPath}"...`);
+            const res = await this.manager.copyVaultToSource(rule);
+            if (res.success) {
+                new Notice(`✓ Pulled ${res.copied} file(s) into source disk: "${rule.targetPath}"`);
+                await this.rescanSingleRule(rule);
+            } else {
+                new Notice(`Pull failed: ${res.error}`);
+            }
+        } catch (err: any) {
+            new Notice(`Pull error: ${err?.message || err}`);
         }
     }
 

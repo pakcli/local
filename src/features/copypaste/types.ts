@@ -15,6 +15,18 @@ export interface TargetFilterRule {
     isScanning?: boolean;
 }
 
+export interface DiffPairItem {
+    relativePath: string;
+    fileName: string;
+    sourceAbsPath: string;
+    vaultAbsPath: string;
+    sourceExists: boolean;
+    vaultExists: boolean;
+    status: 'modified' | 'identical' | 'only_source' | 'only_vault';
+    sourceContent?: string;
+    vaultContent?: string;
+}
+
 export interface CopyPastePipelineItem {
     id: string;
     name?: string;
