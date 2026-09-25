@@ -182,7 +182,7 @@ export function buildNotesMarkdown(p: NoteParams): string {
     `${urlK}: "${p.url}"`,
     `${channelK}: "${p.channel}"`,
     `${uploadK}: "${p.uploadDate}"`,
-    `${thumbK}: "${thumbName}"`,
+    `${thumbK}: "[[${thumbName}]]"`,
     `${timeRangeK}: "${timeRangeVal}"`,
     `${descK}: "${cleanDesc}"`,
     `video_id: "${p.videoId}"`,
@@ -190,7 +190,7 @@ export function buildNotesMarkdown(p: NoteParams): string {
     `clip_duration_seconds: ${p.clipDuration}`,
     `view_count: ${p.viewCount}`,
     `tags: [${p.tags.map((t) => `"${t}"`).join(", ")}]`,
-    `clip_file: "${mp4Name}"`,
+    `clip_file: "[[${mp4Name}]]"`,
     "---",
   ].join("\n");
 

@@ -138,10 +138,15 @@ export async function getIncrementalCaptureHistory(
       const baseWithoutExt = file.path.slice(0, -3);
       const possibleExtensions = [".mp4", ".mp3", ".m4a", ".webm", ".zip"];
       let mediaPath = "";
-      if (parsed.clip_file) {
-        const directFile = app.vault.getAbstractFileByPath(
-          normalizePath(`${outputFolderPath}/${parsed.clip_file}`)
-        );
+      const rawClip = parsed.clip_file;
+      let cleanClip = "";
+      if (rawClip) {
+        cleanClip = String(rawClip).trim().replace(/^\[\[/, "").replace(/\]\]$/, "").replace(/^['"]+|['"]+$/g, "").trim();
+      }
+      if (cleanClip) {
+        const directFile =
+          app.vault.getAbstractFileByPath(normalizePath(`${outputFolderPath}/${cleanClip}`)) ||
+          app.metadataCache.getFirstLinkpathDest(cleanClip, file.path);
         if (directFile instanceof TFile) mediaPath = directFile.path;
       }
       if (!mediaPath) {
@@ -157,9 +162,12 @@ export async function getIncrementalCaptureHistory(
       // 5. Thumbnail resolution (stores both direct resource URI and permanent vault path)
       let thumbnail = "";
       let thumbnailPath = "";
+      const rawThumb = parsed.thumbnail || parsed.yt_thumbnail;
 
-      if (parsed.thumbnail || parsed.yt_thumbnail) {
-        const thumbRef = String(parsed.thumbnail || parsed.yt_thumbnail).trim();
+      if (rawThumb) {
+        let thumbRef = String(rawThumb).trim();
+        thumbRef = thumbRef.replace(/^\[\[/, "").replace(/\]\]$/, "").replace(/^['"]+|['"]+$/g, "").trim();
+
         if (thumbRef.startsWith("http://") || thumbRef.startsWith("https://")) {
           thumbnail = thumbRef;
         } else {
@@ -172,6 +180,23 @@ export async function getIncrementalCaptureHistory(
             thumbnailPath = directThumb.path;
             thumbnail = app.vault.getResourcePath(directThumb);
           }
+        }
+
+        // Auto-upgrade plain word thumbnail/clip_file in note frontmatter to linked [[file]]
+        if (typeof rawThumb === "string" && !rawThumb.startsWith("[[") && !rawThumb.startsWith("http")) {
+          try {
+            void app.fileManager.processFrontMatter(file, (fm) => {
+              if (fm.thumbnail && typeof fm.thumbnail === "string" && !fm.thumbnail.startsWith("[[") && !fm.thumbnail.startsWith("http")) {
+                fm.thumbnail = `[[${fm.thumbnail}]]`;
+              }
+              if (fm.yt_thumbnail && typeof fm.yt_thumbnail === "string" && !fm.yt_thumbnail.startsWith("[[") && !fm.yt_thumbnail.startsWith("http")) {
+                fm.yt_thumbnail = `[[${fm.yt_thumbnail}]]`;
+              }
+              if (fm.clip_file && typeof fm.clip_file === "string" && !fm.clip_file.startsWith("[[")) {
+                fm.clip_file = `[[${fm.clip_file}]]`;
+              }
+            });
+          } catch {}
         }
       }
 
