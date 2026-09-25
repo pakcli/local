@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon, MarkdownView } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -17,6 +17,8 @@ import { ScanSyncModal } from './features/scriptSync/ui/ScanSyncModal';
 import { PendingChangesModal } from './features/scriptSync/ui/PendingChangesModal';
 import { SyncCodeblockRenderer } from './features/scriptSync/ui/SyncCodeblockRenderer';
 import { renderScriptSyncSettings } from './features/scriptSync/settings';
+import { extractTargetCodeblock } from './features/scriptSync/markdownParser';
+import { DEFAULT_FOLDER_SYNC_SETTINGS } from './features/scriptSync/types';
 
 // YTD Imports
 import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
@@ -116,9 +118,9 @@ export default class PakCLILocalPlugin extends Plugin {
 			this.copyPasteManager.runAwakeScan();
 		});
 
-		// Register Script Codeblock Processors for explicit :sync tag variants
+		// Register Script Codeblock Processors for explicit :sync tag variants ONLY
 		// (e.g. ```powershell:sync, ```bash:sync, ```py:sync, ```sync)
-		// Standard ```powershell blocks remain native so table inserts and editing never break!
+		// Standard ```powershell blocks remain 100% native markdown so tables, callouts, and typing NEVER crash!
 		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
 		const syncLangs = [...scriptLangs.map(l => `${l}:sync`), 'sync'];
 		syncLangs.forEach((lang) => {
@@ -263,6 +265,20 @@ export default class PakCLILocalPlugin extends Plugin {
 		};
 	}
 
+	refreshActiveLeaf() {
+		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (mdView) {
+			const viewAny = mdView as any;
+			if (typeof viewAny.previewMode?.rerender === 'function') {
+				viewAny.previewMode.rerender(true);
+			}
+			if (viewAny.editor?.cm?.dispatch) {
+				viewAny.editor.cm.dispatch({});
+			}
+		}
+		(this.app.workspace as any).trigger('layout-change');
+	}
+
 	async turnOffLiveCodeblockToolbar(isAuto = false) {
 		if (!this.settings.liveCodeblockToolbar) return;
 		this.clearScriptSyncAutoOffTimer();
@@ -272,10 +288,7 @@ export default class PakCLILocalPlugin extends Plugin {
 		if (isAuto) {
 			new Notice('⚡ [PakCLI] ScriptSync Live Toolbar auto-disabled (pure editor mode).');
 		}
-		const activeLeaf = this.app.workspace.activeLeaf;
-		if ((activeLeaf?.view as any)?.editor) {
-			(this.app.workspace as any).trigger('layout-change');
-		}
+		this.refreshActiveLeaf();
 	}
 
 	async toggleLiveCodeblockToolbar() {
@@ -290,10 +303,7 @@ export default class PakCLILocalPlugin extends Plugin {
 			const autoMsg = this.settings.autoTurnOffToolbar !== false ? ` (Auto-off in ${delay}s)` : '';
 			new Notice(`⚡ ScriptSync Live Toolbar: ON${autoMsg}`);
 			this.startScriptSyncAutoOffTimer();
-			const activeLeaf = this.app.workspace.activeLeaf;
-			if ((activeLeaf?.view as any)?.editor) {
-				(this.app.workspace as any).trigger('layout-change');
-			}
+			this.refreshActiveLeaf();
 		}
 	}
 
@@ -346,6 +356,36 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'ScriptSync: Scan & Sync Codeblock Scripts',
 			callback: () => {
 				new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+
+		// Command: Run Script in Active Note (Background - zero editor interference)
+		this.addCommand({
+			id: 'pl-scriptsync-run-active',
+			name: 'ScriptSync: Run Script in Active Note (Background)',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) {
+					new Notice('⚠️ No active note open to execute script.');
+					return;
+				}
+				try {
+					const content = await this.app.vault.read(activeFile);
+					const langMap = (this.settings.languageExtensionMap as Record<string, string>) || DEFAULT_FOLDER_SYNC_SETTINGS.languageExtensionMap;
+					const targetBlock = extractTargetCodeblock(content, langMap);
+					if (!targetBlock || !targetBlock.code.trim()) {
+						new Notice('⚠️ No executable script codeblock found in active note.');
+						return;
+					}
+					const baseLang = targetBlock.language.split(':')[0] || targetBlock.language;
+					new Notice(`⏳ Running ${baseLang.toUpperCase()} script in background...`);
+					const cliPath = this.syncManager.resolveCliPath(activeFile.path, baseLang);
+					const res = await this.syncManager.runScript(targetBlock.code, baseLang, cliPath);
+					const out = res.stdout || (res.stderr ? `Error:\n${res.stderr}` : `(Exit code: ${res.exitCode})`);
+					new Notice(`✅ [ScriptSync] Execution complete:\n${out.substring(0, 300)}`, 6000);
+				} catch (err: any) {
+					new Notice(`❌ [ScriptSync] Execution error: ${err?.message || err}`);
+				}
 			},
 		});
 

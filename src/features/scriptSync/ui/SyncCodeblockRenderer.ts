@@ -46,9 +46,21 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         return (this.language.split(':')[0] || this.language).trim().toLowerCase();
     }
 
+    private isLivePreviewMode(): boolean {
+        return Boolean(this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content'));
+    }
+
     private shouldShowToolbar(): boolean {
-        // Show toolbar if explicitly tagged with :sync OR if liveCodeblockToolbar is toggled ON
-        if (this.language.includes(':sync')) return true;
+        // 1. Explicit :sync tag variant ALWAYS shows toolbar everywhere
+        if (this.language.includes(':sync') || this.language === 'sync') return true;
+
+        // 2. Reading View ("lagi buka"): ALWAYS show toolbar!
+        // No CodeMirror active in Reading View, so table/editor heightmap never crashes.
+        if (!this.isLivePreviewMode()) {
+            return true;
+        }
+
+        // 3. Live Preview ("lagi editing"): Only show if explicitly toggled ON via status bar / command
         return Boolean(this.plugin?.settings?.liveCodeblockToolbar);
     }
 
