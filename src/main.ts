@@ -123,6 +123,7 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.app.workspace.onLayoutReady(() => {
 			this.copyPasteManager.runAwakeScan();
+			void this.initDockLeaf();
 		});
 
 		// 7. Register YTD Downloader View & Ribbon Icon
@@ -518,9 +519,37 @@ export default class PakCLILocalPlugin extends Plugin {
 		this.addSettingTab(settingsTab);
 	}
 
+	async initDockLeaf() {
+		const { workspace } = this.app;
+		// Detach any existing leaf that accidentally sat in the center editor / rootSplit
+		const leaves = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE);
+		for (const leaf of leaves) {
+			if (leaf.getRoot() === workspace.rootSplit) {
+				leaf.detach();
+			}
+		}
+
+		// By default, if the view is not yet open in any dock, dock it into the right sidebar
+		if (workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE).length === 0) {
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({
+					type: YT_DOWNLOADER_VIEW_TYPE,
+					active: false,
+				});
+			}
+		}
+	}
+
 	async activateYTDownloaderView() {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE)[0];
+
+		// If a leaf exists but is in the rootSplit (center editor), detach it so it docks in the right sidebar
+		if (leaf && leaf.getRoot() === workspace.rootSplit) {
+			leaf.detach();
+			leaf = undefined as any;
+		}
 
 		if (!leaf) {
 			const rightLeaf = workspace.getRightLeaf(false);
