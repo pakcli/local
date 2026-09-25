@@ -37,34 +37,35 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     }
 
     onload(): void {
+        // If in Live Preview (editing) and toolbar is OFF and not explicitly tagged with :sync:
+        // COMPLETELY DISABLE ALL DOM MANIPULATION!
+        // Do not touch containerEl at all so CodeMirror retains 100% native stability.
+        if (this.isLivePreviewMode()) {
+            const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
+            const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
+            if (!isToolbarOn && !isExplicitlyTagged) {
+                return;
+            }
+        }
         this.render();
     }
 
     private isLivePreviewMode(): boolean {
-        return Boolean(this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content'));
+        if (this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content')) {
+            return true;
+        }
+        const activeView: any = this.plugin?.app?.workspace?.getActiveViewOfType?.(
+            (this.plugin?.app?.workspace as any)?.activeLeaf?.view?.constructor
+        ) || (this.plugin?.app?.workspace as any)?.activeLeaf?.view;
+        if (activeView && typeof activeView.getMode === 'function') {
+            return activeView.getMode() === 'source';
+        }
+        return false;
     }
 
     private render(): void {
         const { containerEl } = this;
         containerEl.empty();
-        
-        // AUTO-TOGGLE LOGIC ("lagi editing - toggle auto - lagi buka")
-        // If in Live Preview (editing) AND the toolbar is toggled OFF, do NOT inject custom UI elements.
-        // This completely disables DOM manipulation, which FIXES the CodeMirror table insertion error.
-        // If the user manually toggles it ON, we allow DOM manipulation (at the risk of CodeMirror errors).
-        if (this.isLivePreviewMode()) {
-            const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
-            const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
-            
-            if (!isToolbarOn && !isExplicitlyTagged) {
-                const baseLang = this.language.split(':')[0] || this.language;
-                const pre = containerEl.createEl('pre', { cls: 'pakcli-codeblock' });
-                const code = pre.createEl('code', { cls: `language-${baseLang}` });
-                code.textContent = this.source;
-                return;
-            }
-        }
-
         containerEl.addClass('pakcli-codeblock-container');
 
         // SECTION 1: Sync Controller & Runner Header
