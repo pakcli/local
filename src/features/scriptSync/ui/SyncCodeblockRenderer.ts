@@ -37,16 +37,6 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     }
 
     onload(): void {
-        // If in Live Preview (editing) and toolbar is OFF and not explicitly tagged with :sync:
-        // COMPLETELY DISABLE ALL DOM MANIPULATION!
-        // Do not touch containerEl at all so CodeMirror retains 100% native stability.
-        if (this.isLivePreviewMode()) {
-            const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
-            const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
-            if (!isToolbarOn && !isExplicitlyTagged) {
-                return;
-            }
-        }
         this.render();
     }
 
@@ -66,6 +56,22 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private render(): void {
         const { containerEl } = this;
         containerEl.empty();
+
+        const isLive = this.isLivePreviewMode();
+        const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
+        const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
+
+        // When in Live Preview (editing) and toolbar is OFF (and not explicitly :sync):
+        // Render a clean, standard code block with zero complex wrapper DOM or interactive toolbars.
+        // This keeps CodeMirror height maps completely stable and allows table insertion without crash.
+        if (isLive && !isToolbarOn && !isExplicitlyTagged) {
+            const baseLang = this.language.split(':')[0] || this.language;
+            const pre = containerEl.createEl('pre', { cls: `language-${baseLang}` });
+            const code = pre.createEl('code', { cls: `language-${baseLang}` });
+            code.setText(this.source);
+            return;
+        }
+
         containerEl.addClass('pakcli-codeblock-container');
 
         // SECTION 1: Sync Controller & Runner Header
