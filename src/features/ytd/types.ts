@@ -83,6 +83,7 @@ export interface YTCaptureSettings {
   ytCaptureQuality?: VideoQuality;
   ytCaptureFps?: VideoFps;
   ytCaptureCreateZip?: boolean;
+  maxTitleLength?: number;
   presets?: YTPreset[];
   activePresetId?: string;
   ytHistoryCache?: YTHistoryCache;
@@ -96,6 +97,7 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   ytCaptureQuality: "best",
   ytCaptureFps: "auto",
   ytCaptureCreateZip: false,
+  maxTitleLength: 20,
   presets: DEFAULT_PRESETS,
   activePresetId: "yt_evidence_standard",
 };
@@ -170,3 +172,47 @@ export interface ProgressInfo {
   eta: string;
   rawMsg: string;
 }
+
+export type TaskStatus =
+  | "queued"
+  | "deps"
+  | "fetching"
+  | "downloading"
+  | "done"
+  | "error"
+  | "cancelled";
+
+export type PipelineStep = "deps" | "fetch" | "download" | "done";
+
+export interface DownloadTask {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  platform: "youtube" | "instagram";
+  quality: VideoQuality;
+  fps: VideoFps;
+  timeRange: {
+    start: number;
+    end: number;
+    isFull: boolean;
+  };
+  duration: number;
+  status: TaskStatus;
+  currentStep: PipelineStep;
+  progress: ProgressInfo;
+  error?: string;
+  logs: string[];
+  isFetchOnly?: boolean;
+  isRetried?: boolean;
+  createdAt: number;
+  completedAt?: number;
+  abortFn?: () => void;
+  outputFilePath?: string;
+}
+
+export type TableFilter = "youtube" | "instagram" | "both";
+export type TableViewMode = "flat" | "grouped";
+export type TableSort = "quality_fps" | "time" | "recent";
+

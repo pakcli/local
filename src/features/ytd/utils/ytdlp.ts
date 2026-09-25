@@ -73,15 +73,18 @@ export async function downloadClip(
   settings: YTCaptureSettings,
   quality: VideoQuality = "best",
   fps: VideoFps = "auto",
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  isFull: boolean = false
 ): Promise<void> {
   const isInstagram = url.includes("instagram.com") || url.includes("instagr.am");
+  const isAudio = quality === "audio";
+
   let formatStr = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/18/best[ext=mp4]/best";
 
   if (isInstagram) {
-    formatStr = quality === "audio" ? "bestaudio/best" : "best";
-  } else if (quality === "audio") {
-    formatStr = "bestaudio[ext=m4a]/bestaudio/best";
+    formatStr = isAudio ? "bestaudio/best" : "best";
+  } else if (isAudio) {
+    formatStr = "bestaudio/best";
   } else {
     let maxH = "";
     if (quality === "4k") maxH = "[height<=2160]";
@@ -105,12 +108,20 @@ export async function downloadClip(
   if (!isInstagram) {
     args.push("--extractor-args", "youtube:player_client=mweb,android,web");
     args.push("--no-live-from-start");
-    if (start > 0 || end > 0) {
-      args.push("--download-sections", `*${start}-${end}`, "--force-keyframes-at-cuts");
+
+    const isFullDuration = isFull || (start === 0 && end === 0);
+    if (!isFullDuration && (start > 0 || end > 0)) {
+      args.push("--download-sections", `*${start}-${end}`);
+      if (!isAudio) {
+        args.push("--force-keyframes-at-cuts");
+      }
     }
   }
 
-  const isAudio = quality === "audio";
+  let finalOutputPath = outputPath;
+  if (finalOutputPath.endsWith(".mp4") || finalOutputPath.endsWith(".mp3")) {
+    finalOutputPath = finalOutputPath.replace(/\.(mp4|mp3)$/i, ".%(ext)s");
+  }
 
   args.push("-f", formatStr);
 
@@ -120,7 +131,7 @@ export async function downloadClip(
     args.push("--merge-output-format", "mp4");
   }
 
-  args.push("--no-playlist", "--no-colors", "-o", outputPath, url);
+  args.push("--no-playlist", "--no-colors", "-o", finalOutputPath, url);
 
   const ffmpegCmd = resolveBinary(settings.ffmpegPath || "ffmpeg");
   if (ffmpegCmd) {
@@ -163,26 +174,11 @@ export async function downloadSubtitles(
     [
       ...ffmpegArgs,
       "--skip-download", "--write-subs", "--write-auto-subs",
-      "--sub-langs", "en.*,en", "--sub-format", "json3",
+      "--sub-langs", "all,-live_chat", "--sub-format", "json3",
       "--no-playlist", "--no-colors", "--no-live-from-start", "-o", PathUtils.join(outputDir, "%(id)s.%(ext)s"),
       url,
     ]
   ).catch(() => {/* silently ignore */});
-
-  const fs = getNodeFs();
-  const hasSubFile = fs ? fs.readdirSync(outputDir).some((f: string) => f.endsWith(".json3")) : false;
-  if (!hasSubFile) {
-    await runCommand(
-      settings.ytDlpPath,
-      [
-        ...ffmpegArgs,
-        "--skip-download", "--write-subs", "--write-auto-subs",
-        "--sub-langs", "all", "--sub-format", "json3",
-        "--no-playlist", "--no-colors", "--no-live-from-start", "-o", PathUtils.join(outputDir, "%(id)s.%(ext)s"),
-        url,
-      ]
-    ).catch(() => {/* ignore */});
-  }
 }
 
 export async function downloadThumbnail(thumbnailUrl: string): Promise<ArrayBuffer> {

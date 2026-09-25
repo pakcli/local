@@ -20,12 +20,19 @@ import { renderScriptSyncSettings } from './features/scriptSync/settings';
 
 // YTD Imports
 import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
+import { YTDownloaderView, YT_DOWNLOADER_VIEW_TYPE } from './features/ytd/ui/YTDownloaderView';
 import { renderYTCaptureSettings } from './features/ytd/settings';
 import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
+
+// CopyPaste Manager Imports
+import { CopyPasteManager } from './features/copypaste/CopyPasteManager';
+import { CopyPasteModal } from './features/copypaste/ui/CopyPasteModal';
+import { renderCopyPasteSettings } from './features/copypaste/settings';
 
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
+	copyPasteManager!: CopyPasteManager;
 	badgeRenderer!: BadgeRenderer;
 	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
@@ -86,17 +93,51 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
-		// Temporarily bypassed for diagnostic test:
-		// const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py'];
-		// const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
-		// allProcessLangs.forEach((lang) => {
-		// 	this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
-		// 		const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-		// 		ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
-		// 	});
-		// });
+		// Echo Suppression: Vault modify listener checking mutex lock
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (file instanceof TFile && this.syncManager) {
+					const lockManager = this.syncManager.getSyncLockManager();
+					if (lockManager.isLocked(file.path)) {
+						return;
+					}
+				}
+			})
+		);
 
-		// Register Sync Code Icon & Ribbon
+		// 6. Initialize CopyPaste Manager & Startup Awake Scan
+		this.copyPasteManager = new CopyPasteManager(
+			this.app,
+			this,
+			() => this.settings,
+			() => this.saveSettings()
+		);
+		this.app.workspace.onLayoutReady(() => {
+			this.copyPasteManager.runAwakeScan();
+		});
+
+		// Register Script Codeblock Processors for explicit :sync tag variants
+		// (e.g. ```powershell:sync, ```bash:sync, ```py:sync, ```sync)
+		// Standard ```powershell blocks remain native so table inserts and editing never break!
+		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
+		const syncLangs = [...scriptLangs.map(l => `${l}:sync`), 'sync'];
+		syncLangs.forEach((lang) => {
+			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
+				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
+			});
+		});
+
+		// 7. Register YTD Downloader View & Ribbon Icon
+		this.registerView(
+			YT_DOWNLOADER_VIEW_TYPE,
+			(leaf) => new YTDownloaderView(leaf, this)
+		);
+		this.addRibbonIcon('video', 'Open YT & IG Downloader', () => {
+			this.activateYTDownloaderView();
+		});
+
+		// 8. Register Sync Code Icon & Ribbon
 		addIcon(
 			'sync-code',
 			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -112,7 +153,17 @@ export default class PakCLILocalPlugin extends Plugin {
 			new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
 		});
 
-		// 6. Status Bar Item for ScriptSync
+		// 9. Register CopyPaste Manager Ribbon
+		this.addRibbonIcon('folder-input', 'CopyPaste Manager: Quick Settings & Rules Panel', () => {
+			new CopyPasteModal(
+				this.app,
+				this.copyPasteManager,
+				() => this.settings,
+				() => this.saveSettings()
+			).open();
+		});
+
+		// 10. Status Bar Item for ScriptSync
 		this.scriptSyncStatusBarItem = this.addStatusBarItem();
 		this.updateScriptSyncStatusBar();
 
@@ -125,13 +176,13 @@ export default class PakCLILocalPlugin extends Plugin {
 			})
 		);
 
-		// 7. Register Commands
+		// 11. Register Commands
 		this.registerPluginCommands();
 
-		// 8. Register Master-Detail Settings Tab
+		// 12. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
-		// 8. Background Health Check
+		// 13. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
@@ -271,10 +322,19 @@ export default class PakCLILocalPlugin extends Plugin {
 			},
 		});
 
-		// Command: YTD YouTube Capture
+		// Command: YTD Downloader Panel (Primary)
 		this.addCommand({
 			id: 'pl-ytd-capture',
-			name: 'YTD: Capture YouTube Clip & Notes',
+			name: 'YTD: Open YT & IG Downloader Panel',
+			callback: () => {
+				void this.activateYTDownloaderView();
+			},
+		});
+
+		// Command: YTD Legacy Capture Modal (Fallback)
+		this.addCommand({
+			id: 'pl-ytd-modal',
+			name: 'YTD: Open Quick Capture Modal',
 			callback: () => {
 				new YTCaptureModal(this.app, this).open();
 			},
@@ -304,6 +364,49 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'ScriptSync: Toggle In-Editor Codeblock Toolbar',
 			callback: () => {
 				void this.toggleLiveCodeblockToolbar();
+			},
+		});
+
+		// Command: Open CopyPaste Target Vault Rules Dashboard
+		this.addCommand({
+			id: 'pl-copypaste-dashboard',
+			name: 'CopyPaste: Open Target Vault Rules Dashboard',
+			callback: () => {
+				new CopyPasteModal(
+					this.app,
+					this.copyPasteManager,
+					() => this.settings,
+					() => this.saveSettings()
+				).open();
+			},
+		});
+
+		// Command: Batch Rescan All CopyPaste Rules
+		this.addCommand({
+			id: 'pl-copypaste-rescan-all',
+			name: 'CopyPaste: Batch Rescan All Rules',
+			callback: async () => {
+				const res = await this.copyPasteManager.batchRescan();
+				if (res.errors.length === 0) {
+					new Notice(`✅ [CopyPaste] Batch rescan complete: ${res.successCount} synced (${res.totalCopied} files copied).`);
+				} else {
+					new Notice(`⚠️ [CopyPaste] Batch rescan finished with ${res.errors.length} error(s).`);
+				}
+			},
+		});
+
+		// Command: Open CopyPaste Manager Settings Tab
+		this.addCommand({
+			id: 'pl-copypaste-open-settings',
+			name: 'CopyPaste: Open Settings Tab',
+			callback: () => {
+				const setting = (this.app as any).setting;
+				if (setting && typeof setting.open === 'function') {
+					setting.open();
+					if (typeof setting.openTabById === 'function') {
+						setting.openTabById('pakcli-copypaste');
+					}
+				}
 			},
 		});
 	}
@@ -357,10 +460,49 @@ export default class PakCLILocalPlugin extends Plugin {
 			icon: 'video',
 			isInstalled: true,
 			render: (containerEl) => {
-				renderYTCaptureSettings(this.app, this as any, containerEl);
+				renderYTCaptureSettings(this.app, this, containerEl);
+			}
+		});
+
+		// 4. CopyPaste Manager Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-copypaste',
+			category: 'local',
+			title: 'CopyPaste Manager',
+			icon: 'folder-input',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderCopyPasteSettings(
+					this.app,
+					this,
+					this.copyPasteManager,
+					() => this.settings,
+					() => this.saveSettings(),
+					containerEl
+				);
 			}
 		});
 
 		this.addSettingTab(settingsTab);
+	}
+
+	async activateYTDownloaderView() {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE)[0];
+
+		if (!leaf) {
+			const rightLeaf = workspace.getLeaf(false);
+			if (rightLeaf) {
+				leaf = rightLeaf;
+				await leaf.setViewState({
+					type: YT_DOWNLOADER_VIEW_TYPE,
+					active: true,
+				});
+			}
+		}
+
+		if (leaf) {
+			void workspace.revealLeaf(leaf);
+		}
 	}
 }
