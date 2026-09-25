@@ -5,7 +5,7 @@
  *   - Section 1: Interactive Sync Controller, Diff Viewer & Script Runner
  *   - Section 2: Formatted Codeblock with Copy Button
  */
-import { MarkdownRenderChild, Notice, TFile } from 'obsidian';
+import { MarkdownRenderChild, MarkdownView, Notice, TFile } from 'obsidian';
 import { SyncManager } from '../SyncManager';
 import { renderDiffViewer } from '../diffViewer';
 
@@ -41,15 +41,28 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     }
 
     private isLivePreviewMode(): boolean {
-        if (this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content')) {
+        // 1. Direct DOM check (if attached)
+        if (this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content, .cm-embed-block')) {
             return true;
         }
-        const activeView: any = this.plugin?.app?.workspace?.getActiveViewOfType?.(
-            (this.plugin?.app?.workspace as any)?.activeLeaf?.view?.constructor
-        ) || (this.plugin?.app?.workspace as any)?.activeLeaf?.view;
+
+        // 2. Active MarkdownView check
+        const activeView = this.plugin?.app?.workspace?.getActiveViewOfType(MarkdownView);
         if (activeView && typeof activeView.getMode === 'function') {
             return activeView.getMode() === 'source';
         }
+
+        // 3. Fallback: match by file path across workspace leaves
+        const leaves = this.plugin?.app?.workspace?.getLeavesOfType('markdown') || [];
+        for (const leaf of leaves) {
+            const view = leaf.view as MarkdownView;
+            if (view && this.noteFile && view.file?.path === this.noteFile.path) {
+                if (typeof view.getMode === 'function') {
+                    return view.getMode() === 'source';
+                }
+            }
+        }
+
         return false;
     }
 
