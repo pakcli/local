@@ -30,6 +30,50 @@ export function renderScriptSyncSettings(
                 });
         });
 
+    new Setting(containerEl)
+        .setName('Live In-Editor Codeblock Toolbar')
+        .setDesc('When OFF (default & recommended), the editor remains in 100% pure markdown mode with zero risk of tile or table errors. When ON, interactive Run/Diff bars appear on codeblocks. Can also be toggled anytime via the Status Bar or by tagging blocks with :sync (e.g. ```powershell:sync).')
+        .addToggle((toggle) => {
+            toggle
+                .setValue(settings.liveCodeblockToolbar === true)
+                .onChange(async (val) => {
+                    settings.liveCodeblockToolbar = val;
+                    await saveSettings();
+                    if ((plugin as any).updateScriptSyncStatusBar) {
+                        (plugin as any).updateScriptSyncStatusBar();
+                    }
+                });
+        });
+
+    new Setting(containerEl)
+        .setName('Auto-Disable Toolbar When Not Needed')
+        .setDesc('Automatically turns off the live toolbar upon switching notes/tabs or after an inactivity timer so the editor always returns to pure markdown mode.')
+        .addToggle((toggle) => {
+            toggle
+                .setValue(settings.autoTurnOffToolbar !== false)
+                .onChange(async (val) => {
+                    settings.autoTurnOffToolbar = val;
+                    await saveSettings();
+                    if ((plugin as any).updateScriptSyncStatusBar) {
+                        (plugin as any).updateScriptSyncStatusBar();
+                    }
+                });
+        });
+
+    new Setting(containerEl)
+        .setName('Auto-Disable Timeout (Seconds)')
+        .setDesc('Number of seconds before the live toolbar turns off if no Run/Diff action is taken (clicking Run or Diff resets this timer).')
+        .addSlider((slider) => {
+            slider
+                .setLimits(15, 300, 15)
+                .setValue(settings.autoTurnOffDelaySeconds || 60)
+                .setDynamicTooltip()
+                .onChange(async (val) => {
+                    settings.autoTurnOffDelaySeconds = val;
+                    await saveSettings();
+                });
+        });
+
     if (settings.enabled === false) {
         const disabledNotice = containerEl.createDiv({ cls: 'pakcli-status-card' });
         disabledNotice.setCssStyles({

@@ -46,9 +46,24 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         return (this.language.split(':')[0] || this.language).trim().toLowerCase();
     }
 
+    private shouldShowToolbar(): boolean {
+        // Show toolbar if explicitly tagged with :sync OR if liveCodeblockToolbar is toggled ON
+        if (this.language.includes(':sync')) return true;
+        return Boolean(this.plugin?.settings?.liveCodeblockToolbar);
+    }
+
     private render(): void {
         const { containerEl } = this;
         containerEl.empty();
+
+        if (!this.shouldShowToolbar()) {
+            const baseLang = this.getBaseLanguage();
+            const pre = containerEl.createEl('pre', { cls: 'pakcli-codeblock' });
+            const code = pre.createEl('code', { cls: `language-${baseLang}` });
+            code.textContent = this.source;
+            return;
+        }
+
         containerEl.addClass('pakcli-codeblock-container');
 
         // SECTION 1: Sync Controller & Runner Header
@@ -101,6 +116,7 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         // Diff Viewer Button - always available
         const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy pakcli-sync-btn', text: '👁️ Diff' });
         diffBtn.onclick = async () => {
+            this.plugin?.resetScriptSyncAutoOffTimer?.();
             this.isDiffOpen = !this.isDiffOpen;
             if (this.diffContainerEl) {
                 if (this.isDiffOpen) {
@@ -149,6 +165,7 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         // Run Script Button
         const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run pakcli-sync-btn', text: '▶ Run' });
         runBtn.onclick = async () => {
+            this.plugin?.resetScriptSyncAutoOffTimer?.();
             runBtn.disabled = true;
             runBtn.setText('⏳ Running...');
             try {
