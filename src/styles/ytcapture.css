@@ -1833,46 +1833,82 @@
   gap: 2px;
 }
 
-/* Compact layout for sidebar dock (triggered by .is-compact or container query) */
-.ytec-tableview-container.is-compact th.col-quality,
-.ytec-tableview-container.is-compact td.col-quality,
-.ytec-tableview-container.is-compact th.col-plat,
-.ytec-tableview-container.is-compact td.col-plat {
-  display: none !important;
+/* ── Responsive Table Layout: < 900px horizontal scrollbar, >= 900px fit width ── */
+
+.ytec-tableview-table {
+  width: 100%;
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
-.ytec-tableview-container.is-compact .ytec-row-meta {
-  display: flex !important;
+/* Elegant scrollbar for horizontal table scrolling */
+.ytec-tableview-table::-webkit-scrollbar {
+  height: 6px;
+}
+.ytec-tableview-table::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+  border-radius: 3px;
+}
+.ytec-tableview-table::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border-hover);
+  border-radius: 3px;
 }
 
-@container (max-width: 560px) {
-  .ytec-data-table th.col-quality,
-  .ytec-data-table td.col-quality,
-  .ytec-data-table th.col-plat,
-  .ytec-data-table td.col-plat {
-    display: none !important;
-  }
-  .ytec-row-meta {
-    display: flex !important;
-  }
-  .col-actions {
-    width: 82px !important;
-  }
-  .col-thumb {
-    width: 48px !important;
-  }
+/* < 900px: allow horizontal scrolling, preserve all columns */
+.ytec-tableview-container.is-scrollable .ytec-tableview-table {
+  overflow-x: auto !important;
+  overflow-y: hidden;
 }
 
-@media (max-width: 580px) {
-  .ytec-data-table th.col-quality,
-  .ytec-data-table td.col-quality,
-  .ytec-data-table th.col-plat,
-  .ytec-data-table td.col-plat {
-    display: none !important;
-  }
-  .ytec-row-meta {
-    display: flex !important;
-  }
+.ytec-tableview-container.is-scrollable .ytec-data-table {
+  min-width: 620px !important;
+  width: 100%;
+  table-layout: auto !important;
+}
+
+.ytec-tableview-container.is-scrollable .ytec-data-table th.col-quality,
+.ytec-tableview-container.is-scrollable .ytec-data-table td.col-quality,
+.ytec-tableview-container.is-scrollable .ytec-data-table th.col-plat,
+.ytec-tableview-container.is-scrollable .ytec-data-table td.col-plat {
+  display: table-cell !important;
+}
+
+.ytec-tableview-container.is-scrollable .col-actions {
+  width: 110px !important;
+  min-width: 110px !important;
+}
+
+/* >= 900px: force content to fit exact width without horizontal scrollbar */
+.ytec-tableview-container.is-fit-width .ytec-tableview-table {
+  overflow-x: hidden !important;
+}
+
+.ytec-tableview-container.is-fit-width .ytec-data-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed !important;
+}
+
+.ytec-tableview-container.is-fit-width .col-thumb {
+  width: 64px !important;
+}
+
+.ytec-tableview-container.is-fit-width .col-title {
+  width: auto !important;
+}
+
+.ytec-tableview-container.is-fit-width .col-quality {
+  width: 150px !important;
+}
+
+.ytec-tableview-container.is-fit-width .col-plat {
+  width: 75px !important;
+}
+
+.ytec-tableview-container.is-fit-width .col-actions {
+  width: 120px !important;
 }
 
 /* Pipeline Row (Single row guaranteed) */

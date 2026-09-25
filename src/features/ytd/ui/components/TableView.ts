@@ -51,13 +51,16 @@ export class TableView {
     this.toolbarEl = this.containerEl.createDiv({ cls: "ytec-tableview-toolbar" });
     this.tableEl = this.containerEl.createDiv({ cls: "ytec-tableview-table" });
 
-    // Responsive compact mode observer for sidebar docks
+    // Responsive width observer: if < 900px, enable horizontal scroll; if >= 900px, fit width
     this.resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.contentRect.width < 560) {
-          this.containerEl.addClass("is-compact");
+        const w = entry.contentRect.width;
+        if (w < 900) {
+          this.containerEl.addClass("is-scrollable");
+          this.containerEl.removeClass("is-fit-width");
         } else {
-          this.containerEl.removeClass("is-compact");
+          this.containerEl.addClass("is-fit-width");
+          this.containerEl.removeClass("is-scrollable");
         }
       }
     });
@@ -567,6 +570,21 @@ export class TableView {
 
     // 2. Vault History Items
     for (const h of history) {
+      // Exclude non-video scratch notes
+      const tLower = (h.title || "").toLowerCase();
+      const pLower = (h.filePath || "").toLowerCase();
+      if (
+        tLower === "untitled" ||
+        tLower === "yt captures" ||
+        pLower.endsWith("/untitled.md") ||
+        pLower.endsWith("/index.md") ||
+        pLower.endsWith("\\untitled.md") ||
+        pLower.endsWith("\\index.md") ||
+        (!h.url && !h.videoId)
+      ) {
+        continue;
+      }
+
       const fileKey = getHistoryKey(h);
       const existing = rowMap.get(fileKey);
 

@@ -52,9 +52,10 @@ export async function getIncrementalCaptureHistory(
   const currentPaths = new Set(currentFiles.map((f) => f.path));
   let cacheModified = false;
 
-  // Clean up cache entries for deleted files
+  // Clean up cache entries for deleted files or scratch non-capture notes
   for (const cachedPath of Object.keys(cache.items)) {
-    if (!currentPaths.has(cachedPath)) {
+    const lower = cachedPath.toLowerCase();
+    if (!currentPaths.has(cachedPath) || lower.endsWith("index.md") || lower.endsWith("untitled.md")) {
       delete cache.items[cachedPath];
       cacheModified = true;
     }
@@ -265,8 +266,20 @@ export async function getIncrementalCaptureHistory(
     await plugin.saveSettings();
   }
 
-  // Return items sorted by mtime descending (newest first!)
-  return Object.values(cache.items).sort((a, b) => b.mtime - a.mtime);
+  // Return items sorted by mtime descending (newest first!), excluding non-video notes
+  return Object.values(cache.items)
+    .filter((it) => {
+      const p = it.filePath.toLowerCase();
+      const t = it.title.toLowerCase();
+      return (
+        !p.endsWith("index.md") &&
+        !p.endsWith("untitled.md") &&
+        t !== "untitled" &&
+        t !== "yt captures" &&
+        Boolean(it.url || it.videoId)
+      );
+    })
+    .sort((a, b) => b.mtime - a.mtime);
 }
 
 /** Lightweight YAML frontmatter parser using regex line extraction */
