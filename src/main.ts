@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon, MarkdownView } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -17,8 +17,6 @@ import { ScanSyncModal } from './features/scriptSync/ui/ScanSyncModal';
 import { PendingChangesModal } from './features/scriptSync/ui/PendingChangesModal';
 import { SyncCodeblockRenderer } from './features/scriptSync/ui/SyncCodeblockRenderer';
 import { renderScriptSyncSettings } from './features/scriptSync/settings';
-import { extractTargetCodeblock } from './features/scriptSync/markdownParser';
-import { DEFAULT_FOLDER_SYNC_SETTINGS } from './features/scriptSync/types';
 
 // YTD Imports
 import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
@@ -36,7 +34,6 @@ export default class PakCLILocalPlugin extends Plugin {
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
 	badgeRenderer!: BadgeRenderer;
-	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
 
 	async onload() {
@@ -95,6 +92,16 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
+		// Register Script Codeblock Processors (including :sync tag variants)
+		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
+		const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
+		allProcessLangs.forEach((lang) => {
+			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
+				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
+			});
+		});
+
 		// Echo Suppression: Vault modify listener checking mutex lock
 		this.registerEvent(
 			this.app.vault.on('modify', (file) => {
@@ -116,18 +123,6 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.app.workspace.onLayoutReady(() => {
 			this.copyPasteManager.runAwakeScan();
-		});
-
-		// Register Script Codeblock Processors for explicit :sync tag variants ONLY
-		// (e.g. ```powershell:sync, ```bash:sync, ```py:sync, ```sync)
-		// Standard ```powershell blocks remain 100% native markdown so tables, callouts, and typing NEVER crash!
-		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
-		const syncLangs = [...scriptLangs.map(l => `${l}:sync`), 'sync'];
-		syncLangs.forEach((lang) => {
-			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
-				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
-			});
 		});
 
 		// 7. Register YTD Downloader View & Ribbon Icon
@@ -165,26 +160,13 @@ export default class PakCLILocalPlugin extends Plugin {
 			).open();
 		});
 
-		// 10. Status Bar Item for ScriptSync
-		this.scriptSyncStatusBarItem = this.addStatusBarItem();
-		this.updateScriptSyncStatusBar();
-
-		// Auto-off when switching notes/tabs so the next note is always in pure editing mode
-		this.registerEvent(
-			this.app.workspace.on('active-leaf-change', () => {
-				if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
-					void this.turnOffLiveCodeblockToolbar(true);
-				}
-			})
-		);
-
-		// 11. Register Commands
+		// 10. Register Commands
 		this.registerPluginCommands();
 
-		// 12. Register Master-Detail Settings Tab
+		// 9. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
-		// 13. Background Health Check
+		// 10. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
@@ -193,7 +175,6 @@ export default class PakCLILocalPlugin extends Plugin {
 	}
 
 	async onunload() {
-		this.clearScriptSyncAutoOffTimer();
 		// 2. Persistent Snapshot on App Close / Unload
 		try { await saveVaultConfig(this.app, 'pakcli-local', this.settings, 'session-close'); } catch {}
 		console.log('[PakCLI Local] Unloading plugin...');
@@ -218,92 +199,6 @@ export default class PakCLILocalPlugin extends Plugin {
 	applyBadgeSetting() {
 		if (this.badgeRenderer) {
 			this.badgeRenderer.refresh();
-		}
-	}
-
-	private scriptSyncAutoOffTimer: any = null;
-
-	clearScriptSyncAutoOffTimer() {
-		if (this.scriptSyncAutoOffTimer) {
-			window.clearTimeout(this.scriptSyncAutoOffTimer);
-			this.scriptSyncAutoOffTimer = null;
-		}
-	}
-
-	startScriptSyncAutoOffTimer() {
-		this.clearScriptSyncAutoOffTimer();
-		if (this.settings.autoTurnOffToolbar === false) return;
-		const delaySec = this.settings.autoTurnOffDelaySeconds || 60;
-		this.scriptSyncAutoOffTimer = window.setTimeout(() => {
-			void this.turnOffLiveCodeblockToolbar(true);
-		}, delaySec * 1000);
-	}
-
-	resetScriptSyncAutoOffTimer() {
-		if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
-			this.startScriptSyncAutoOffTimer();
-		}
-	}
-
-	updateScriptSyncStatusBar() {
-		if (!this.scriptSyncStatusBarItem) return;
-		const isLive = Boolean(this.settings.liveCodeblockToolbar);
-		const isAuto = this.settings.autoTurnOffToolbar !== false;
-		const text = isLive
-			? (isAuto ? '⚡ ScriptSync: ON (Auto)' : '⚡ ScriptSync: ON')
-			: '⚡ ScriptSync: OFF';
-		this.scriptSyncStatusBarItem.setText(text);
-		this.scriptSyncStatusBarItem.setAttribute(
-			'aria-label',
-			isLive
-				? 'ScriptSync In-Editor Toolbar is ON (Click to turn OFF)'
-				: 'ScriptSync In-Editor Toolbar is OFF (Click to turn ON)'
-		);
-		this.scriptSyncStatusBarItem.style.cursor = 'pointer';
-		this.scriptSyncStatusBarItem.onclick = () => {
-			void this.toggleLiveCodeblockToolbar();
-		};
-	}
-
-	refreshActiveLeaf() {
-		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (mdView) {
-			const viewAny = mdView as any;
-			if (typeof viewAny.previewMode?.rerender === 'function') {
-				viewAny.previewMode.rerender(true);
-			}
-			if (viewAny.editor?.cm?.dispatch) {
-				viewAny.editor.cm.dispatch({});
-			}
-		}
-		(this.app.workspace as any).trigger('layout-change');
-	}
-
-	async turnOffLiveCodeblockToolbar(isAuto = false) {
-		if (!this.settings.liveCodeblockToolbar) return;
-		this.clearScriptSyncAutoOffTimer();
-		this.settings.liveCodeblockToolbar = false;
-		await this.saveSettings();
-		this.updateScriptSyncStatusBar();
-		if (isAuto) {
-			new Notice('⚡ [PakCLI] ScriptSync Live Toolbar auto-disabled (pure editor mode).');
-		}
-		this.refreshActiveLeaf();
-	}
-
-	async toggleLiveCodeblockToolbar() {
-		if (this.settings.liveCodeblockToolbar) {
-			await this.turnOffLiveCodeblockToolbar(false);
-			new Notice('⚡ ScriptSync Live Toolbar: OFF (Pure Markdown Editor)');
-		} else {
-			this.settings.liveCodeblockToolbar = true;
-			await this.saveSettings();
-			this.updateScriptSyncStatusBar();
-			const delay = this.settings.autoTurnOffDelaySeconds || 60;
-			const autoMsg = this.settings.autoTurnOffToolbar !== false ? ` (Auto-off in ${delay}s)` : '';
-			new Notice(`⚡ ScriptSync Live Toolbar: ON${autoMsg}`);
-			this.startScriptSyncAutoOffTimer();
-			this.refreshActiveLeaf();
 		}
 	}
 
@@ -350,7 +245,7 @@ export default class PakCLILocalPlugin extends Plugin {
 			},
 		});
 
-		// Command: Scan & Sync Script Blocks
+		// Command: Scan & Sync Codeblock Scripts
 		this.addCommand({
 			id: 'pl-scriptsync-scan',
 			name: 'ScriptSync: Scan & Sync Codeblock Scripts',
@@ -371,7 +266,14 @@ export default class PakCLILocalPlugin extends Plugin {
 				}
 				try {
 					const content = await this.app.vault.read(activeFile);
-					const langMap = (this.settings.languageExtensionMap as Record<string, string>) || DEFAULT_FOLDER_SYNC_SETTINGS.languageExtensionMap;
+					const langMap = (this.settings.languageExtensionMap as Record<string, string>) || {
+                        'powershell': 'ps1', 'ps1': 'ps1',
+                        'bash': 'sh', 'sh': 'sh',
+                        'python': 'py', 'py': 'py',
+                        'cmd': 'cmd', 'bat': 'bat'
+                    };
+                    // Dynamic import to avoid top-level import crash if file was reverted
+                    const { extractTargetCodeblock } = await import('./features/scriptSync/markdownParser');
 					const targetBlock = extractTargetCodeblock(content, langMap);
 					if (!targetBlock || !targetBlock.code.trim()) {
 						new Notice('⚠️ No executable script codeblock found in active note.');
@@ -395,15 +297,6 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'ScriptSync: View Pending Changes',
 			callback: () => {
 				new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
-			},
-		});
-
-		// Command: Toggle In-Editor ScriptSync Toolbar
-		this.addCommand({
-			id: 'pl-toggle-scriptsync-toolbar',
-			name: 'ScriptSync: Toggle In-Editor Codeblock Toolbar',
-			callback: () => {
-				void this.toggleLiveCodeblockToolbar();
 			},
 		});
 
@@ -431,21 +324,6 @@ export default class PakCLILocalPlugin extends Plugin {
 					new Notice(`✅ [CopyPaste] Batch rescan complete: ${res.successCount} synced (${res.totalCopied} files copied).`);
 				} else {
 					new Notice(`⚠️ [CopyPaste] Batch rescan finished with ${res.errors.length} error(s).`);
-				}
-			},
-		});
-
-		// Command: Open CopyPaste Manager Settings Tab
-		this.addCommand({
-			id: 'pl-copypaste-open-settings',
-			name: 'CopyPaste: Open Settings Tab',
-			callback: () => {
-				const setting = (this.app as any).setting;
-				if (setting && typeof setting.open === 'function') {
-					setting.open();
-					if (typeof setting.openTabById === 'function') {
-						setting.openTabById('pakcli-copypaste');
-					}
 				}
 			},
 		});

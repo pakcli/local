@@ -4,8 +4,6 @@
  * Renders the Two-Section Codeblock:
  *   - Section 1: Interactive Sync Controller, Diff Viewer & Script Runner
  *   - Section 2: Formatted Codeblock with Copy Button
- *
- * Directly based on proven stable architecture from commit cad553d2241fad7afc31bb0379d8ffdb2b7c4f01.
  */
 import { MarkdownRenderChild, Notice, TFile } from 'obsidian';
 import { SyncManager } from '../SyncManager';
@@ -42,34 +40,19 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         this.render();
     }
 
-    private getBaseLanguage(): string {
-        return (this.language.split(':')[0] || this.language).trim().toLowerCase();
-    }
-
     private isLivePreviewMode(): boolean {
         return Boolean(this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content'));
-    }
-
-    private shouldShowToolbar(): boolean {
-        // 1. Explicit :sync tag variant ALWAYS shows toolbar everywhere
-        if (this.language.includes(':sync') || this.language === 'sync') return true;
-
-        // 2. Reading View ("lagi buka"): ALWAYS show toolbar!
-        // No CodeMirror active in Reading View, so table/editor heightmap never crashes.
-        if (!this.isLivePreviewMode()) {
-            return true;
-        }
-
-        // 3. Live Preview ("lagi editing"): Only show if explicitly toggled ON via status bar / command
-        return Boolean(this.plugin?.settings?.liveCodeblockToolbar);
     }
 
     private render(): void {
         const { containerEl } = this;
         containerEl.empty();
-
-        if (!this.shouldShowToolbar()) {
-            const baseLang = this.getBaseLanguage();
+        
+        // AUTO-TOGGLE LOGIC ("lagi editing - toggle auto - lagi buka")
+        // If in Live Preview (editing), do NOT inject custom UI elements.
+        // This PREVENTS CodeMirror heightmap B-Tree errors when inserting tables.
+        if (this.isLivePreviewMode()) {
+            const baseLang = this.language.split(':')[0] || this.language;
             const pre = containerEl.createEl('pre', { cls: 'pakcli-codeblock' });
             const code = pre.createEl('code', { cls: `language-${baseLang}` });
             code.textContent = this.source;
@@ -84,35 +67,24 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
 
         // Diff Viewer (Expandable Drawer)
         this.diffContainerEl = containerEl.createDiv({ cls: 'pakcli-diff-drawer' });
-        this.diffContainerEl.setCssStyles({ display: 'none' });
+        this.diffContainerEl.setCssStyles({ display: "none" });
 
         // Script Output Terminal Drawer
         this.outputContainerEl = containerEl.createDiv({ cls: 'pakcli-output-drawer' });
-        this.outputContainerEl.setCssStyles({ display: 'none' });
+        this.outputContainerEl.setCssStyles({ display: "none" });
 
         // SECTION 2: Codeblock View
         const section2 = containerEl.createDiv({ cls: 'pakcli-codeblock-section' });
         this.renderCodeblockBody(section2);
     }
 
-    private getNoteFile(): TFile | null {
-        if (this.noteFile) return this.noteFile;
-        const app = this.plugin?.app;
-        const active = app?.workspace?.getActiveFile?.();
-        if (active instanceof TFile) {
-            this.noteFile = active;
-            return active;
-        }
-        return null;
-    }
-
     private renderControllerHeader(headerEl: HTMLElement): void {
         const titleRow = headerEl.createDiv({ cls: 'pakcli-sync-title-row' });
         const leftMeta = titleRow.createDiv({ cls: 'pakcli-sync-meta' });
 
-        const baseLang = this.getBaseLanguage();
         const isSyncTagged = this.language.includes(':sync');
-
+        const baseLang = this.language.split(':')[0] || this.language;
+        
         leftMeta.createSpan({ cls: 'pakcli-lang-badge', text: baseLang.toUpperCase() });
         const statusBadge = leftMeta.createSpan({
             cls: 'pakcli-status-badge',
@@ -125,83 +97,49 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
 
         const actions = titleRow.createDiv({ cls: 'pakcli-sync-actions' });
 
-        // Diff Viewer Button - always available
-        const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy pakcli-sync-btn', text: '👁️ Diff' });
-        diffBtn.onclick = async () => {
-            this.plugin?.resetScriptSyncAutoOffTimer?.();
-            this.isDiffOpen = !this.isDiffOpen;
-            if (this.diffContainerEl) {
-                if (this.isDiffOpen) {
-                    this.diffContainerEl.setCssStyles({ display: 'block' });
-                    diffBtn.setText('👁️ Hide');
-
-                    const noteFile = this.getNoteFile();
-                    if (!noteFile) {
-                        this.diffContainerEl.empty();
-                        this.diffContainerEl.setText('⚠️ Note file reference not found. Click into the note to view diff.');
-                        return;
-                    }
-
-                    try {
-                        const status = await this.syncManager.getSyncStatus(noteFile, this.source, baseLang);
-                        if (status && status.cliCode !== undefined) {
-                            renderDiffViewer(this.diffContainerEl, {
-                                leftText: status.cliCode,
-                                rightText: this.source,
-                                leftLabel: 'CLI Script',
-                                rightLabel: 'Manager Note',
-                                onApplyToLeft: async () => {
-                                    await this.syncManager.executeSync(noteFile, 'manager_to_cli', this.source, baseLang);
-                                    new Notice('✅ Applied Manager note to CLI script file');
-                                },
-                                onApplyToRight: async () => {
-                                    await this.syncManager.executeSync(noteFile, 'cli_to_manager', undefined, baseLang);
-                                    new Notice('✅ Applied CLI script to Manager note');
-                                }
-                            });
+        // Diff Viewer Button
+        if (this.noteFile) {
+            const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy', text: '👁️ Diff' });
+            diffBtn.onclick = async () => {
+                this.isDiffOpen = !this.isDiffOpen;
+                if (this.diffContainerEl) {
+                    if (this.isDiffOpen) {
+                        this.diffContainerEl.setCssStyles({ display: "block" });
+                        diffBtn.setText('👁️ Hide');
+                        const status = await this.syncManager.getSyncStatus(this.noteFile!, this.source, baseLang);
+                        if (status.cliCode) {
+                            renderDiffViewer(this.diffContainerEl, status.cliCode, this.source);
                         } else {
-                            this.diffContainerEl.empty();
-                            this.diffContainerEl.setText(status?.statusLabel || 'No target script file found for comparison.');
+                            this.diffContainerEl.setText(status.statusLabel);
                         }
-                    } catch (err: any) {
-                        this.diffContainerEl.empty();
-                        this.diffContainerEl.setText(`Diff error: ${err?.message || err}`);
+                    } else {
+                        this.diffContainerEl.setCssStyles({ display: "none" });
+                        diffBtn.setText('👁️ Diff');
                     }
-                } else {
-                    this.diffContainerEl.setCssStyles({ display: 'none' });
-                    diffBtn.setText('👁️ Diff');
                 }
-            }
-        };
+            };
+        }
 
         // Run Script Button
-        const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run pakcli-sync-btn', text: '▶ Run' });
+        const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run', text: '▶ Run' });
         runBtn.onclick = async () => {
-            this.plugin?.resetScriptSyncAutoOffTimer?.();
             runBtn.disabled = true;
             runBtn.setText('⏳ Running...');
             try {
                 if (this.outputContainerEl) {
-                    this.outputContainerEl.setCssStyles({ display: 'block' });
-                    this.outputContainerEl.empty();
+                    this.outputContainerEl.setCssStyles({ display: "block" });
                     this.outputContainerEl.setText('⏳ Executing script via local shell...');
                 }
 
-                const noteFile = this.getNoteFile();
-                const cliPath = noteFile ? this.syncManager.resolveCliPath(noteFile.path, baseLang) : null;
+                const cliPath = this.noteFile ? this.syncManager.resolveCliPath(this.noteFile.path, baseLang) : null;
                 const res = await this.syncManager.runScript(this.source, baseLang, cliPath);
 
                 if (this.outputContainerEl) {
-                    this.outputContainerEl.empty();
                     const text = res.stdout || (res.stderr ? `Error:\n${res.stderr}` : `(Exit code: ${res.exitCode})`);
                     this.outputContainerEl.setText(text);
                 }
             } catch (err: any) {
                 new Notice('Execution error: ' + (err?.message || String(err)));
-                if (this.outputContainerEl) {
-                    this.outputContainerEl.empty();
-                    this.outputContainerEl.setText('Error: ' + (err?.message || String(err)));
-                }
             } finally {
                 runBtn.disabled = false;
                 runBtn.setText('▶ Run');
@@ -209,9 +147,8 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         };
 
         // Copy Button
-        const copyBtn = actions.createEl('button', { cls: 'pakcli-btn-copy pakcli-sync-btn', text: '📋 Copy' });
-        copyBtn.onclick = (e) => {
-            e.stopPropagation();
+        const copyBtn = actions.createEl('button', { cls: 'pakcli-btn-copy', text: '📋 Copy' });
+        copyBtn.onclick = () => {
             navigator.clipboard.writeText(this.source);
             copyBtn.setText('✅ Copied!');
             window.setTimeout(() => copyBtn.setText('📋 Copy'), 1500);
@@ -219,10 +156,9 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     }
 
     private renderCodeblockBody(section2: HTMLElement): void {
-        const baseLang = this.getBaseLanguage();
         const codeBody = section2.createDiv({ cls: 'pakcli-codeblock-body' });
-        // Clean pre element WITHOUT pakcli-codeblock-flowclip to prevent external panel MutationObserver interference
-        const pre = codeBody.createEl('pre', { cls: 'pakcli-codeblock' });
+        const pre = codeBody.createEl('pre', { cls: 'pakcli-codeblock pakcli-codeblock-flowclip' });
+        const baseLang = this.language.split(':')[0] || this.language;
         const code = pre.createEl('code', { cls: `language-${baseLang}` });
         code.textContent = this.source;
     }
