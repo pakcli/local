@@ -34,6 +34,7 @@ export default class PakCLILocalPlugin extends Plugin {
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
 	badgeRenderer!: BadgeRenderer;
+	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
 
 	async onload() {
@@ -160,10 +161,23 @@ export default class PakCLILocalPlugin extends Plugin {
 			).open();
 		});
 
-		// 10. Register Commands
+		// 10. Status Bar Item for ScriptSync
+		this.scriptSyncStatusBarItem = this.addStatusBarItem();
+		this.updateScriptSyncStatusBar();
+
+		// Auto-off when switching notes/tabs so the next note is always in pure editing mode
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', () => {
+				if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
+					void this.turnOffLiveCodeblockToolbar(true);
+				}
+			})
+		);
+
+		// 11. Register Commands
 		this.registerPluginCommands();
 
-		// 9. Register Master-Detail Settings Tab
+		// 12. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
 		// 10. Background Health Check
@@ -202,7 +216,108 @@ export default class PakCLILocalPlugin extends Plugin {
 		}
 	}
 
+	private scriptSyncAutoOffTimer: any = null;
+
+	clearScriptSyncAutoOffTimer() {
+		if (this.scriptSyncAutoOffTimer) {
+			window.clearTimeout(this.scriptSyncAutoOffTimer);
+			this.scriptSyncAutoOffTimer = null;
+		}
+	}
+
+	startScriptSyncAutoOffTimer() {
+		this.clearScriptSyncAutoOffTimer();
+		if (this.settings.autoTurnOffToolbar === false) return;
+		const delaySec = this.settings.autoTurnOffDelaySeconds || 60;
+		this.scriptSyncAutoOffTimer = window.setTimeout(() => {
+			void this.turnOffLiveCodeblockToolbar(true);
+		}, delaySec * 1000);
+	}
+
+	resetScriptSyncAutoOffTimer() {
+		if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
+			this.startScriptSyncAutoOffTimer();
+		}
+	}
+
+	updateScriptSyncStatusBar() {
+		if (!this.scriptSyncStatusBarItem) return;
+		const isLive = Boolean(this.settings.liveCodeblockToolbar);
+		const isAuto = this.settings.autoTurnOffToolbar !== false;
+		const text = isLive
+			? (isAuto ? '⚡ ScriptSync: ON (Auto)' : '⚡ ScriptSync: ON')
+			: '⚡ ScriptSync: OFF';
+		this.scriptSyncStatusBarItem.setText(text);
+		this.scriptSyncStatusBarItem.setAttribute(
+			'aria-label',
+			isLive
+				? 'ScriptSync In-Editor Toolbar is ON (Click to turn OFF)'
+				: 'ScriptSync In-Editor Toolbar is OFF (Click to turn ON)'
+		);
+		this.scriptSyncStatusBarItem.style.cursor = 'pointer';
+		this.scriptSyncStatusBarItem.onclick = () => {
+			void this.toggleLiveCodeblockToolbar();
+		};
+	}
+
+	refreshActiveLeaf() {
+		const mdView = this.app.workspace.getActiveViewOfType(import('obsidian').then(m => m.MarkdownView) as any);
+        // Using a safe casting workaround to avoid import issues for MarkdownView
+        const workspace = this.app.workspace;
+        let view: any = null;
+        workspace.getLeavesOfType('markdown').forEach(leaf => {
+            if (leaf.view.containerEl.isShown()) view = leaf.view;
+        });
+
+		if (view) {
+			if (typeof view.previewMode?.rerender === 'function') {
+				view.previewMode.rerender(true);
+			}
+			if (view.editor?.cm?.dispatch) {
+				view.editor.cm.dispatch({});
+			}
+		}
+		(this.app.workspace as any).trigger('layout-change');
+	}
+
+	async turnOffLiveCodeblockToolbar(isAuto = false) {
+		if (!this.settings.liveCodeblockToolbar) return;
+		this.clearScriptSyncAutoOffTimer();
+		this.settings.liveCodeblockToolbar = false;
+		await this.saveSettings();
+		this.updateScriptSyncStatusBar();
+		if (isAuto) {
+			new Notice('⚡ [PakCLI] ScriptSync Live Toolbar auto-disabled (pure editor mode).');
+		}
+		this.refreshActiveLeaf();
+	}
+
+	async toggleLiveCodeblockToolbar() {
+		if (this.settings.liveCodeblockToolbar) {
+			await this.turnOffLiveCodeblockToolbar(false);
+			new Notice('⚡ ScriptSync Live Toolbar: OFF (Pure Markdown Editor)');
+		} else {
+			this.settings.liveCodeblockToolbar = true;
+			await this.saveSettings();
+			this.updateScriptSyncStatusBar();
+			const delay = this.settings.autoTurnOffDelaySeconds || 60;
+			const autoMsg = this.settings.autoTurnOffToolbar !== false ? ` (Auto-off in ${delay}s)` : '';
+			new Notice(`⚡ ScriptSync Live Toolbar: ON${autoMsg}`);
+			this.startScriptSyncAutoOffTimer();
+			this.refreshActiveLeaf();
+		}
+	}
+
 	private registerPluginCommands() {
+		// Command: Toggle Live Codeblock Toolbar
+		this.addCommand({
+			id: 'pl-toggle-scriptsync-toolbar',
+			name: 'ScriptSync: Toggle In-Editor Codeblock Toolbar',
+			callback: () => {
+				void this.toggleLiveCodeblockToolbar();
+			}
+		});
+
 		// Command: Open Diagnostics Wizard
 		this.addCommand({
 			id: 'pl-open-wizard',

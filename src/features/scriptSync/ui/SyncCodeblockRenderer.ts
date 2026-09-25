@@ -49,14 +49,20 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         containerEl.empty();
         
         // AUTO-TOGGLE LOGIC ("lagi editing - toggle auto - lagi buka")
-        // If in Live Preview (editing), do NOT inject custom UI elements.
-        // This PREVENTS CodeMirror heightmap B-Tree errors when inserting tables.
+        // If in Live Preview (editing) AND the toolbar is toggled OFF, do NOT inject custom UI elements.
+        // This completely disables DOM manipulation, which FIXES the CodeMirror table insertion error.
+        // If the user manually toggles it ON, we allow DOM manipulation (at the risk of CodeMirror errors).
         if (this.isLivePreviewMode()) {
-            const baseLang = this.language.split(':')[0] || this.language;
-            const pre = containerEl.createEl('pre', { cls: 'pakcli-codeblock' });
-            const code = pre.createEl('code', { cls: `language-${baseLang}` });
-            code.textContent = this.source;
-            return;
+            const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
+            const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
+            
+            if (!isToolbarOn && !isExplicitlyTagged) {
+                const baseLang = this.language.split(':')[0] || this.language;
+                const pre = containerEl.createEl('pre', { cls: 'pakcli-codeblock' });
+                const code = pre.createEl('code', { cls: `language-${baseLang}` });
+                code.textContent = this.source;
+                return;
+            }
         }
 
         containerEl.addClass('pakcli-codeblock-container');
