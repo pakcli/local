@@ -93,10 +93,9 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
-		// Register Script Codeblock Processors (including :sync tag variants)
+		// Register Script Codeblock Processors (clean language names only; colons break Obsidian's internal querySelectorAll)
 		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
-		const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
-		allProcessLangs.forEach((lang) => {
+		scriptLangs.forEach((lang) => {
 			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
 				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
 				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
