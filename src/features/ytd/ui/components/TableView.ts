@@ -276,10 +276,18 @@ export class TableView {
 
     // 1. Thumb
     const tdThumb = tr.createEl("td", { cls: "col-thumb" });
-    if (row.thumbnail) {
+    let thumbSrc = row.thumbnail;
+    if (row.thumbnailPath) {
+      const tFile = this.app.vault.getAbstractFileByPath(row.thumbnailPath);
+      if (tFile instanceof TFile) {
+        thumbSrc = this.app.vault.getResourcePath(tFile);
+      }
+    }
+
+    if (thumbSrc) {
       const img = tdThumb.createEl("img", {
         cls: "ytec-row-thumb-img",
-        attr: { src: row.thumbnail, alt: row.title },
+        attr: { src: thumbSrc, alt: row.title },
       });
       img.onerror = () => {
         img.remove();
@@ -566,6 +574,7 @@ export class TableView {
         // Merge vault history with live task
         if (!existing.thumbnail && h.thumbnail) {
           existing.thumbnail = h.thumbnail;
+          existing.thumbnailPath = h.thumbnailPath;
         }
         if (!existing.noteFilePath) {
           existing.noteFilePath = h.filePath;
@@ -581,7 +590,10 @@ export class TableView {
           const matchQual = row.quality === (h.resolution || "best");
           if (matchUrl && matchQual) {
             row.noteFilePath = h.filePath;
-            if (!row.thumbnail && h.thumbnail) row.thumbnail = h.thumbnail;
+            if (!row.thumbnail && h.thumbnail) {
+              row.thumbnail = h.thumbnail;
+              row.thumbnailPath = h.thumbnailPath;
+            }
             matchedByProps = true;
             break;
           }
@@ -593,6 +605,7 @@ export class TableView {
             url: h.url,
             title: h.title,
             thumbnail: h.thumbnail || "",
+            thumbnailPath: h.thumbnailPath,
             platform: h.platform,
             quality: (h.resolution as VideoQuality) || "best",
             fps: "auto",
@@ -644,6 +657,7 @@ interface CombinedRow {
   url: string;
   title: string;
   thumbnail: string;
+  thumbnailPath?: string;
   platform: "youtube" | "instagram";
   quality: VideoQuality;
   fps: VideoFps;

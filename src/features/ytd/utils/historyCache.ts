@@ -1,10 +1,11 @@
-import { App, TFile } from "obsidian";
+import { App, TFile, normalizePath } from "obsidian";
 import type PakCLIPlugin from "../../../main";
 
 export interface CaptureHistoryItem {
   filePath: string;
   mediaPath?: string;
   thumbnail?: string;
+  thumbnailPath?: string;
   title: string;
   url: string;
   videoId: string;
@@ -44,7 +45,7 @@ export async function getIncrementalCaptureHistory(
   const cache = plugin.settings.ytHistoryCache;
   const currentFiles = app.vault.getFiles().filter(
     (f) =>
-      (f.path.startsWith(outputFolderPath + "/") || f.path.startsWith(outputFolderPath + "\\")) &&
+      (normalizePath(f.path).startsWith(outputFolderPath + "/") || normalizePath(f.path).startsWith(outputFolderPath + "\\")) &&
       f.extension === "md"
   );
 
@@ -59,10 +60,18 @@ export async function getIncrementalCaptureHistory(
     }
   }
 
+  // Pre-index folder image files for fast and reliable thumbnail fallback matching
+  const folderImageFiles = app.vault.getFiles().filter(
+    (f) =>
+      normalizePath(f.path).startsWith(outputFolderPath + "/") &&
+      [".jpg", ".jpeg", ".png", ".webp"].includes("." + f.extension.toLowerCase())
+  );
+
   // Incrementally scan new or modified files
   for (const file of currentFiles) {
-    // Skip index / non-capture files
-    if (file.name.toLowerCase() === "index.md") continue;
+    // Skip index / scratchpad non-capture files
+    const lowerName = file.name.toLowerCase();
+    if (lowerName === "index.md" || lowerName === "untitled.md") continue;
 
     const cachedItem = cache.items[file.path];
     if (
@@ -70,11 +79,12 @@ export async function getIncrementalCaptureHistory(
       cachedItem &&
       cachedItem.mtime === file.stat.mtime &&
       cachedItem.platform &&
+      cachedItem.thumbnail &&
       cachedItem.title &&
       cachedItem.title !== "Untitled Video" &&
       cachedItem.title !== file.basename
     ) {
-      // Unchanged valid item — skip re-reading
+      // Unchanged valid item with thumbnail — skip re-reading
       continue;
     }
 
@@ -89,9 +99,9 @@ export async function getIncrementalCaptureHistory(
         parsed = parseYamlFrontmatter(content);
       }
 
-      // If note has no url or title or video_id, it's not a YT capture note (e.g. Untitled.md scratchpad)
+      // If note has no url or title or video_id, it's not a YT capture note (e.g. scratchpads)
       const rawUrl = String(parsed.yt_url || parsed.url || "");
-      if (!rawUrl && !parsed.video_id && !file.basename.startsWith("yt_")) {
+      if (!rawUrl && !parsed.video_id && !parsed.clip_file && !file.basename.startsWith("yt_")) {
         continue;
       }
 
@@ -129,40 +139,67 @@ export async function getIncrementalCaptureHistory(
       const possibleExtensions = [".mp4", ".mp3", ".m4a", ".webm", ".zip"];
       let mediaPath = "";
       if (parsed.clip_file) {
-        const directFile = app.vault.getAbstractFileByPath(`${outputFolderPath}/${parsed.clip_file}`);
+        const directFile = app.vault.getAbstractFileByPath(
+          normalizePath(`${outputFolderPath}/${parsed.clip_file}`)
+        );
         if (directFile instanceof TFile) mediaPath = directFile.path;
       }
       if (!mediaPath) {
         for (const ext of possibleExtensions) {
-          if (app.vault.getAbstractFileByPath(baseWithoutExt + ext)) {
-            mediaPath = baseWithoutExt + ext;
+          const candidate = app.vault.getAbstractFileByPath(normalizePath(baseWithoutExt + ext));
+          if (candidate instanceof TFile) {
+            mediaPath = candidate.path;
             break;
           }
         }
       }
 
-      // 5. Thumbnail resolution
+      // 5. Thumbnail resolution (stores both direct resource URI and permanent vault path)
       let thumbnail = "";
+      let thumbnailPath = "";
+
       if (parsed.thumbnail || parsed.yt_thumbnail) {
         const thumbRef = String(parsed.thumbnail || parsed.yt_thumbnail).trim();
         if (thumbRef.startsWith("http://") || thumbRef.startsWith("https://")) {
           thumbnail = thumbRef;
         } else {
+          const cleanRef = thumbRef.replace(/^[\\/]+/, "");
+          const candidatePath = normalizePath(cleanRef.includes("/") ? cleanRef : `${outputFolderPath}/${cleanRef}`);
           const directThumb =
-            app.vault.getAbstractFileByPath(thumbRef.includes("/") ? thumbRef : `${outputFolderPath}/${thumbRef}`) ||
-            app.metadataCache.getFirstLinkpathDest(thumbRef, file.path);
+            app.vault.getAbstractFileByPath(candidatePath) ||
+            app.metadataCache.getFirstLinkpathDest(cleanRef, file.path);
           if (directThumb instanceof TFile) {
+            thumbnailPath = directThumb.path;
             thumbnail = app.vault.getResourcePath(directThumb);
           }
         }
       }
+
+      // Fallback A: same base filename with image extensions
       if (!thumbnail) {
         for (const imgExt of [".jpg", ".jpeg", ".png", ".webp"]) {
-          const tFile = app.vault.getAbstractFileByPath(baseWithoutExt + imgExt);
+          const candidatePath = normalizePath(baseWithoutExt + imgExt);
+          const tFile = app.vault.getAbstractFileByPath(candidatePath);
           if (tFile instanceof TFile) {
+            thumbnailPath = tFile.path;
             thumbnail = app.vault.getResourcePath(tFile);
             break;
           }
+        }
+      }
+
+      // Fallback B: search folder image files for matching basename or video_id
+      if (!thumbnail && folderImageFiles.length > 0) {
+        const match = folderImageFiles.find((f) => {
+          return (
+            f.basename === file.basename ||
+            (parsed.video_id && f.basename.includes(parsed.video_id)) ||
+            (file.basename.length > 12 && f.basename.startsWith(file.basename.slice(0, 12)))
+          );
+        });
+        if (match instanceof TFile) {
+          thumbnailPath = match.path;
+          thumbnail = app.vault.getResourcePath(match);
         }
       }
 
@@ -179,6 +216,7 @@ export async function getIncrementalCaptureHistory(
         filePath: file.path,
         mediaPath,
         thumbnail,
+        thumbnailPath,
         title,
         url: rawUrl,
         videoId: String(parsed.video_id || ""),
