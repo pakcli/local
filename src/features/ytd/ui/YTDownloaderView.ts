@@ -95,6 +95,15 @@ export class YTDownloaderView extends ItemView {
     this.taskFooter?.destroy();
   }
 
+  async refreshData(forceRescan = true): Promise<void> {
+    if (this.recentTable) {
+      await this.recentTable.renderTable(forceRescan);
+    }
+    if (this.fullTable) {
+      await this.fullTable.renderTable(forceRescan);
+    }
+  }
+
   private renderHeader(parentEl: HTMLElement): void {
     this.headerEl = parentEl.createDiv({ cls: "ytec-view-header" });
 
@@ -210,7 +219,21 @@ export class YTDownloaderView extends ItemView {
     setIcon(toggleIcon, this.recentDownloadsCollapsed ? "chevron-right" : "chevron-down");
     titleSpan.createSpan({ text: "🕐 Recent Downloads" });
 
-    recentHeader.addEventListener("click", () => {
+    const recentActions = recentHeader.createDiv({ cls: "ytec-section-actions" });
+    const refreshBtn = recentActions.createEl("button", {
+      cls: "ytec-icon-btn ytec-recent-rescan-btn",
+      title: "Rescan and refresh downloads from vault",
+      type: "button",
+    });
+    setIcon(refreshBtn, "refresh-cw");
+    refreshBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.refreshData(true);
+      new Notice("🔄 Scanned YT Captures folder");
+    });
+
+    recentHeader.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".ytec-recent-rescan-btn")) return;
       this.recentDownloadsCollapsed = !this.recentDownloadsCollapsed;
       setIcon(toggleIcon, this.recentDownloadsCollapsed ? "chevron-right" : "chevron-down");
       if (recentContainer) {

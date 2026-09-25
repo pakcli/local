@@ -28,11 +28,13 @@ export interface YTHistoryCache {
  */
 export async function getIncrementalCaptureHistory(
   app: App,
-  plugin: PakCLIPlugin
+  plugin: PakCLIPlugin,
+  forceRescan = false
 ): Promise<CaptureHistoryItem[]> {
-  const outputFolderPath = plugin.settings.ytCaptureOutputFolder || "YT Captures";
+  const rawFolder = plugin.settings.ytCaptureOutputFolder || "YT Captures";
+  const outputFolderPath = rawFolder.replace(/^[\\/]+|[\\/]+$/g, "");
 
-  if (!plugin.settings.ytHistoryCache) {
+  if (!plugin.settings.ytHistoryCache || forceRescan) {
     plugin.settings.ytHistoryCache = {
       lastScannedAt: 0,
       items: {},
@@ -41,7 +43,9 @@ export async function getIncrementalCaptureHistory(
 
   const cache = plugin.settings.ytHistoryCache;
   const currentFiles = app.vault.getFiles().filter(
-    (f) => f.path.startsWith(outputFolderPath + "/") && f.extension === "md"
+    (f) =>
+      (f.path.startsWith(outputFolderPath + "/") || f.path.startsWith(outputFolderPath + "\\")) &&
+      f.extension === "md"
   );
 
   const currentPaths = new Set(currentFiles.map((f) => f.path));
@@ -57,59 +61,131 @@ export async function getIncrementalCaptureHistory(
 
   // Incrementally scan new or modified files
   for (const file of currentFiles) {
+    // Skip index / non-capture files
+    if (file.name.toLowerCase() === "index.md") continue;
+
     const cachedItem = cache.items[file.path];
-    if (cachedItem && cachedItem.mtime === file.stat.mtime && cachedItem.platform && cachedItem.thumbnail !== undefined) {
-      // Unchanged file — skip reading/parsing!
+    if (
+      !forceRescan &&
+      cachedItem &&
+      cachedItem.mtime === file.stat.mtime &&
+      cachedItem.platform &&
+      cachedItem.title &&
+      cachedItem.title !== "Untitled Video" &&
+      cachedItem.title !== file.basename
+    ) {
+      // Unchanged valid item — skip re-reading
       continue;
     }
 
-    // New or modified file — parse frontmatter
     try {
-      const content = await app.vault.read(file);
-      const parsed = parseYamlFrontmatter(content);
-      const rawUrl = parsed.yt_url || parsed.url || "";
+      // 1. Read metadata (use Obsidian's metadata cache if available, fallback to file content)
+      let parsed: Record<string, any> = {};
+      const fileCache = app.metadataCache.getFileCache(file);
+      if (fileCache?.frontmatter) {
+        parsed = { ...fileCache.frontmatter };
+      } else {
+        const content = await app.vault.read(file);
+        parsed = parseYamlFrontmatter(content);
+      }
+
+      // If note has no url or title or video_id, it's not a YT capture note (e.g. Untitled.md scratchpad)
+      const rawUrl = String(parsed.yt_url || parsed.url || "");
+      if (!rawUrl && !parsed.video_id && !file.basename.startsWith("yt_")) {
+        continue;
+      }
+
       const isIg =
         rawUrl.includes("instagram.com") ||
         rawUrl.includes("instagr.am") ||
         parsed.platform === "instagram";
 
-      let resolution = parsed.quality || parsed.resolution || "";
+      // 2. Clean title
+      let title = String(parsed.title || parsed.yt_title || "").trim();
+      if (!title) {
+        title = file.basename
+          .replace(/^yt_/i, "")
+          .replace(/_(4k|2k|1080p|720p|480p|360p|240p|144p|audio).*$/i, "")
+          .trim();
+      }
+      if (!title) title = file.basename;
+
+      // 3. Resolution
+      let resolution = String(parsed.quality || parsed.resolution || "").trim();
       if (!resolution) {
-        const resMatch = file.basename.match(/_(4k|2k|1080p|720p|480p|360p|240p|144p|audio)$/i);
+        const resMatch = file.basename.match(/_(4k|2k|1080p|720p|480p|360p|240p|144p|audio)/i);
         if (resMatch) resolution = resMatch[1].toLowerCase();
       }
+      if (!resolution && parsed.clip_file) {
+        const clipMatch = String(parsed.clip_file).match(/_(4k|2k|1080p|720p|480p|360p|240p|144p|audio)/i);
+        if (clipMatch) resolution = clipMatch[1].toLowerCase();
+      }
+      if (!resolution && file.name.toLowerCase().includes("audio")) {
+        resolution = "audio";
+      }
 
+      // 4. Media file path
       const baseWithoutExt = file.path.slice(0, -3);
       const possibleExtensions = [".mp4", ".mp3", ".m4a", ".webm", ".zip"];
       let mediaPath = "";
-      for (const ext of possibleExtensions) {
-        if (app.vault.getAbstractFileByPath(baseWithoutExt + ext)) {
-          mediaPath = baseWithoutExt + ext;
-          break;
+      if (parsed.clip_file) {
+        const directFile = app.vault.getAbstractFileByPath(`${outputFolderPath}/${parsed.clip_file}`);
+        if (directFile instanceof TFile) mediaPath = directFile.path;
+      }
+      if (!mediaPath) {
+        for (const ext of possibleExtensions) {
+          if (app.vault.getAbstractFileByPath(baseWithoutExt + ext)) {
+            mediaPath = baseWithoutExt + ext;
+            break;
+          }
         }
       }
 
-      const thumbFile = app.vault.getAbstractFileByPath(baseWithoutExt + ".jpg");
+      // 5. Thumbnail resolution
       let thumbnail = "";
-      if (thumbFile instanceof TFile) {
-        thumbnail = app.vault.getResourcePath(thumbFile);
-      } else if (typeof parsed.yt_thumbnail === "string" && parsed.yt_thumbnail.startsWith("http")) {
-        thumbnail = parsed.yt_thumbnail;
-      } else if (typeof parsed.thumbnail === "string" && parsed.thumbnail.startsWith("http")) {
-        thumbnail = parsed.thumbnail;
+      if (parsed.thumbnail || parsed.yt_thumbnail) {
+        const thumbRef = String(parsed.thumbnail || parsed.yt_thumbnail).trim();
+        if (thumbRef.startsWith("http://") || thumbRef.startsWith("https://")) {
+          thumbnail = thumbRef;
+        } else {
+          const directThumb =
+            app.vault.getAbstractFileByPath(thumbRef.includes("/") ? thumbRef : `${outputFolderPath}/${thumbRef}`) ||
+            app.metadataCache.getFirstLinkpathDest(thumbRef, file.path);
+          if (directThumb instanceof TFile) {
+            thumbnail = app.vault.getResourcePath(directThumb);
+          }
+        }
+      }
+      if (!thumbnail) {
+        for (const imgExt of [".jpg", ".jpeg", ".png", ".webp"]) {
+          const tFile = app.vault.getAbstractFileByPath(baseWithoutExt + imgExt);
+          if (tFile instanceof TFile) {
+            thumbnail = app.vault.getResourcePath(tFile);
+            break;
+          }
+        }
+      }
+
+      // 6. Time Range
+      let timeRange = String(parsed.capture_time_range || parsed.time_range || "").trim();
+      if (!timeRange && (parsed.clip_start || parsed.clip_end)) {
+        timeRange = `${parsed.clip_start || "0:00"} → ${parsed.clip_end || "End"}`;
+      }
+      if (!timeRange) {
+        timeRange = "Full";
       }
 
       cache.items[file.path] = {
         filePath: file.path,
         mediaPath,
         thumbnail,
-        title: parsed.yt_title || parsed.title || file.basename,
+        title,
         url: rawUrl,
-        videoId: parsed.video_id || "",
-        channel: parsed.yt_channel || parsed.channel || parsed.uploader || "",
-        uploadDate: parsed.yt_upload_date || parsed.upload_date || "",
-        capturedAt: parsed.captured_at || new Date(file.stat.ctime).toISOString(),
-        timeRange: parsed.capture_time_range || parsed.time_range || `${parsed.clip_start || ""}–${parsed.clip_end || ""}`,
+        videoId: String(parsed.video_id || ""),
+        channel: String(parsed.yt_channel || parsed.channel || parsed.uploader || ""),
+        uploadDate: String(parsed.yt_upload_date || parsed.upload_date || ""),
+        capturedAt: String(parsed.captured_at || new Date(file.stat.ctime).toISOString()),
+        timeRange,
         mtime: file.stat.mtime,
         platform: isIg ? "instagram" : "youtube",
         resolution: resolution || "1080p",

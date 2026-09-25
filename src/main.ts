@@ -564,6 +564,9 @@ export default class PakCLILocalPlugin extends Plugin {
 
 		if (leaf) {
 			void workspace.revealLeaf(leaf);
+			if (leaf.view instanceof YTDownloaderView) {
+				void leaf.view.refreshData(true);
+			}
 		}
 	}
 }

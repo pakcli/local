@@ -39,6 +39,7 @@ export class TableView {
   private unsubscribe?: () => void;
   private renderId = 0;
   private renderTimer: number | null = null;
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(parentEl: HTMLElement, app: App, plugin: PakCLIPlugin, options: TableViewOptions) {
     this.app = app;
@@ -49,6 +50,18 @@ export class TableView {
     this.containerEl = parentEl.createDiv({ cls: "ytec-tableview-container" });
     this.toolbarEl = this.containerEl.createDiv({ cls: "ytec-tableview-toolbar" });
     this.tableEl = this.containerEl.createDiv({ cls: "ytec-tableview-table" });
+
+    // Responsive compact mode observer for sidebar docks
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width < 560) {
+          this.containerEl.addClass("is-compact");
+        } else {
+          this.containerEl.removeClass("is-compact");
+        }
+      }
+    });
+    this.resizeObserver.observe(this.containerEl);
 
     this.renderToolbar();
     this.renderTable();
@@ -66,6 +79,8 @@ export class TableView {
       window.clearTimeout(this.renderTimer);
       this.renderTimer = null;
     }
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.unsubscribe?.();
   }
 
@@ -190,7 +205,7 @@ export class TableView {
     });
   }
 
-  async renderTable(): Promise<void> {
+  async renderTable(forceRescan = false): Promise<void> {
     const currentRenderId = ++this.renderId;
 
     // 1. Collect runtime tasks from taskManager
@@ -199,7 +214,7 @@ export class TableView {
     // 2. Collect completed items from vault history cache
     let vaultItems: CaptureHistoryItem[] = [];
     try {
-      vaultItems = await getIncrementalCaptureHistory(this.app, this.plugin);
+      vaultItems = await getIncrementalCaptureHistory(this.app, this.plugin, forceRescan);
     } catch (e) {
       console.error("[TableView] Error fetching history:", e);
     }
@@ -267,7 +282,11 @@ export class TableView {
         attr: { src: row.thumbnail, alt: row.title },
       });
       img.onerror = () => {
-        img.style.display = "none";
+        img.remove();
+        if (!tdThumb.querySelector(".ytec-row-thumb-placeholder")) {
+          const placeholder = tdThumb.createDiv({ cls: "ytec-row-thumb-placeholder" });
+          setIcon(placeholder, row.platform === "youtube" ? "video" : "camera");
+        }
       };
     } else {
       const placeholder = tdThumb.createDiv({ cls: "ytec-row-thumb-placeholder" });
@@ -289,6 +308,17 @@ export class TableView {
       }
     });
 
+    // Compact metadata line (visible in dock sidebar mode when quality/plat columns collapse)
+    const metaSub = tdTitle.createDiv({ cls: "ytec-row-meta" });
+    metaSub.createSpan({
+      cls: `ytec-badge ytec-badge-sm ytec-badge-${row.platform}`,
+      text: row.platform === "youtube" ? "🎬 YT" : "📸 IG",
+    });
+    const qualText = row.quality === "audio"
+      ? `Audio · ${row.timeRange}`
+      : `${row.quality} ${row.fps === "auto" ? "" : row.fps + "fps"} · ${row.timeRange}`;
+    metaSub.createSpan({ cls: "ytec-quality-tag-sm", text: qualText });
+
     const urlSub = tdTitle.createDiv({ cls: "ytec-row-url" });
     urlSub.setText(row.url);
     urlSub.title = row.url;
@@ -298,9 +328,6 @@ export class TableView {
     if (row.isFetchOnly) {
       tdQuality.createSpan({ cls: "ytec-badge ytec-badge-fetchonly", text: "🔵 Fetches Only" });
     } else {
-      const qualText = row.quality === "audio"
-        ? `Audio · ${row.timeRange}`
-        : `${row.quality} ${row.fps === "auto" ? "auto" : row.fps + "fps"} · ${row.timeRange}`;
       tdQuality.createSpan({ cls: "ytec-quality-tag", text: qualText });
     }
 
