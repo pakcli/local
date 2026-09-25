@@ -443,7 +443,14 @@ export class CaptureModal extends Modal {
             const openNoteBtn = actionsDiv.createEl("button", { cls: "ytec-preset-btn", text: "Open Note" });
             openNoteBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              this.app.workspace.openLinkText(item.filePath, "", false);
+              if (item.filePath && typeof item.filePath === "string" && item.filePath.trim()) {
+                const targetFile = this.app.vault.getAbstractFileByPath(item.filePath);
+                if (targetFile instanceof TFile) {
+                  this.app.workspace.getLeaf(false).openFile(targetFile);
+                } else {
+                  this.app.workspace.openLinkText(item.filePath, "", false);
+                }
+              }
               this.close();
             });
 
@@ -454,7 +461,9 @@ export class CaptureModal extends Modal {
               });
               openMediaBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                this.app.workspace.openLinkText(item.mediaPath!, "", false);
+                if (item.mediaPath && typeof item.mediaPath === "string" && item.mediaPath.trim()) {
+                  this.app.workspace.openLinkText(item.mediaPath, "", false);
+                }
                 this.close();
               });
             }
@@ -492,7 +501,14 @@ export class CaptureModal extends Modal {
             const openBtn = actionsDiv.createEl("button", { cls: "ytec-preset-btn", text: "Open Note" });
             openBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              this.app.workspace.openLinkText(item.filePath, "", false);
+              if (item.filePath && typeof item.filePath === "string" && item.filePath.trim()) {
+                const targetFile = this.app.vault.getAbstractFileByPath(item.filePath);
+                if (targetFile instanceof TFile) {
+                  this.app.workspace.getLeaf(false).openFile(targetFile);
+                } else {
+                  this.app.workspace.openLinkText(item.filePath, "", false);
+                }
+              }
               this.close();
             });
           }
@@ -504,7 +520,9 @@ export class CaptureModal extends Modal {
             });
             openMediaBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              this.app.workspace.openLinkText(item.mediaPath!, "", false);
+              if (item.mediaPath && typeof item.mediaPath === "string" && item.mediaPath.trim()) {
+                this.app.workspace.openLinkText(item.mediaPath, "", false);
+              }
               this.close();
             });
           }

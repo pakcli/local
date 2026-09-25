@@ -460,8 +460,9 @@ export class ScanSyncModal extends Modal {
             setIcon(openNoteBtn, 'file-text');
             openNoteBtn.setAttribute('title', 'Open markdown note in Obsidian');
             openNoteBtn.addEventListener('click', () => {
-                if (item.file?.path && item.file.path.trim()) {
-                    void this.app.workspace.openLinkText(item.file.path, '', false);
+                if (item.file instanceof TFile) {
+                    const leaf = this.app.workspace.getLeaf(false);
+                    void leaf.openFile(item.file);
                     new Notice(`Opened ${item.file.basename}`);
                 }
             });
