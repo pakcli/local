@@ -443,14 +443,7 @@ export class CaptureModal extends Modal {
             const openNoteBtn = actionsDiv.createEl("button", { cls: "ytec-preset-btn", text: "Open Note" });
             openNoteBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              if (item.filePath && typeof item.filePath === "string" && item.filePath.trim()) {
-                const targetFile = this.app.vault.getAbstractFileByPath(item.filePath);
-                if (targetFile instanceof TFile) {
-                  this.app.workspace.getLeaf(false).openFile(targetFile);
-                } else {
-                  this.app.workspace.openLinkText(item.filePath, "", false);
-                }
-              }
+              this.app.workspace.openLinkText(item.filePath, "", false);
               this.close();
             });
 
@@ -461,9 +454,7 @@ export class CaptureModal extends Modal {
               });
               openMediaBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (item.mediaPath && typeof item.mediaPath === "string" && item.mediaPath.trim()) {
-                  this.app.workspace.openLinkText(item.mediaPath, "", false);
-                }
+                this.app.workspace.openLinkText(item.mediaPath!, "", false);
                 this.close();
               });
             }
@@ -501,14 +492,7 @@ export class CaptureModal extends Modal {
             const openBtn = actionsDiv.createEl("button", { cls: "ytec-preset-btn", text: "Open Note" });
             openBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              if (item.filePath && typeof item.filePath === "string" && item.filePath.trim()) {
-                const targetFile = this.app.vault.getAbstractFileByPath(item.filePath);
-                if (targetFile instanceof TFile) {
-                  this.app.workspace.getLeaf(false).openFile(targetFile);
-                } else {
-                  this.app.workspace.openLinkText(item.filePath, "", false);
-                }
-              }
+              this.app.workspace.openLinkText(item.filePath, "", false);
               this.close();
             });
           }
@@ -520,9 +504,7 @@ export class CaptureModal extends Modal {
             });
             openMediaBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              if (item.mediaPath && typeof item.mediaPath === "string" && item.mediaPath.trim()) {
-                this.app.workspace.openLinkText(item.mediaPath, "", false);
-              }
+              this.app.workspace.openLinkText(item.mediaPath!, "", false);
               this.close();
             });
           }
@@ -774,16 +756,22 @@ export class CaptureModal extends Modal {
         p.original_url ||
         (p.platform === "instagram" ? this.urlValue : buildYouTubeUrl(p.video_id));
 
+      const platform = p.platform || (targetUrl.includes("instagram.com") ? "instagram" : "youtube");
+      const maxTitleLen = this.plugin.settings.maxTitleLength || 20;
       const { baseName, formatExt } = buildMediaBaseName(
         p.title,
         p.start,
         p.end,
-        p.quality
+        p.quality,
+        p.fps,
+        platform,
+        new Date(),
+        maxTitleLen
       );
       const outputFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
 
       const mp4Name = `${baseName}.${formatExt}`;
-      const thumbName = `${baseName}_thumb.jpg`;
+      const thumbName = `${baseName}.jpg`;
       const noteName = `${baseName}.md`;
       const zipName = `${baseName}.zip`;
 

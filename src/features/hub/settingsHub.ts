@@ -3,6 +3,7 @@ import { runSystemDiagnostics, SystemHealthStatus } from "./wizard";
 import { ECOSYSTEM_MODULES, BlueprintSection } from "./previewSchemas";
 import { saveVaultConfig, loadVaultConfig, listVaultSnapshots, SnapshotItem } from "./vaultConfig";
 import { eventBus } from "./eventBus";
+import { checkAllDeps, renderDepsTable, renderOsBadge, DepResult } from "./depsTable";
 
 export interface SettingsSectionHandler {
   id: string;
@@ -122,10 +123,13 @@ export class VaultConfigActionModal extends Modal {
 }
 
 export class MasterDetailSettingsTab extends PluginSettingTab {
+  private isMobileSidebarOpen: boolean = false;
   plugin: Plugin;
   activeSectionId = "";
   searchQuery = "";
   healthStatus: SystemHealthStatus | null = null;
+  depsResults: DepResult[] = [];
+  depsChecking: boolean = false;
   localHandlers: Map<string, SettingsSectionHandler> = new Map();
   private simulatedState: Record<string, Record<string, any>> = {};
   private unsubscribeBus: (() => void) | null = null;
@@ -343,7 +347,32 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
       selectEl.setAttribute("disabled", "true");
     }
 
-    const layoutContainer = containerEl.createDiv({ cls: "pakcli-master-detail-layout" });
+    // Mobile Toggle Bar
+    const activeModObj = ECOSYSTEM_MODULES.find((m) => m.id === this.activeSectionId);
+    const activeTitle = activeModObj ? activeModObj.title : "Settings";
+    
+    const mobileBar = containerEl.createDiv({ cls: "pakcli-mobile-toggle-bar" });
+    const mobileTitleEl = mobileBar.createDiv({ cls: "pakcli-mobile-current-title" });
+    mobileTitleEl.createSpan({ text: "Current: ", cls: "pakcli-mobile-label" });
+    mobileTitleEl.createSpan({ text: activeTitle, cls: "pakcli-mobile-value" });
+    
+    const mobileToggleBtn = mobileBar.createEl("button", {
+      text: this.isMobileSidebarOpen ? "✕ Close Menu" : "☰ Switch Module",
+      cls: "pakcli-mobile-toggle-btn"
+    });
+    mobileToggleBtn.onclick = () => {
+      this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
+      mobileToggleBtn.setText(this.isMobileSidebarOpen ? "✕ Close Menu" : "☰ Switch Module");
+      if (this.isMobileSidebarOpen) {
+        layoutContainer.addClass("mobile-sidebar-open");
+      } else {
+        layoutContainer.removeClass("mobile-sidebar-open");
+      }
+    };
+
+    const layoutContainer = containerEl.createDiv({ 
+      cls: `pakcli-master-detail-layout ${this.isMobileSidebarOpen ? "mobile-sidebar-open" : ""}` 
+    });
 
     // 1. LEFT SIDEBAR
     const sidebarEl = layoutContainer.createDiv({ cls: "pakcli-sidebar" });
@@ -456,6 +485,12 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
 
     itemEl.onclick = () => {
       this.activeSectionId = id;
+      this.isMobileSidebarOpen = false;
+      layoutContainer.removeClass("mobile-sidebar-open");
+      const mobileBtn = this.containerEl.querySelector(".pakcli-mobile-toggle-btn");
+      if (mobileBtn) mobileBtn.setText("☰ Switch Module");
+      const mobileVal = this.containerEl.querySelector(".pakcli-mobile-value");
+      if (mobileVal) mobileVal.setText(title);
       const sidebar = layoutContainer.querySelector(".pakcli-nav-list");
       if (sidebar) this.updateSidebarItems(sidebar as HTMLElement, layoutContainer);
 
@@ -466,6 +501,18 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
 
   private renderContent(contentEl: HTMLElement): void {
     contentEl.empty();
+    
+    // Quick switch button on mobile
+    const quickSwitch = contentEl.createDiv({ cls: "pakcli-mobile-switch-btn" });
+    quickSwitch.setText("☰ Switch Module");
+    quickSwitch.onclick = () => {
+      this.isMobileSidebarOpen = true;
+      const root = contentEl.closest(".pakcli-master-detail-root");
+      const layout = root?.querySelector(".pakcli-master-detail-layout");
+      if (layout) layout.addClass("mobile-sidebar-open");
+      const toggleBtn = root?.querySelector(".pakcli-mobile-toggle-btn");
+      if (toggleBtn) toggleBtn.setText("✕ Close Menu");
+    };
 
     // 1. Diagnostics Wizard
     if (this.activeSectionId === "local-wizard") {
@@ -583,49 +630,54 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
       .setName("🚀 System & Ecosystem Diagnostics")
       .setHeading();
 
-    const banner = contentEl.createDiv({ cls: "pakcli-wizard-banner" });
-    banner.createEl("p", {
-      text: "Scan your environment for PowerShell engine, symlink privileges, yt-dlp media binaries, and active suite modules.",
-    });
-
     const isLocalActive = this.isLocalPresent();
 
-    if (isLocalActive) {
-      const runBtn = banner.createEl("button", { text: "🔍 Run Full Diagnostics", cls: "pakcli-btn-primary" });
-      runBtn.onclick = async () => {
-        runBtn.setText("Scanning system...");
-        runBtn.setAttribute("disabled", "true");
-        this.healthStatus = await runSystemDiagnostics();
-        this.renderWizardSection(contentEl);
-      };
-    } else {
+    // ── OS + vault path info banner ──
+    const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+    const vaultPath = typeof adapter.getBasePath === "function" ? adapter.getBasePath() : "";
+    const pluginDir = vaultPath ? `${vaultPath}/.obsidian/plugins/${this.plugin.manifest.id}` : "";
+    const osBannerWrap = contentEl.createDiv({ cls: "pakcli-os-banner-wrap" });
+    renderOsBadge(osBannerWrap, vaultPath, pluginDir);
+
+    const banner = contentEl.createDiv({ cls: "pakcli-wizard-banner" });
+    banner.createEl("p", {
+      text: "Scan your system for installed CLI tools, PowerShell, yt-dlp, Python, ffmpeg, git, and Antigravity CLI.",
+    });
+
+    if (!isLocalActive) {
       banner.createEl("p", {
         cls: "pakcli-diag-msg",
-        text: "ℹ️ Native system diagnostics (PowerShell, Symlinks, yt-dlp) require the PakCLI Local plugin.",
+        text: "ℹ️ Native system diagnostics require the PakCLI Local plugin.",
       });
       const getBtn = banner.createEl("button", { text: "+ Enable or Get PakCLI Local", cls: "pakcli-btn-install" });
       getBtn.onclick = () => this.openObsidianStore("pakcli-local");
     }
 
-    if (this.healthStatus) {
-      const resultsContainer = contentEl.createDiv({ cls: "pakcli-diagnostics-results" });
-      new Setting(resultsContainer)
-        .setName("Diagnostic Report")
-        .setHeading();
+    // ── Deps table section ──
+    new Setting(contentEl)
+      .setName("⚙️ Dependency Check")
+      .setHeading();
 
-      const items = [
-        { name: "PowerShell Engine", status: this.healthStatus.powershell.status, details: this.healthStatus.powershell.details },
-        { name: "Symlink Privileges", status: this.healthStatus.symlink.status, details: this.healthStatus.symlink.details },
-        { name: "yt-dlp Media Binary", status: this.healthStatus.ytdlp.status, details: this.healthStatus.ytdlp.details }
-      ];
+    const tableContainer = contentEl.createDiv({ cls: "pakcli-deps-table-container" });
 
-      items.forEach((chk) => {
-        const item = resultsContainer.createDiv({ cls: `pakcli-diag-item status-${chk.status}` });
-        item.createSpan({ text: chk.status === "ok" ? "✅" : chk.status === "warning" ? "⚠️" : "❌", cls: "pakcli-diag-icon" });
-        const textWrap = item.createDiv({ cls: "pakcli-diag-text" });
-        textWrap.createSpan({ text: chk.name, cls: "pakcli-diag-name" });
-        textWrap.createSpan({ text: chk.details, cls: "pakcli-diag-msg" });
-      });
+    const doCheck = async () => {
+      this.depsChecking = true;
+      tableContainer.empty();
+      tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "🔍 Checking dependencies…" });
+      this.depsResults = await checkAllDeps();
+      this.depsChecking = false;
+      renderDepsTable(tableContainer, this.depsResults, doCheck);
+    };
+
+    if (this.depsResults.length > 0) {
+      renderDepsTable(tableContainer, this.depsResults, doCheck);
+    } else if (isLocalActive) {
+      // Show initial run button
+      const runWrap = tableContainer.createDiv({ cls: "pakcli-deps-run-wrap" });
+      const runBtn = runWrap.createEl("button", { text: "🔍 Run Dependency Check", cls: "pakcli-btn-primary" });
+      runBtn.onclick = () => doCheck();
+    } else {
+      tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "Enable PakCLI Local to run dependency checks." });
     }
   }
 
@@ -727,68 +779,36 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
     }
   }
 
-  private renderAgentDependenciesBox(containerEl: HTMLElement, targetPlugin: any): void {
+  private renderAgentDependenciesBox(containerEl: HTMLElement, _targetPlugin: any): void {
     const setupSection = containerEl.createDiv({ cls: "pakcli-deps-section" });
     new Setting(setupSection)
       .setName("⚙️ Setup & Dependencies")
       .setDesc("Antigravity CLI (agy) and Python 3 must be installed on your system for PakCLI Agent to work.")
       .setHeading();
 
-    const depsBox = setupSection.createDiv({ cls: "pakcli-deps-box" });
-    
-    const checkAndRender = async () => {
-      depsBox.empty();
-      depsBox.createDiv({ cls: "pakcli-deps-loading", text: "Checking system dependencies..." });
+    // ── OS + vault path info banner ──
+    const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+    const vaultPath = typeof adapter.getBasePath === "function" ? adapter.getBasePath() : "";
+    const pluginDir = vaultPath ? `${vaultPath}/.obsidian/plugins/${this.plugin.manifest.id}` : "";
+    const osBannerWrap = setupSection.createDiv({ cls: "pakcli-os-banner-wrap" });
+    renderOsBadge(osBannerWrap, vaultPath, pluginDir);
 
-      let netOk = true;
-      try {
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 2500);
-        await fetch("https://www.google.com/generate_204", { method: "GET", signal: ctrl.signal, mode: "no-cors" });
-        clearTimeout(tid);
-      } catch {
-        netOk = false;
-      }
+    // ── Dependency Table ──
+    const tableContainer = setupSection.createDiv({ cls: "pakcli-deps-table-container" });
 
-      depsBox.empty();
-
-      // 1. Internet
-      const itemNet = depsBox.createDiv({ cls: "pakcli-deps-item" });
-      itemNet.createSpan({ cls: "pakcli-deps-icon " + (netOk ? "ok" : "err"), text: netOk ? "✅" : "❌" });
-      itemNet.createSpan({ cls: "pakcli-deps-name " + (netOk ? "ok" : "err"), text: "Internet " });
-      itemNet.createSpan({ cls: "pakcli-deps-msg", text: netOk ? "Connected" : "Offline" });
-
-      // 2. Antigravity CLI
-      const itemAgy = depsBox.createDiv({ cls: "pakcli-deps-item" });
-      itemAgy.createSpan({ cls: "pakcli-deps-icon ok", text: "✅" });
-      itemAgy.createSpan({ cls: "pakcli-deps-name ok", text: "Antigravity CLI (agy) " });
-      itemAgy.createSpan({ cls: "pakcli-deps-msg", text: "(1.1.23)" });
-
-      // 3. Python 3
-      const itemPy = depsBox.createDiv({ cls: "pakcli-deps-item" });
-      itemPy.createSpan({ cls: "pakcli-deps-icon ok", text: "✅" });
-      itemPy.createSpan({ cls: "pakcli-deps-name ok", text: "Python 3 " });
-      itemPy.createSpan({ cls: "pakcli-deps-msg", text: "(Python 3.14.5)" });
-
-      // 4. Pywinpty
-      const itemWinpty = depsBox.createDiv({ cls: "pakcli-deps-item" });
-      itemWinpty.createSpan({ cls: "pakcli-deps-icon err", text: "❌" });
-      itemWinpty.createSpan({ cls: "pakcli-deps-name err", text: "pywinpty " });
-      itemWinpty.createSpan({ cls: "pakcli-deps-msg", text: "Optional for PTY terminal (run: pip install pywinpty)" });
+    const doCheck = async () => {
+      tableContainer.empty();
+      tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "🔍 Checking dependencies…" });
+      this.depsResults = await checkAllDeps();
+      renderDepsTable(tableContainer, this.depsResults, doCheck);
     };
 
-    checkAndRender();
-
-    const btnRow = setupSection.createDiv({ cls: "pakcli-deps-actions" });
-    const refreshBtn = btnRow.createEl("button", { cls: "pakcli-deps-btn", text: "🔄 Refresh Status" });
-    refreshBtn.onclick = () => {
-      checkAndRender();
-      new Notice("🔄 Checked dependencies status.");
-    };
-
-    const downloadBtn = btnRow.createEl("button", { cls: "pakcli-deps-btn primary", text: "⬇️ Download Antigravity CLI" });
-    downloadBtn.onclick = () => {
-      window.open("https://antigravity.google", "_blank");
-    };
+    if (this.depsResults.length > 0) {
+      renderDepsTable(tableContainer, this.depsResults, doCheck);
+    } else {
+      const runWrap = tableContainer.createDiv({ cls: "pakcli-deps-run-wrap" });
+      const runBtn = runWrap.createEl("button", { text: "🔍 Run Dependency Check", cls: "pakcli-btn-primary" });
+      runBtn.onclick = () => doCheck();
+    }
   }
 }

@@ -70,6 +70,18 @@ export const ECOSYSTEM_MODULES: BlueprintSection[] = [
       { key: "defaultQuality", type: "dropdown", name: "Default Quality", desc: "Video resolution preference.", defaultVal: "1080p", options: ["1080p", "720p", "480p", "Best Audio Only"] },
     ],
   },
+  {
+    id: "local-copypaste",
+    category: "local",
+    title: "CopyPaste Manager",
+    icon: "folder-input",
+    storeId: "pakcli-local",
+    repoUrl: "https://github.com/pakcli/local",
+    description: "Automated target filter rules and copy-into-vault pipeline with startup awake scan and batch sync.",
+    fields: [
+      { key: "copyPasteAutoScanOnAwake", type: "toggle", name: "Scan on Obsidian Awake", desc: "Automatically sync pending external directories when Obsidian opens.", defaultVal: true },
+    ],
+  },
 
   // ☐ TABLE MODULES
   {
