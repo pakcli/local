@@ -16,6 +16,36 @@ export function renderScriptSyncSettings(
 ): void {
     const settings = getSettings();
 
+    // Master Enabled Toggle
+    new Setting(containerEl)
+        .setName('Enable ScriptSync Engine')
+        .setDesc('Master toggle for codeblock script interception and disk file syncing. Turn off to keep standard Obsidian codeblock rendering.')
+        .addToggle((toggle) => {
+            toggle
+                .setValue(settings.enabled !== false)
+                .onChange(async (val) => {
+                    settings.enabled = val;
+                    await saveSettings();
+                    renderScriptSyncSettings(app, plugin, syncManager, getSettings, saveSettings, containerEl);
+                });
+        });
+
+    if (settings.enabled === false) {
+        const disabledNotice = containerEl.createDiv({ cls: 'pakcli-status-card' });
+        disabledNotice.setCssStyles({
+            borderLeft: '4px solid var(--text-muted)',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            background: 'var(--background-secondary)'
+        });
+        disabledNotice.createEl('strong', { text: '⏸️ ScriptSync Engine is currently paused/disabled.' });
+        disabledNotice.createEl('p', {
+            text: 'Codeblock interception is inactive. Standard Obsidian codeblocks and tables will render normally without script sync overlay.',
+            cls: 'pakcli-card-sub'
+        });
+        return;
+    }
+
     // 1. Header Overview & Actions
     new Setting(containerEl)
         .setName('ScriptSync Engine')

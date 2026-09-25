@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, Menu } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -85,12 +85,163 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
-		// Register Script Codeblock Processors
-		['powershell', 'ps1', 'bash', 'sh', 'python', 'py'].forEach((lang) => {
+		// Register Script Codeblock Processors (including :sync tag variants)
+		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
+		const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
+		allProcessLangs.forEach((lang) => {
 			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
+				// If ScriptSync is disabled, render standard pre/code block and return early
+				if (this.settings.enabled === false) {
+					const pre = el.createEl('pre', { cls: 'pakcli-codeblock' });
+					const code = pre.createEl('code', { cls: `language-${lang.split(':')[0]}` });
+					code.textContent = source;
+					return;
+				}
 				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile as any));
+				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
 			});
+		});
+
+		// Echo Suppression: Vault modify listener checking mutex lock
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (file instanceof TFile && this.syncManager) {
+					const lockManager = this.syncManager.getSyncLockManager();
+					if (lockManager.isLocked(file.path)) {
+						return;
+					}
+				}
+			})
+		);
+
+		// Register Sync Code Icon & Ribbon
+		addIcon(
+			'sync-code',
+			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+				<path d="M3 3v5h5"/>
+				<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+				<path d="M16 21h5v-5"/>
+				<polyline points="10 9 7 12 10 15"/>
+				<polyline points="14 9 17 12 14 15"/>
+			</svg>`
+		);
+		this.addRibbonIcon('sync-code', 'ScriptSync: Scan & Sync Codeblock Scripts', () => {
+			new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+		});
+
+		// Global Notice Suppression for "Failed to open """
+		try {
+			const obs = require('obsidian');
+			const OrigNotice = obs.Notice;
+			if (OrigNotice && !(OrigNotice as any).__pakcliPatched) {
+				obs.Notice = class PakCLISuppressedNotice extends OrigNotice {
+					constructor(message: string | DocumentFragment, duration?: number) {
+						const msgStr = typeof message === 'string' ? message : (message?.textContent || '');
+						if (msgStr.includes('Failed to open ""') || msgStr.includes("Failed to open ''") || /Failed to open\s*["']\s*["']/.test(msgStr)) {
+							super('', 0);
+							try { (this as any).hide?.(); (this as any).noticeEl?.remove?.(); } catch {}
+							return;
+						}
+						super(message, duration);
+					}
+				};
+				(obs.Notice as any).__pakcliPatched = true;
+			}
+		} catch {}
+
+		// DOM MutationObserver to immediately destroy any ghost "Failed to open """ notices
+		const noticeObserver = new MutationObserver((mutations) => {
+			for (const m of mutations) {
+				for (const node of Array.from(m.addedNodes)) {
+					if (node instanceof HTMLElement) {
+						const text = node.textContent || '';
+						if (text.includes('Failed to open ""') || text.includes("Failed to open ''") || /Failed to open\s*["']\s*["']/.test(text)) {
+							if (node.classList?.contains('notice')) {
+								node.style.display = 'none';
+								node.remove();
+							} else {
+								const target = node.querySelector?.('.notice');
+								if (target) {
+									(target as HTMLElement).style.display = 'none';
+									target.remove();
+								}
+							}
+						}
+					}
+				}
+			}
+		});
+		noticeObserver.observe(document.body, { childList: true, subtree: true });
+		this.register(() => noticeObserver.disconnect());
+
+		// CodeMirror 6 tile-tree desync error handler ('reading tile')
+		const tileErrorHandler = (event: ErrorEvent) => {
+			const msg = event?.message || event?.error?.message || '';
+			if (typeof msg === 'string' && msg.includes("reading 'tile'")) {
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				console.warn('[PakCLI] Prevented CodeMirror tile crash.');
+				try {
+					const activeLeaf = (this.app.workspace as any).activeLeaf;
+					activeLeaf?.view?.editor?.cm?.requestMeasure?.();
+				} catch {}
+			}
+		};
+		window.addEventListener('error', tileErrorHandler, true);
+		this.register(() => window.removeEventListener('error', tileErrorHandler, true));
+
+		// Guard against opening empty link text "" which displays "Failed to open """
+		const origOpenLinkText = this.app.workspace.openLinkText.bind(this.app.workspace);
+		this.app.workspace.openLinkText = (linktext: string, sourcePath: string, openFile?: any, openViewState?: any) => {
+			if (!linktext || typeof linktext !== 'string' || linktext.trim() === '' || linktext === '.' || linktext === '/') {
+				return Promise.resolve();
+			}
+			return origOpenLinkText(linktext, sourcePath, openFile, openViewState);
+		};
+
+		// Helper function to heal vault maps and detach ghost leaves
+		const healMapsAndLeaves = () => {
+			try {
+				const cleanMap = (map: any) => {
+					if (!map || typeof map !== 'object') return;
+					if ('' in map) delete map[''];
+					if ('.' in map) delete map['.'];
+					if ('/' in map) delete map['/'];
+					for (const [key, item] of Object.entries(map)) {
+						if (item instanceof TFolder && (key.endsWith('.md') || key.endsWith('.markdown'))) {
+							delete map[key];
+						}
+					}
+				};
+
+				cleanMap((this.app.vault as any).fileMap);
+				cleanMap((this.app.vault.adapter as any).fileMap);
+				cleanMap((this.app.metadataCache as any).fileMap);
+				cleanMap((this.app.metadataCache as any).uniqueFileLookup);
+
+				// Detach any zombie leaves referencing empty path ""
+				this.app.workspace.iterateAllLeaves((leaf) => {
+					const state = leaf.getViewState();
+					const file = state?.state?.file;
+					if (file === '' || file === '.' || file === '/') {
+						leaf.detach();
+					}
+				});
+
+				const activeLeaf = this.app.workspace.activeLeaf;
+				if (activeLeaf) {
+					const activeFile = activeLeaf.getViewState()?.state?.file;
+					if (activeFile === '' || activeFile === '.' || activeFile === '/') {
+						activeLeaf.detach();
+					}
+				}
+			} catch {}
+		};
+
+		// Layout-ready auto-healing
+		this.app.workspace.onLayoutReady(() => {
+			healMapsAndLeaves();
 		});
 
 		// 6. Register Commands
@@ -184,6 +335,43 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'ScriptSync: View Pending Changes',
 			callback: () => {
 				new PendingChangesModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+
+		// Command: Heal Editor & Clean Ghost Tabs
+		this.addCommand({
+			id: 'pl-heal-editor-tabs',
+			name: 'PakCLI: Heal Editor & Clean Ghost Tabs',
+			callback: () => {
+				try {
+					const cleanMap = (map: any) => {
+						if (!map || typeof map !== 'object') return;
+						if ('' in map) delete map[''];
+						if ('.' in map) delete map['.'];
+						if ('/' in map) delete map['/'];
+					};
+					cleanMap((this.app.vault as any).fileMap);
+					cleanMap((this.app.vault.adapter as any).fileMap);
+					cleanMap((this.app.metadataCache as any).fileMap);
+					cleanMap((this.app.metadataCache as any).uniqueFileLookup);
+
+					let detachedCount = 0;
+					this.app.workspace.iterateAllLeaves((leaf) => {
+						const state = leaf.getViewState();
+						const file = state?.state?.file;
+						if (file === '' || file === '.' || file === '/') {
+							leaf.detach();
+							detachedCount++;
+						}
+					});
+
+					const activeLeaf = (this.app.workspace as any).activeLeaf;
+					activeLeaf?.view?.editor?.cm?.requestMeasure?.();
+
+					new Notice(`✅ [PakCLI] Editor healed. Closed ${detachedCount} phantom tab(s).`);
+				} catch (err: any) {
+					new Notice(`Heal failed: ${err?.message || err}`);
+				}
 			},
 		});
 	}
