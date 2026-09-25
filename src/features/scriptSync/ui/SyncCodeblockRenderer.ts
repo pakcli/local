@@ -68,6 +68,17 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         this.renderCodeblockBody(section2);
     }
 
+    private getNoteFile(): TFile | null {
+        if (this.noteFile) return this.noteFile;
+        const app = this.plugin?.app;
+        const active = app?.workspace?.getActiveFile?.();
+        if (active instanceof TFile) {
+            this.noteFile = active;
+            return active;
+        }
+        return null;
+    }
+
     private renderControllerHeader(headerEl: HTMLElement): void {
         const titleRow = headerEl.createDiv({ cls: 'pakcli-sync-title-row' });
         const leftMeta = titleRow.createDiv({ cls: 'pakcli-sync-meta' });
@@ -87,52 +98,53 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
 
         const actions = titleRow.createDiv({ cls: 'pakcli-sync-actions' });
 
-        // Diff Viewer Button
-        if (this.noteFile) {
-            const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy pakcli-sync-btn', text: '👁️ Diff' });
-            diffBtn.onclick = async () => {
-                this.isDiffOpen = !this.isDiffOpen;
-                if (this.diffContainerEl) {
-                    if (this.isDiffOpen) {
-                        this.diffContainerEl.setCssStyles({ display: 'block' });
-                        diffBtn.setText('👁️ Hide');
+        // Diff Viewer Button - always available
+        const diffBtn = actions.createEl('button', { cls: 'pakcli-btn-copy pakcli-sync-btn', text: '👁️ Diff' });
+        diffBtn.onclick = async () => {
+            this.isDiffOpen = !this.isDiffOpen;
+            if (this.diffContainerEl) {
+                if (this.isDiffOpen) {
+                    this.diffContainerEl.setCssStyles({ display: 'block' });
+                    diffBtn.setText('👁️ Hide');
 
-                        try {
-                            const status = await this.syncManager.getSyncStatus(this.noteFile!, this.source, baseLang);
-                            if (status && status.cliCode !== undefined) {
-                                renderDiffViewer(this.diffContainerEl, {
-                                    leftText: status.cliCode,
-                                    rightText: this.source,
-                                    leftLabel: 'CLI Script',
-                                    rightLabel: 'Manager Note',
-                                    onApplyToLeft: async () => {
-                                        if (this.noteFile) {
-                                            await this.syncManager.executeSync(this.noteFile, 'manager_to_cli', this.source, baseLang);
-                                            new Notice('✅ Applied Manager note to CLI script file');
-                                        }
-                                    },
-                                    onApplyToRight: async () => {
-                                        if (this.noteFile) {
-                                            await this.syncManager.executeSync(this.noteFile, 'cli_to_manager', undefined, baseLang);
-                                            new Notice('✅ Applied CLI script to Manager note');
-                                        }
-                                    }
-                                });
-                            } else {
-                                this.diffContainerEl.empty();
-                                this.diffContainerEl.setText(status?.statusLabel || 'No target script file found for comparison.');
-                            }
-                        } catch (err: any) {
-                            this.diffContainerEl.empty();
-                            this.diffContainerEl.setText(`Diff error: ${err?.message || err}`);
-                        }
-                    } else {
-                        this.diffContainerEl.setCssStyles({ display: 'none' });
-                        diffBtn.setText('👁️ Diff');
+                    const noteFile = this.getNoteFile();
+                    if (!noteFile) {
+                        this.diffContainerEl.empty();
+                        this.diffContainerEl.setText('⚠️ Note file reference not found. Click into the note to view diff.');
+                        return;
                     }
+
+                    try {
+                        const status = await this.syncManager.getSyncStatus(noteFile, this.source, baseLang);
+                        if (status && status.cliCode !== undefined) {
+                            renderDiffViewer(this.diffContainerEl, {
+                                leftText: status.cliCode,
+                                rightText: this.source,
+                                leftLabel: 'CLI Script',
+                                rightLabel: 'Manager Note',
+                                onApplyToLeft: async () => {
+                                    await this.syncManager.executeSync(noteFile, 'manager_to_cli', this.source, baseLang);
+                                    new Notice('✅ Applied Manager note to CLI script file');
+                                },
+                                onApplyToRight: async () => {
+                                    await this.syncManager.executeSync(noteFile, 'cli_to_manager', undefined, baseLang);
+                                    new Notice('✅ Applied CLI script to Manager note');
+                                }
+                            });
+                        } else {
+                            this.diffContainerEl.empty();
+                            this.diffContainerEl.setText(status?.statusLabel || 'No target script file found for comparison.');
+                        }
+                    } catch (err: any) {
+                        this.diffContainerEl.empty();
+                        this.diffContainerEl.setText(`Diff error: ${err?.message || err}`);
+                    }
+                } else {
+                    this.diffContainerEl.setCssStyles({ display: 'none' });
+                    diffBtn.setText('👁️ Diff');
                 }
-            };
-        }
+            }
+        };
 
         // Run Script Button
         const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run pakcli-sync-btn', text: '▶ Run' });
@@ -146,7 +158,8 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
                     this.outputContainerEl.setText('⏳ Executing script via local shell...');
                 }
 
-                const cliPath = this.noteFile ? this.syncManager.resolveCliPath(this.noteFile.path, baseLang) : null;
+                const noteFile = this.getNoteFile();
+                const cliPath = noteFile ? this.syncManager.resolveCliPath(noteFile.path, baseLang) : null;
                 const res = await this.syncManager.runScript(this.source, baseLang, cliPath);
 
                 if (this.outputContainerEl) {

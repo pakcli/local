@@ -1,7 +1,7 @@
 {
     "id":  "pakcli-local",
     "name":  "PakCLI Local",
-    "version":  "1.0.11",
+    "version":  "1.0.12",
     "minAppVersion":  "1.8.0",
     "description":  "Desktop OS bridge \u0026 power utilities: PowerShell script runner, symlink manager, and yt-dlp media capture.",
     "author":  "PakCLI",
