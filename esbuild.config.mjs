@@ -165,6 +165,11 @@ async function postBuild() {
 			
 			// Copy main.js to root
 			copyFileSync(mainJsPath, "main.js");
+
+			// Copy styles.css to root
+			if (existsSync("dist/styles.css")) {
+				copyFileSync("dist/styles.css", "styles.css");
+			}
 		} catch (err) {
 			console.error('Post-build processing on main.js failed:', err);
 		}

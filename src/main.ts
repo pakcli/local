@@ -523,7 +523,7 @@ export default class PakCLILocalPlugin extends Plugin {
 		let leaf = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE)[0];
 
 		if (!leaf) {
-			const rightLeaf = workspace.getLeaf(false);
+			const rightLeaf = workspace.getRightLeaf(false);
 			if (rightLeaf) {
 				leaf = rightLeaf;
 				await leaf.setViewState({
