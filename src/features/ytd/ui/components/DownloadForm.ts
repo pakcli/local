@@ -209,9 +209,7 @@ export class DownloadForm {
     dualContainer.createDiv({ cls: "ytec-dual-range-track" });
     this.highlightEl = dualContainer.createDiv({ cls: "ytec-dual-range-highlight" });
 
-    const totalMax = this.totalDuration > 0
-      ? this.totalDuration
-      : Math.max(60, this.state.end || 60);
+    const totalMax = this.getEffectiveMax();
 
     // Handle 1: Start Handle
     this.rangeMinEl = dualContainer.createEl("input", {
@@ -251,14 +249,15 @@ export class DownloadForm {
     });
 
     this.rangeMaxEl.addEventListener("input", () => {
+      const maxVal = this.getEffectiveMax();
       const val = parseInt(this.rangeMaxEl.value, 10);
       if (val <= this.state.start) {
-        this.state.end = Math.min(totalMax, this.state.start + 1);
+        this.state.end = Math.min(maxVal, this.state.start + 1);
         this.rangeMaxEl.value = String(this.state.end);
       } else {
         this.state.end = val;
       }
-      this.state.isFull = false;
+      this.state.isFull = (this.state.start === 0 && this.state.end >= maxVal);
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -272,8 +271,9 @@ export class DownloadForm {
     this.endInputEl.title = "End timestamp (e.g. 05:00 or 18:42)";
     this.endInputEl.addEventListener("change", () => {
       const parsed = parseTimeInput(this.endInputEl.value);
+      const maxVal = this.getEffectiveMax();
       this.state.end = Math.max(this.state.start + 1, parsed);
-      this.state.isFull = false;
+      this.state.isFull = (this.state.start === 0 && this.state.end >= maxVal);
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -281,22 +281,48 @@ export class DownloadForm {
     this.syncRangeUI();
   }
 
+  private getEffectiveMax(): number {
+    if (this.totalDuration > 0) {
+      return this.totalDuration;
+    }
+    if (this.state.end > 0) {
+      return Math.max(60, this.state.end);
+    }
+    return 60;
+  }
+
   private syncRangeUI(): void {
-    const totalMax = this.totalDuration > 0
-      ? this.totalDuration
-      : Math.max(60, this.state.end || 60);
+    const totalMax = this.getEffectiveMax();
+
+    if (this.state.isFull) {
+      this.state.start = 0;
+      if (this.totalDuration > 0) {
+        this.state.end = this.totalDuration;
+      } else if (this.state.end <= 0) {
+        this.state.end = totalMax;
+      }
+    }
 
     this.startInputEl.value = formatTime(this.state.start);
     this.endInputEl.value = formatTime(this.state.end);
 
     this.rangeMinEl.max = String(totalMax);
     this.rangeMaxEl.max = String(totalMax);
-    this.rangeMinEl.value = String(this.state.start);
-    this.rangeMaxEl.value = String(this.state.end);
 
-    // Calculate percent positions for highlight bar
-    const leftPercent = Math.max(0, Math.min(100, (this.state.start / totalMax) * 100));
-    const rightPercent = Math.max(0, Math.min(100, (this.state.end / totalMax) * 100));
+    // Calculate percent positions for highlight bar and pin handles to edges on isFull
+    let leftPercent = 0;
+    let rightPercent = 100;
+    if (this.state.isFull) {
+      leftPercent = 0;
+      rightPercent = 100;
+      this.rangeMinEl.value = "0";
+      this.rangeMaxEl.value = String(totalMax);
+    } else if (totalMax > 0) {
+      this.rangeMinEl.value = String(this.state.start);
+      this.rangeMaxEl.value = String(this.state.end);
+      leftPercent = Math.max(0, Math.min(100, (this.state.start / totalMax) * 100));
+      rightPercent = Math.max(0, Math.min(100, (this.state.end / totalMax) * 100));
+    }
 
     this.highlightEl.style.left = `${leftPercent}%`;
     this.highlightEl.style.width = `${Math.max(0, rightPercent - leftPercent)}%`;

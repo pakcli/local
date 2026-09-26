@@ -308,13 +308,29 @@ export class YTDownloaderView extends ItemView {
 
   // ── Core Business Actions ────────────────────────────────────────────────
 
+  private autoFetchTimeout: number | null = null;
+
   private async handleUrlChanged(url: string): Promise<void> {
     const parsed = parseMediaUrl(url);
     if (!parsed) return;
-    // Auto preview or prepare
+    if (this.currentPreview && this.currentPreview.original_url === url) return;
+
+    if (this.autoFetchTimeout) {
+      window.clearTimeout(this.autoFetchTimeout);
+    }
+    this.autoFetchTimeout = window.setTimeout(() => {
+      this.autoFetchTimeout = null;
+      if (this.hero && this.hero.getUrl() === url) {
+        void this.handleFetchOnly(this.form.getState());
+      }
+    }, 700);
   }
 
   private async handleFetchOnly(formState: DownloadFormState): Promise<void> {
+    if (this.autoFetchTimeout) {
+      window.clearTimeout(this.autoFetchTimeout);
+      this.autoFetchTimeout = null;
+    }
     const url = this.hero.getUrl();
     if (!url) {
       new Notice("Please enter a YouTube or Instagram link first.");
