@@ -1694,7 +1694,8 @@
   width: 100%;
   max-width: 100%;
   table-layout: auto;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.82rem;
   box-sizing: border-box;
 }
@@ -1704,12 +1705,14 @@
   padding: 6px 8px;
   color: var(--text-muted);
   font-weight: 600;
+  background: var(--background-secondary);
   border-bottom: 1px solid var(--background-modifier-border);
   white-space: nowrap;
 }
 
 .ytec-data-table td {
   padding: 6px 8px;
+  background: var(--background-primary);
   border-bottom: 1px solid var(--background-modifier-border);
   vertical-align: middle;
 }
@@ -1820,10 +1823,29 @@
 }
 
 .col-actions {
-  width: 88px;
-  min-width: 88px;
-  padding: 6px 4px !important;
+  width: 124px;
+  min-width: 124px;
+  padding: 6px 6px !important;
   text-align: right;
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--background-primary);
+  border-left: 1px solid var(--background-modifier-border);
+  box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.12);
+}
+
+.ytec-data-table th.col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--background-secondary);
+  border-left: 1px solid var(--background-modifier-border);
+  box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.12);
+}
+
+.ytec-table-row:hover td.col-actions {
+  background: var(--background-secondary);
 }
 
 .ytec-action-btns {
@@ -1831,6 +1853,11 @@
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+  flex-wrap: nowrap;
+}
+
+.ytec-action-btns .ytec-icon-btn {
+  flex-shrink: 0;
 }
 
 /* ── Responsive Table Layout: < 900px horizontal scrollbar, >= 900px fit width ── */
@@ -1863,7 +1890,7 @@
 }
 
 .ytec-tableview-container.is-scrollable .ytec-data-table {
-  min-width: 620px !important;
+  min-width: 650px !important;
   width: 100%;
   table-layout: auto !important;
 }
@@ -1876,8 +1903,8 @@
 }
 
 .ytec-tableview-container.is-scrollable .col-actions {
-  width: 110px !important;
-  min-width: 110px !important;
+  width: 124px !important;
+  min-width: 124px !important;
 }
 
 /* >= 900px: force content to fit exact width without horizontal scrollbar */
@@ -1908,7 +1935,7 @@
 }
 
 .ytec-tableview-container.is-fit-width .col-actions {
-  width: 120px !important;
+  width: 124px !important;
 }
 
 /* Pipeline Row (Single row guaranteed) */
