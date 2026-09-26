@@ -79,7 +79,7 @@ export async function downloadClip(
   const isInstagram = url.includes("instagram.com") || url.includes("instagr.am");
   const isAudio = quality === "audio";
 
-  let formatStr = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/18/best[ext=mp4]/best";
+  let formatStr = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
 
   if (isInstagram) {
     formatStr = isAudio ? "bestaudio/best" : "best";
@@ -100,7 +100,7 @@ export async function downloadClip(
     if (fps === "60") maxFps = "[fps<=60]";
     else if (fps === "30") maxFps = "[fps<=30]";
 
-    formatStr = `bestvideo${maxH}${maxFps}[ext=mp4]+bestaudio[ext=m4a]/18/best${maxH}${maxFps}[ext=mp4]/best`;
+    formatStr = `bestvideo${maxH}${maxFps}[ext=mp4]+bestaudio[ext=m4a]/bestvideo${maxH}${maxFps}+bestaudio/best${maxH}${maxFps}/best`;
   }
 
   const args: string[] = ["--newline"];
