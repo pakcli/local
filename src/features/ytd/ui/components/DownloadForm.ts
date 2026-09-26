@@ -1,5 +1,5 @@
 import { setIcon } from "obsidian";
-import type { VideoQuality, VideoFps, YTPreset, YTCaptureSettings, VideoPreview } from "../../types";
+import type { VideoQuality, VideoFps, YTCaptureSettings, VideoPreview } from "../../types";
 import { formatTime, parseTimeInput } from "../../utils/fileHelpers";
 
 export interface DownloadFormState {
@@ -10,11 +10,13 @@ export interface DownloadFormState {
   isFull: boolean;
   presetId: string;
   folder: string;
+  forceResolution?: boolean;
 }
 
 export interface DownloadFormCallbacks {
   onFetchOnly: (state: DownloadFormState) => void;
   onFetchAndDownload: (state: DownloadFormState) => void;
+  onInfo?: () => void;
   onChange?: (state: DownloadFormState) => void;
 }
 
@@ -53,6 +55,7 @@ export class DownloadForm {
   private state: DownloadFormState;
   private totalDuration: number = 0;
   private callbacks: DownloadFormCallbacks;
+  private downloadedQualities: Set<string> = new Set();
 
   constructor(
     parentEl: HTMLElement,
@@ -68,6 +71,7 @@ export class DownloadForm {
       isFull: true,
       presetId: settings.activePresetId || "yt_evidence_standard",
       folder: settings.ytCaptureOutputFolder || "YT Captures",
+      forceResolution: settings.ytCaptureForceResolution || false,
     };
 
     this.containerEl = parentEl.createDiv({ cls: "ytec-form-container" });
@@ -94,14 +98,23 @@ export class DownloadForm {
     this.renderActionButtons();
   }
 
+  setDownloadedQualities(qualities: Set<string>): void {
+    this.downloadedQualities = qualities;
+    this.renderQualityPills();
+  }
+
   private renderQualityPills(): void {
     this.qualityPillsEl.empty();
     for (const opt of QUALITY_OPTIONS) {
+      const isDl = this.downloadedQualities.has(opt.value.toLowerCase());
       const pill = this.qualityPillsEl.createEl("button", {
-        cls: `ytec-pill-btn ${this.state.quality === opt.value ? "is-active" : ""}`,
-        text: opt.label,
+        cls: `ytec-pill-btn ${this.state.quality === opt.value ? "is-active" : ""} ${isDl ? "is-downloaded" : ""}`,
+        text: isDl ? `${opt.label} ✓` : opt.label,
         type: "button",
       });
+      if (isDl) {
+        pill.title = `${opt.label} (Downloaded)`;
+      }
       pill.addEventListener("click", () => {
         this.state.quality = opt.value;
         this.renderQualityPills();
@@ -143,6 +156,18 @@ export class DownloadForm {
       this.state.quality = "1080p";
       this.renderQualityPills();
       this.renderFpsPills();
+      this.callbacks.onChange?.(this.state);
+    });
+
+    // Beside the file format switch: Force toggle!
+    const forceToggle = this.formatNoteEl.createSpan({
+      cls: `ytec-force-toggle ${this.state.forceResolution ? "is-active" : ""}`,
+      text: this.state.forceResolution ? "⚡ Force: ON" : "⚡ Force: OFF",
+    });
+    forceToggle.title = "Force requested resolution via FFmpeg scaling if source video resolution is lower";
+    forceToggle.addEventListener("click", () => {
+      this.state.forceResolution = !this.state.forceResolution;
+      this.renderFormatNote();
       this.callbacks.onChange?.(this.state);
     });
   }
@@ -361,6 +386,20 @@ export class DownloadForm {
 
     this.fetchAndDownloadBtn.addEventListener("click", () => {
       this.callbacks.onFetchAndDownload(this.state);
+    });
+
+    // 3. [ ⓘ i ] How It Works & GitHub Repos
+    const infoBtn = this.actionBtnsContainer.createEl("button", {
+      cls: "ytec-btn ytec-btn-info",
+      title: "How this thing works & related GitHub repositories",
+      type: "button",
+    });
+    const infoIcon = infoBtn.createSpan({ cls: "ytec-btn-icon" });
+    setIcon(infoIcon, "info");
+    infoBtn.createSpan({ text: "i", cls: "ytec-info-btn-text" });
+
+    infoBtn.addEventListener("click", () => {
+      this.callbacks.onInfo?.();
     });
   }
 

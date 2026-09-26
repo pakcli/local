@@ -426,21 +426,149 @@ export class TableView {
     }
   }
 
+  private getDownloadedQualities(row: CombinedRow): Set<string> {
+    const downloaded = new Set<string>();
+    const cache = this.plugin.settings.ytHistoryCache?.items || {};
+
+    const cleanTitle = (row.title || "")
+      .replace(/[/\\:*?"<>|#^[\]]/g, "")
+      .trim()
+      .toLowerCase();
+
+    for (const item of Object.values(cache)) {
+      const urlMatch = Boolean(item.url && row.url && item.url.trim() === row.url.trim());
+      const itemTitle = (item.title || "").toLowerCase();
+      const titleMatch = Boolean(
+        cleanTitle &&
+        cleanTitle.length > 5 &&
+        (itemTitle.includes(cleanTitle.slice(0, 15)) || cleanTitle.includes(itemTitle.slice(0, 15)))
+      );
+
+      if (urlMatch || titleMatch) {
+        if (item.resolution) {
+          downloaded.add(item.resolution.toLowerCase());
+        }
+        if (item.mediaPath) {
+          const lowerMedia = item.mediaPath.toLowerCase();
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerMedia.includes(`_${q}_`)) {
+              downloaded.add(q);
+            }
+          }
+          if (lowerMedia.endsWith(".mp3")) {
+            downloaded.add("audio");
+          }
+        }
+      }
+    }
+
+    // Also scan output folder files directly in vault
+    try {
+      const rawFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
+      const files = this.app.vault.getFiles().filter((f) =>
+        f.path.startsWith(rawFolder) && (f.extension === "mp4" || f.extension === "mp3")
+      );
+      for (const f of files) {
+        const lowerName = f.name.toLowerCase();
+        if (cleanTitle && cleanTitle.length > 5 && lowerName.includes(cleanTitle.slice(0, 12))) {
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerName.includes(`_${q}_`)) {
+              downloaded.add(q);
+            }
+          }
+          if (f.extension === "mp3") {
+            downloaded.add("audio");
+          }
+        }
+      }
+    } catch {}
+
+    return downloaded;
+  }
+
   private showQualityConfirmPopup(row: CombinedRow): void {
     const overlay = document.body.createDiv({ cls: "ytec-mini-popup-overlay" });
     const popup = overlay.createDiv({ cls: "ytec-mini-popup" });
 
     popup.createEl("h4", { text: `Download ${row.title.slice(0, 35)}...` });
 
-    // Quality selector
+    const downloadedQualities = this.getDownloadedQualities(row);
+
+    // Quality selector row
     const qRow = popup.createDiv({ cls: "ytec-popup-row" });
     qRow.createSpan({ text: "Quality:" });
-    const qSelect = qRow.createEl("select");
+    const qSelectContainer = qRow.createDiv({ cls: "ytec-select-with-badge" });
+    const qSelect = qSelectContainer.createEl("select", { cls: "ytec-quality-select" });
+    const liveBadge = qSelectContainer.createSpan({ cls: "ytec-quality-live-badge" });
+
     const qualities: VideoQuality[] = ["1080p", "720p", "480p", "360p", "audio"];
     for (const q of qualities) {
-      const opt = qSelect.createEl("option", { value: q, text: q });
+      const isDownloaded = downloadedQualities.has(q.toLowerCase());
+      const label = isDownloaded ? `✓ ${q} (Downloaded)` : q;
+      const opt = qSelect.createEl("option", { value: q, text: label });
       if (q === row.quality) opt.selected = true;
     }
+
+    const updateBadge = () => {
+      const val = qSelect.value;
+      const isDl = downloadedQualities.has(val.toLowerCase());
+      if (isDl) {
+        liveBadge.setText("✓ Downloaded");
+        liveBadge.className = "ytec-quality-live-badge is-downloaded";
+      } else {
+        liveBadge.setText("Available");
+        liveBadge.className = "ytec-quality-live-badge is-not-downloaded";
+      }
+    };
+    updateBadge();
+
+    // Checklist section: each quality with checklist checkbox & Downloaded badge
+    const checklistSection = popup.createDiv({ cls: "ytec-quality-checklist-section" });
+    checklistSection.createSpan({ cls: "ytec-checklist-label", text: "Quality checklist:" });
+    const checklistEl = checklistSection.createDiv({ cls: "ytec-quality-checklist" });
+
+    const refreshChecklistSelection = () => {
+      checklistEl.querySelectorAll(".ytec-checklist-item").forEach((el) => {
+        const qName = el.getAttribute("data-quality");
+        if (qName === qSelect.value) {
+          el.addClass("is-selected");
+        } else {
+          el.removeClass("is-selected");
+        }
+      });
+    };
+
+    for (const q of qualities) {
+      const isDl = downloadedQualities.has(q.toLowerCase());
+      const itemEl = checklistEl.createDiv({
+        cls: `ytec-checklist-item ${q === qSelect.value ? "is-selected" : ""} ${isDl ? "is-downloaded" : ""}`,
+        attr: { "data-quality": q },
+      });
+
+      // Checklist icon
+      const checkIcon = itemEl.createSpan({ cls: "ytec-checklist-icon" });
+      setIcon(checkIcon, isDl ? "check-circle-2" : "circle");
+
+      // Quality name
+      itemEl.createSpan({ cls: "ytec-checklist-name", text: q });
+
+      // Badge: "Downloaded" or "Not downloaded"
+      itemEl.createSpan({
+        cls: `ytec-badge ${isDl ? "ytec-badge-downloaded" : "ytec-badge-available"}`,
+        text: isDl ? "Downloaded" : "Not downloaded",
+      });
+
+      itemEl.addEventListener("click", () => {
+        qSelect.value = q;
+        updateBadge();
+        refreshChecklistSelection();
+      });
+    }
+
+    qSelect.addEventListener("change", () => {
+      updateBadge();
+      refreshChecklistSelection();
+    });
 
     // Range editor
     const rRow = popup.createDiv({ cls: "ytec-popup-row" });

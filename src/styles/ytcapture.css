@@ -2247,7 +2247,8 @@ input[type="range"].ytec-range-input::-moz-range-thumb,
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 18px 22px;
-  width: 320px;
+  width: 360px;
+  max-width: 92vw;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
@@ -2267,9 +2268,127 @@ input[type="range"].ytec-range-input::-moz-range-thumb,
   font-size: 0.85rem;
 }
 
-.ytec-popup-row select,
-.ytec-popup-row input {
+.ytec-select-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
+}
+
+.ytec-quality-select {
+  flex: 1;
+}
+
+.ytec-quality-live-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ytec-quality-live-badge.is-downloaded {
+  background: rgba(46, 160, 67, 0.18);
+  color: #2ea043;
+  border: 1px solid rgba(46, 160, 67, 0.35);
+}
+
+.ytec-quality-live-badge.is-not-downloaded {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+/* Quality Checklist Section inside Popup */
+.ytec-quality-checklist-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border-radius: var(--radius-m, 6px);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ytec-checklist-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ytec-quality-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ytec-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-size: 12px;
+  background: var(--background-primary);
+  border: 1px solid transparent;
+}
+
+.ytec-checklist-item:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border);
+}
+
+.ytec-checklist-item.is-selected {
+  background: var(--background-modifier-active-hover);
+  border-color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.ytec-checklist-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.ytec-checklist-item.is-downloaded .ytec-checklist-icon {
+  color: #2ea043;
+}
+
+.ytec-checklist-name {
+  flex: 1;
+}
+
+.ytec-badge-downloaded {
+  background: rgba(46, 160, 67, 0.2);
+  color: #2ea043;
+  border: 1px solid rgba(46, 160, 67, 0.4);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.ytec-badge-available {
+  background: var(--background-modifier-form-field);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+/* Quality Pills Downloaded Badge styling */
+.ytec-pill-btn.is-downloaded {
+  border-color: rgba(46, 160, 67, 0.45);
+}
+
+.ytec-pill-btn.is-downloaded:not(.is-active) {
+  color: var(--text-normal);
+  background: rgba(46, 160, 67, 0.08);
 }
 
 .ytec-popup-actions {
@@ -2278,4 +2397,157 @@ input[type="range"].ytec-range-input::-moz-range-thumb,
   gap: 8px;
   margin-top: 6px;
 }
+
+/* Force resolution toggle button beside File format */
+.ytec-force-toggle {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.ytec-force-toggle:hover {
+  background: var(--background-modifier-border-hover);
+  color: var(--text-normal);
+}
+
+.ytec-force-toggle.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+
+/* Info 'i' button beside Fetch Only / Fetch & Download */
+.ytec-btn-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--button-radius, 6px);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.ytec-btn-info:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.ytec-info-btn-text {
+  font-style: italic;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+/* Info Modal Dialog Styles */
+.ytec-info-modal {
+  max-width: 620px;
+  width: 90vw;
+}
+
+.ytec-info-modal .ytec-info-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ytec-info-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.ytec-info-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ytec-info-card-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ytec-info-icon {
+  display: flex;
+  align-items: center;
+  color: var(--interactive-accent);
+}
+
+.ytec-info-subbox {
+  background: var(--background-primary);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 8px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.ytec-info-subbox p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.ytec-info-links {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.ytec-info-links li {
+  margin-bottom: 4px;
+}
+
+.ytec-repo-link {
+  font-weight: 600;
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
+.ytec-repo-desc {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ytec-info-status {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.ytec-btn-info-check {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.ytec-info-ver-result {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
 

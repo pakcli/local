@@ -83,6 +83,7 @@ export interface YTCaptureSettings {
   ytCaptureQuality?: VideoQuality;
   ytCaptureFps?: VideoFps;
   ytCaptureCreateZip?: boolean;
+  ytCaptureForceResolution?: boolean;
   maxTitleLength?: number;
   presets?: YTPreset[];
   activePresetId?: string;
@@ -97,6 +98,7 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   ytCaptureQuality: "best",
   ytCaptureFps: "auto",
   ytCaptureCreateZip: false,
+  ytCaptureForceResolution: false,
   maxTitleLength: 20,
   presets: DEFAULT_PRESETS,
   activePresetId: "yt_evidence_standard",
@@ -209,6 +211,7 @@ export interface DownloadTask {
   logs: string[];
   isFetchOnly?: boolean;
   isRetried?: boolean;
+  forceResolution?: boolean;
   createdAt: number;
   completedAt?: number;
   abortFn?: () => void;

@@ -20,7 +20,12 @@ import {
   downloadThumbnail,
   downloadSubtitles,
   findSubtitleFile,
+  getVideoDimensions,
+  upscaleVideo,
+  QUALITY_HEIGHT_MAP,
+  getQualityFromHeight,
 } from "../utils/ytdlp";
+import { InfoModal } from "./InfoModal";
 import { parseSubtitleFile, extractClipTranscript, formatTranscriptForMarkdown } from "../utils/transcript";
 import { parseYtDlpProgress } from "../utils/progressParser";
 import { buildNotesMarkdown, buildMediaBaseName, formatTime, extractVideoDuration } from "../utils/fileHelpers";
@@ -197,15 +202,17 @@ export class YTDownloaderView extends ItemView {
       },
     });
 
-    // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download)
+    // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download) + Info button
     this.form = new DownloadForm(tabContainer, this.plugin.settings, {
       onFetchOnly: (state) => this.handleFetchOnly(state),
       onFetchAndDownload: (state) => this.handleFetchAndDownload(state),
+      onInfo: () => new InfoModal(this.app, this.plugin).open(),
     });
 
     if (this.currentPreview) {
       this.hero.setPreview(this.currentPreview);
       this.form.setPreview(this.currentPreview);
+      this.updateFormDownloadedQualities();
     }
 
     // 3. Top Debug Panel
@@ -371,6 +378,7 @@ export class YTDownloaderView extends ItemView {
       this.currentPreview = preview;
       this.hero.setPreview(preview);
       this.form.setPreview(preview);
+      this.updateFormDownloadedQualities();
 
       // Create a "Fetches Only" task in taskManager
       const taskId = "fetch_" + Date.now();
@@ -446,6 +454,7 @@ export class YTDownloaderView extends ItemView {
 
         this.hero.setPreview(this.currentPreview);
         this.form.setPreview(this.currentPreview);
+        this.updateFormDownloadedQualities();
       } catch (e: any) {
         new Notice(`Fetch error: ${e.message}`);
         this.hero.setLoading(false);
@@ -466,6 +475,7 @@ export class YTDownloaderView extends ItemView {
       isFull: formState.isFull,
       presetId: formState.presetId,
       folder: formState.folder,
+      forceResolution: formState.forceResolution,
       preview: this.currentPreview,
     });
   }
@@ -479,9 +489,10 @@ export class YTDownloaderView extends ItemView {
     isFull: boolean;
     presetId: string;
     folder: string;
+    forceResolution?: boolean;
     preview?: VideoPreview | null;
   }): Promise<void> {
-    const { url, quality, fps, start, end, isFull, presetId, folder } = params;
+    const { url, quality, fps, start, end, isFull, presetId, folder, forceResolution } = params;
     const preview = params.preview || this.currentPreview;
 
     const taskId = "task_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
@@ -505,6 +516,7 @@ export class YTDownloaderView extends ItemView {
       currentStep: "deps",
       progress: { percent: 0, downloaded: "0MB", total: "--", speed: "--", eta: "--", rawMsg: "Verifying dependencies..." },
       logs: [`Initiating download pipeline for ${url}`],
+      forceResolution,
       createdAt: Date.now(),
       abortFn: () => abortController.abort(),
     };
@@ -633,6 +645,46 @@ export class YTDownloaderView extends ItemView {
 
         taskManager.log(taskId, `Clip download completed (${actualClipPath}). Processing outputs...`);
 
+        // Inspect actual video dimensions and apply Smart Fallback / Force Upscale
+        let effectiveQuality = quality;
+        if (quality !== "audio" && fs.existsSync(actualClipPath)) {
+          try {
+            const dims = await getVideoDimensions(actualClipPath, this.plugin.settings);
+            if (dims) {
+              taskManager.log(taskId, `Detected media resolution: ${dims.width}x${dims.height}`);
+              const targetHeight = QUALITY_HEIGHT_MAP[quality] || 0;
+
+              // Check if actual downloaded resolution is lower than user requested
+              if (targetHeight > 0 && dims.height < targetHeight) {
+                if (forceResolution) {
+                  taskManager.log(taskId, `⚡ Force resolution active: upscaling from ${dims.height}p to ${targetHeight}p...`);
+                  taskManager.updateProgress(taskId, {
+                    percent: 100,
+                    downloaded: "--",
+                    total: "--",
+                    eta: "",
+                    speed: "",
+                    rawMsg: `Upscaling video to ${targetHeight}p (FFmpeg)...`,
+                  });
+                  actualClipPath = await upscaleVideo(actualClipPath, targetHeight, this.plugin.settings, (msg) => {
+                    taskManager.log(taskId, msg);
+                  });
+                  taskManager.log(taskId, `✓ Force upscale completed: ${targetHeight}p`);
+                  effectiveQuality = quality;
+                } else {
+                  // Smart Auto-Fallback: adapt to actual available quality
+                  effectiveQuality = getQualityFromHeight(dims.height);
+                  taskManager.log(taskId, `ℹ Auto-fallback adapted quality from ${quality} to ${effectiveQuality} (source maximum)`);
+                }
+              } else if (dims.height > 0) {
+                effectiveQuality = getQualityFromHeight(dims.height);
+              }
+            }
+          } catch (inspectErr) {
+            taskManager.log(taskId, `[WARN] Dimension inspection/upscale skipped: ${inspectErr}`);
+          }
+        }
+
         // Download thumbnail
         let thumbBuffer: Buffer | Uint8Array | null = null;
         if (activePreview.thumbnail) {
@@ -673,7 +725,7 @@ export class YTDownloaderView extends ItemView {
           activePreview.title,
           start,
           end,
-          quality,
+          effectiveQuality,
           fps,
           platform,
           new Date(),
@@ -796,6 +848,7 @@ export class YTDownloaderView extends ItemView {
         });
         taskManager.log(taskId, `✓ Successfully saved note to: ${targetNoteVaultPath}`);
         new Notice(`✓ Completed download: "${activePreview.title.slice(0, 28)}..."`);
+        this.updateFormDownloadedQualities();
       } catch (err: any) {
         if (abortController.signal.aborted) {
           taskManager.cancelTask(taskId);
@@ -810,6 +863,55 @@ export class YTDownloaderView extends ItemView {
         }
       }
     })();
+  }
+
+  private updateFormDownloadedQualities(): void {
+    if (!this.form || !this.currentPreview) return;
+    const downloaded = new Set<string>();
+    const cache = this.plugin.settings.ytHistoryCache?.items || {};
+    const url = this.currentPreview.original_url || "";
+    const cleanTitle = (this.currentPreview.title || "")
+      .replace(/[/\\:*?"<>|#^[\]]/g, "")
+      .trim()
+      .toLowerCase();
+
+    for (const item of Object.values(cache)) {
+      const urlMatch = Boolean(item.url && url && item.url.trim() === url.trim());
+      const itemTitle = (item.title || "").toLowerCase();
+      const titleMatch = Boolean(
+        cleanTitle &&
+        cleanTitle.length > 5 &&
+        (itemTitle.includes(cleanTitle.slice(0, 15)) || cleanTitle.includes(itemTitle.slice(0, 15)))
+      );
+      if (urlMatch || titleMatch) {
+        if (item.resolution) downloaded.add(item.resolution.toLowerCase());
+        if (item.mediaPath) {
+          const lowerMedia = item.mediaPath.toLowerCase();
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerMedia.includes(`_${q}_`)) downloaded.add(q);
+          }
+          if (lowerMedia.endsWith(".mp3")) downloaded.add("audio");
+        }
+      }
+    }
+
+    try {
+      const rawFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
+      const files = this.app.vault.getFiles().filter((f) =>
+        f.path.startsWith(rawFolder) && (f.extension === "mp4" || f.extension === "mp3")
+      );
+      for (const f of files) {
+        const lowerName = f.name.toLowerCase();
+        if (cleanTitle && cleanTitle.length > 5 && lowerName.includes(cleanTitle.slice(0, 12))) {
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerName.includes(`_${q}_`)) downloaded.add(q);
+          }
+          if (f.extension === "mp3") downloaded.add("audio");
+        }
+      }
+    } catch {}
+
+    this.form.setDownloadedQualities(downloaded);
   }
 
   private async ensureFolder(path: string): Promise<void> {
