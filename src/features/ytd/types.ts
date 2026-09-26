@@ -113,6 +113,8 @@ export interface YtDlpInfo {
   uploader_url?: string;
   upload_date?: string;
   duration?: number;
+  duration_string?: string;
+  video_duration?: number;
   view_count?: number;
   description?: string;
   thumbnail?: string;
@@ -124,6 +126,7 @@ export interface YtDlpInfo {
   live_status?: string;
   subtitles?: Record<string, unknown>;
   automatic_captions?: Record<string, unknown>;
+  formats?: Array<{ duration?: number }>;
 }
 
 // ── Preview state (across modal steps) ───────────────────────────────────────

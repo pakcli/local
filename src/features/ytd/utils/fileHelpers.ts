@@ -51,6 +51,38 @@ export function parseTimeInput(input: string): number {
 }
 
 /**
+ * Extract total duration in seconds from any yt-dlp metadata object.
+ * Handles duration number, video_duration, duration_string ("3:14"), or format streams.
+ */
+export function extractVideoDuration(info: any): number {
+  if (!info) return 0;
+  if (typeof info.duration === "number" && !isNaN(info.duration) && info.duration > 0) {
+    return Math.round(info.duration);
+  }
+  if (typeof info.video_duration === "number" && !isNaN(info.video_duration) && info.video_duration > 0) {
+    return Math.round(info.video_duration);
+  }
+  if (typeof info.duration === "string") {
+    const parsed = parseTimeInput(info.duration);
+    if (parsed > 0) return parsed;
+    const num = parseFloat(info.duration);
+    if (!isNaN(num) && num > 0) return Math.round(num);
+  }
+  if (typeof info.duration_string === "string") {
+    const parsed = parseTimeInput(info.duration_string);
+    if (parsed > 0) return parsed;
+  }
+  if (Array.isArray(info.formats)) {
+    for (const f of info.formats) {
+      if (typeof f?.duration === "number" && f.duration > 0) {
+        return Math.round(f.duration);
+      }
+    }
+  }
+  return 0;
+}
+
+/**
  * Format timestamp into dd-hh-mm-ss-ss (day-jam-minute-second-frame)
  */
 export function formatDetailedTimestamp(seconds: number): string {

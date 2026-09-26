@@ -180,7 +180,9 @@ export class DownloadForm {
     this.fullBtnEl.addEventListener("click", () => {
       this.state.isFull = true;
       this.state.start = 0;
-      this.state.end = this.totalDuration > 0 ? this.totalDuration : 600;
+      if (this.totalDuration > 0) {
+        this.state.end = this.totalDuration;
+      }
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -207,7 +209,9 @@ export class DownloadForm {
     dualContainer.createDiv({ cls: "ytec-dual-range-track" });
     this.highlightEl = dualContainer.createDiv({ cls: "ytec-dual-range-highlight" });
 
-    const totalMax = Math.max(60, this.totalDuration || 600);
+    const totalMax = this.totalDuration > 0
+      ? this.totalDuration
+      : Math.max(60, this.state.end || 60);
 
     // Handle 1: Start Handle
     this.rangeMinEl = dualContainer.createEl("input", {
@@ -278,7 +282,9 @@ export class DownloadForm {
   }
 
   private syncRangeUI(): void {
-    const totalMax = Math.max(60, this.totalDuration || 600);
+    const totalMax = this.totalDuration > 0
+      ? this.totalDuration
+      : Math.max(60, this.state.end || 60);
 
     this.startInputEl.value = formatTime(this.state.start);
     this.endInputEl.value = formatTime(this.state.end);
@@ -337,10 +343,13 @@ export class DownloadForm {
       this.totalDuration = 0;
       return;
     }
-    this.totalDuration = preview.duration || preview.video_duration || 0;
-    if (this.state.isFull && this.totalDuration > 0) {
+    const dur = preview.duration || preview.video_duration || 0;
+    this.totalDuration = dur;
+    if (this.state.isFull && dur > 0) {
       this.state.start = 0;
-      this.state.end = this.totalDuration;
+      this.state.end = dur;
+    } else if (this.state.end > dur && dur > 0) {
+      this.state.end = dur;
     }
     this.syncRangeUI();
   }

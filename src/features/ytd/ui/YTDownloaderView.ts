@@ -23,7 +23,7 @@ import {
 } from "../utils/ytdlp";
 import { parseSubtitleFile, extractClipTranscript, formatTranscriptForMarkdown } from "../utils/transcript";
 import { parseYtDlpProgress } from "../utils/progressParser";
-import { buildNotesMarkdown, buildMediaBaseName, formatTime } from "../utils/fileHelpers";
+import { buildNotesMarkdown, buildMediaBaseName, formatTime, extractVideoDuration } from "../utils/fileHelpers";
 import { PathUtils, getNodeFs, getNodeOs } from "../../../utils/nodeHelpers";
 
 export const YT_DOWNLOADER_VIEW_TYPE = "ytd-downloader-view";
@@ -203,6 +203,11 @@ export class YTDownloaderView extends ItemView {
       onFetchAndDownload: (state) => this.handleFetchAndDownload(state),
     });
 
+    if (this.currentPreview) {
+      this.hero.setPreview(this.currentPreview);
+      this.form.setPreview(this.currentPreview);
+    }
+
     // 3. Top Debug Panel
     this.debugPanel = new DebugPanel(tabContainer);
     if (this.currentTaskId) {
@@ -324,6 +329,7 @@ export class YTDownloaderView extends ItemView {
       const info = await fetchVideoInfo(url, this.plugin.settings);
       const parsed = parseMediaUrl(url);
       const platform = parsed?.platform || "youtube";
+      const totalDur = extractVideoDuration(info);
 
       const preview: VideoPreview = {
         video_id: info.id,
@@ -333,11 +339,11 @@ export class YTDownloaderView extends ItemView {
         channel: info.channel || info.uploader || "",
         channel_url: info.channel_url || info.uploader_url || "",
         thumbnail: info.thumbnail || "",
-        start: formState.start,
-        end: formState.end > 0 ? formState.end : (info.duration || 10),
-        duration: info.duration || 0,
+        start: formState.isFull ? 0 : formState.start,
+        end: formState.isFull ? (totalDur || formState.end) : formState.end,
+        duration: totalDur,
         has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
-        video_duration: info.duration || 0,
+        video_duration: totalDur,
         upload_date: info.upload_date || "",
         view_count: info.view_count || 0,
         tags: info.tags || [],
@@ -400,6 +406,7 @@ export class YTDownloaderView extends ItemView {
         const parsed = parseMediaUrl(url);
         const platform = parsed?.platform || "youtube";
 
+        const totalDur = extractVideoDuration(info);
         this.currentPreview = {
           video_id: info.id,
           original_url: url,
@@ -408,11 +415,11 @@ export class YTDownloaderView extends ItemView {
           channel: info.channel || info.uploader || "",
           channel_url: info.channel_url || info.uploader_url || "",
           thumbnail: info.thumbnail || "",
-          start: formState.start,
-          end: formState.end > 0 ? formState.end : (info.duration || 10),
-          duration: info.duration || 0,
+          start: formState.isFull ? 0 : formState.start,
+          end: formState.isFull ? (totalDur || formState.end) : formState.end,
+          duration: totalDur,
           has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
-          video_duration: info.duration || 0,
+          video_duration: totalDur,
           upload_date: info.upload_date || "",
           view_count: info.view_count || 0,
           tags: info.tags || [],
@@ -504,6 +511,7 @@ export class YTDownloaderView extends ItemView {
         if (!activePreview || activePreview.original_url !== url) {
           taskManager.log(taskId, "Fetching stream metadata via yt-dlp...");
           const info = await fetchVideoInfo(url, this.plugin.settings);
+          const totalDur = extractVideoDuration(info);
           activePreview = {
             video_id: info.id,
             original_url: url,
@@ -513,10 +521,10 @@ export class YTDownloaderView extends ItemView {
             channel_url: info.channel_url || info.uploader_url || "",
             thumbnail: info.thumbnail || "",
             start,
-            end: end > 0 ? end : (info.duration || 10),
-            duration: info.duration || 0,
+            end: end > 0 ? end : (totalDur || 10),
+            duration: totalDur,
             has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
-            video_duration: info.duration || 0,
+            video_duration: totalDur,
             upload_date: info.upload_date || "",
             view_count: info.view_count || 0,
             tags: info.tags || [],
