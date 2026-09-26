@@ -83,6 +83,10 @@ export interface YTCaptureSettings {
   ytCaptureQuality?: VideoQuality;
   ytCaptureFps?: VideoFps;
   ytCaptureCreateZip?: boolean;
+<<<<<<< HEAD
+=======
+  ytCaptureForceResolution?: boolean;
+>>>>>>> feat/stable-features-step-by-step
   maxTitleLength?: number;
   presets?: YTPreset[];
   activePresetId?: string;
@@ -97,6 +101,10 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   ytCaptureQuality: "best",
   ytCaptureFps: "auto",
   ytCaptureCreateZip: false,
+<<<<<<< HEAD
+=======
+  ytCaptureForceResolution: false,
+>>>>>>> feat/stable-features-step-by-step
   maxTitleLength: 20,
   presets: DEFAULT_PRESETS,
   activePresetId: "yt_evidence_standard",
@@ -113,6 +121,8 @@ export interface YtDlpInfo {
   uploader_url?: string;
   upload_date?: string;
   duration?: number;
+  duration_string?: string;
+  video_duration?: number;
   view_count?: number;
   description?: string;
   thumbnail?: string;
@@ -124,6 +134,7 @@ export interface YtDlpInfo {
   live_status?: string;
   subtitles?: Record<string, unknown>;
   automatic_captions?: Record<string, unknown>;
+  formats?: Array<{ duration?: number }>;
 }
 
 // ── Preview state (across modal steps) ───────────────────────────────────────
@@ -206,6 +217,10 @@ export interface DownloadTask {
   logs: string[];
   isFetchOnly?: boolean;
   isRetried?: boolean;
+<<<<<<< HEAD
+=======
+  forceResolution?: boolean;
+>>>>>>> feat/stable-features-step-by-step
   createdAt: number;
   completedAt?: number;
   abortFn?: () => void;

@@ -460,8 +460,16 @@ export class ScanSyncModal extends Modal {
             setIcon(openNoteBtn, 'file-text');
             openNoteBtn.setAttribute('title', 'Open markdown note in Obsidian');
             openNoteBtn.addEventListener('click', () => {
+<<<<<<< HEAD
                 void this.app.workspace.openLinkText(item.file.path, '', false);
                 new Notice(`Opened ${item.file.basename}`);
+=======
+                if (item.file instanceof TFile) {
+                    const leaf = this.app.workspace.getLeaf(false);
+                    void leaf.openFile(item.file);
+                    new Notice(`Opened ${item.file.basename}`);
+                }
+>>>>>>> feat/stable-features-step-by-step
             });
 
             // 3. Copy Script to Clipboard Button

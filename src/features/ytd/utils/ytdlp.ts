@@ -6,6 +6,13 @@ import { PathUtils, getNodeFs } from "../../../utils/nodeHelpers";
 import type { YTCaptureSettings, YtDlpInfo, VideoQuality, VideoFps } from "../types";
 import { runCommand, resolveBinary } from "./process";
 
+interface MinimalFs {
+  existsSync(path: string): boolean;
+  readdirSync(path: string): string[];
+  unlinkSync(path: string): void;
+  renameSync(from: string, to: string): void;
+}
+
 export async function fetchVideoInfo(
   url: string,
   settings: YTCaptureSettings
@@ -23,7 +30,7 @@ export async function fetchVideoInfo(
   try {
     stdout = await runCommand(settings.ytDlpPath, baseArgs);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
     // If live event ended error or extractor error, retry with player_client fallback
     if (msg.toLowerCase().includes("live event has ended") || msg.toLowerCase().includes("this live event has ended")) {
       try {
@@ -79,7 +86,11 @@ export async function downloadClip(
   const isInstagram = url.includes("instagram.com") || url.includes("instagr.am");
   const isAudio = quality === "audio";
 
+<<<<<<< HEAD
   let formatStr = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/18/best[ext=mp4]/best";
+=======
+  let formatStr = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
+>>>>>>> feat/stable-features-step-by-step
 
   if (isInstagram) {
     formatStr = isAudio ? "bestaudio/best" : "best";
@@ -100,13 +111,12 @@ export async function downloadClip(
     if (fps === "60") maxFps = "[fps<=60]";
     else if (fps === "30") maxFps = "[fps<=30]";
 
-    formatStr = `bestvideo${maxH}${maxFps}[ext=mp4]+bestaudio[ext=m4a]/18/best${maxH}${maxFps}[ext=mp4]/best`;
+    formatStr = `bestvideo${maxH}${maxFps}+bestaudio/bestvideo${maxH}+bestaudio/best${maxH}${maxFps}/best${maxH}/best`;
   }
 
   const args: string[] = ["--newline"];
 
   if (!isInstagram) {
-    args.push("--extractor-args", "youtube:player_client=mweb,android,web");
     args.push("--no-live-from-start");
 
     const isFullDuration = isFull || (start === 0 && end === 0);
@@ -134,21 +144,19 @@ export async function downloadClip(
   args.push("--no-playlist", "--no-colors", "-o", finalOutputPath, url);
 
   const ffmpegCmd = resolveBinary(settings.ffmpegPath || "ffmpeg");
-  if (ffmpegCmd) {
+  // Only pass --ffmpeg-location if it points to an explicit file/directory path with slashes
+  if (ffmpegCmd && (ffmpegCmd.includes("/") || ffmpegCmd.includes("\\"))) {
     args.unshift("--ffmpeg-location", ffmpegCmd);
   }
 
   try {
     await runCommand(settings.ytDlpPath, args, { onOutput: onProgress });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
     if (!isInstagram && (msg.toLowerCase().includes("live event has ended") || msg.toLowerCase().includes("this live event has ended"))) {
       try {
         const retryArgs = [...args];
-        // Remove existing --extractor-args if present, then add multi-client fallback
-        const eaIdx = retryArgs.indexOf("--extractor-args");
-        if (eaIdx !== -1) retryArgs.splice(eaIdx, 2);
-        retryArgs.unshift("--extractor-args", "youtube:player_client=android,ios,mweb,web");
+        retryArgs.unshift("--extractor-args", "youtube:player_client=android_vr,web");
         await runCommand(settings.ytDlpPath, retryArgs, { onOutput: onProgress });
       } catch {
         throw new Error(
@@ -167,7 +175,9 @@ export async function downloadSubtitles(
   settings: YTCaptureSettings
 ): Promise<void> {
   const ffmpegCmd = resolveBinary(settings.ffmpegPath || "ffmpeg");
-  const ffmpegArgs = ffmpegCmd ? ["--ffmpeg-location", ffmpegCmd] : [];
+  const ffmpegArgs = ffmpegCmd && (ffmpegCmd.includes("/") || ffmpegCmd.includes("\\"))
+    ? ["--ffmpeg-location", ffmpegCmd]
+    : [];
 
   await runCommand(
     settings.ytDlpPath,
@@ -187,8 +197,140 @@ export async function downloadThumbnail(thumbnailUrl: string): Promise<ArrayBuff
 }
 
 export function findSubtitleFile(dir: string): string | null {
-  const fs = getNodeFs();
+  const fs = getNodeFs() as MinimalFs | null;
   if (!fs) return null;
   const files = fs.readdirSync(dir).filter((f: string) => f.endsWith(".json3"));
   return files.length > 0 ? PathUtils.join(dir, files[0]) : null;
 }
+
+export const QUALITY_HEIGHT_MAP: Record<string, number> = {
+  "4k": 2160,
+  "2k": 1440,
+  "1080p": 1080,
+  "720p": 720,
+  "480p": 480,
+  "360p": 360,
+  "240p": 240,
+  "144p": 144,
+};
+
+export function getQualityFromHeight(height: number): VideoQuality {
+  if (height >= 2100) return "4k";
+  if (height >= 1400) return "2k";
+  if (height >= 1000) return "1080p";
+  if (height >= 700) return "720p";
+  if (height >= 460) return "480p";
+  if (height >= 340) return "360p";
+  if (height >= 220) return "240p";
+  return "144p";
+}
+
+/**
+ * Inspect actual video dimensions (width and height) of a downloaded media file using ffprobe or ffmpeg.
+ */
+export async function getVideoDimensions(
+  filePath: string,
+  settings: YTCaptureSettings
+): Promise<{ width: number; height: number } | null> {
+  const fs = getNodeFs() as MinimalFs | null;
+  if (!fs || !fs.existsSync(filePath)) return null;
+
+  // 1. Try ffprobe first
+  try {
+    const ffprobeBin = resolveBinary("ffprobe");
+    const out = await runCommand(ffprobeBin, [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width,height",
+      "-of", "csv=s=x:p=0",
+      filePath,
+    ]);
+    const trimmed = out.trim();
+    const parts = trimmed.split("x").map((n) => parseInt(n, 10));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && parts[0] > 0 && parts[1] > 0) {
+      return { width: parts[0], height: parts[1] };
+    }
+  } catch {
+    // ffprobe not available or failed, try ffmpeg fallback
+  }
+
+  // 2. Fallback: inspect via ffmpeg -i
+  try {
+    const ffmpegBin = resolveBinary(settings.ffmpegPath || "ffmpeg");
+    let stderrOut = "";
+    try {
+      await runCommand(ffmpegBin, ["-i", filePath], {
+        onStderr: (data) => { stderrOut += data; },
+      });
+    } catch {
+      // ffmpeg -i without output file exits with code 1, which is expected
+    }
+
+    const match = stderrOut.match(/Stream #\d+:\d+.*Video:.*?(\d{3,5})x(\d{3,5})/);
+    if (match) {
+      const w = parseInt(match[1], 10);
+      const h = parseInt(match[2], 10);
+      if (!isNaN(w) && !isNaN(h)) {
+        return { width: w, height: h };
+      }
+    }
+  } catch {
+    // Inspection failed
+  }
+
+  return null;
+}
+
+/**
+ * Upscale video to target height using FFmpeg Lanczos scaling algorithm.
+ */
+export async function upscaleVideo(
+  inputPath: string,
+  targetHeight: number,
+  settings: YTCaptureSettings,
+  onProgress?: (msg: string) => void
+): Promise<string> {
+  const fs = getNodeFs() as MinimalFs | null;
+  if (!fs || !fs.existsSync(inputPath)) return inputPath;
+
+  const ffmpegBin = resolveBinary(settings.ffmpegPath || "ffmpeg");
+  const dir = PathUtils.dirname(inputPath);
+  const ext = PathUtils.extname(inputPath);
+  const base = PathUtils.basename(inputPath, ext);
+  const tempUpscaledPath = PathUtils.join(dir, `${base}_scaled.mp4`);
+
+  onProgress?.(`Upscaling video to ${targetHeight}p via FFmpeg (Lanczos)...`);
+
+  const filter = `scale=-2:${targetHeight}:flags=lanczos`;
+  const args = [
+    "-y",
+    "-i", inputPath,
+    "-vf", filter,
+    "-c:v", "libx264",
+    "-crf", "18",
+    "-preset", "fast",
+    "-c:a", "copy",
+    tempUpscaledPath,
+  ];
+
+  await runCommand(ffmpegBin, args, {
+    onStderr: (line) => {
+      if (line.includes("frame=") || line.includes("time=")) {
+        onProgress?.(`Upscaling: ${line.trim().slice(0, 80)}`);
+      }
+    },
+  });
+
+  if (fs.existsSync(tempUpscaledPath)) {
+    try {
+      fs.unlinkSync(inputPath);
+      fs.renameSync(tempUpscaledPath, inputPath);
+      return inputPath;
+    } catch {
+      return tempUpscaledPath;
+    }
+  }
+
+  return inputPath;
+}
+

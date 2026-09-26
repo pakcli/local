@@ -5,7 +5,11 @@
  *   - Section 1: Interactive Sync Controller, Diff Viewer & Script Runner
  *   - Section 2: Formatted Codeblock with Copy Button
  */
+<<<<<<< HEAD
 import { MarkdownRenderChild, Notice, TFile } from 'obsidian';
+=======
+import { MarkdownRenderChild, MarkdownView, Notice, TFile } from 'obsidian';
+>>>>>>> feat/stable-features-step-by-step
 import { SyncManager } from '../SyncManager';
 import { renderDiffViewer } from '../diffViewer';
 
@@ -40,9 +44,51 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
         this.render();
     }
 
+    private isLivePreviewMode(): boolean {
+        // 1. Direct DOM check (if attached)
+        if (this.containerEl.closest('.markdown-source-view, .cm-editor, .cm-content, .cm-embed-block')) {
+            return true;
+        }
+
+        // 2. Active MarkdownView check
+        const activeView = this.plugin?.app?.workspace?.getActiveViewOfType(MarkdownView);
+        if (activeView && typeof activeView.getMode === 'function') {
+            return activeView.getMode() === 'source';
+        }
+
+        // 3. Fallback: match by file path across workspace leaves
+        const leaves = this.plugin?.app?.workspace?.getLeavesOfType('markdown') || [];
+        for (const leaf of leaves) {
+            const view = leaf.view as MarkdownView;
+            if (view && this.noteFile && view.file?.path === this.noteFile.path) {
+                if (typeof view.getMode === 'function') {
+                    return view.getMode() === 'source';
+                }
+            }
+        }
+
+        return false;
+    }
+
     private render(): void {
         const { containerEl } = this;
         containerEl.empty();
+
+        const isLive = this.isLivePreviewMode();
+        const isToolbarOn = Boolean(this.plugin?.settings?.liveCodeblockToolbar);
+        const isExplicitlyTagged = this.language.includes(':sync') || this.language === 'sync';
+
+        // When in Live Preview (editing) and toolbar is OFF (and not explicitly :sync):
+        // Render a clean, standard code block with zero complex wrapper DOM or interactive toolbars.
+        // This keeps CodeMirror height maps completely stable and allows table insertion without crash.
+        if (isLive && !isToolbarOn && !isExplicitlyTagged) {
+            const baseLang = this.language.split(':')[0] || this.language;
+            const pre = containerEl.createEl('pre', { cls: `language-${baseLang}` });
+            const code = pre.createEl('code', { cls: `language-${baseLang}` });
+            code.setText(this.source);
+            return;
+        }
+
         containerEl.addClass('pakcli-codeblock-container');
 
         // SECTION 1: Sync Controller & Runner Header

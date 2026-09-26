@@ -58,6 +58,9 @@ export interface ScriptNoteFrontmatter {
 
 export interface FolderSyncSettings {
     enabled: boolean;
+    liveCodeblockToolbar: boolean;
+    autoTurnOffToolbar: boolean;
+    autoTurnOffDelaySeconds: number;
     cliRootFolder: string;
     managerRootFolder: string; // Vault-relative path, e.g. "Digital Library/CLI & Commands"
     languageExtensionMap: Record<string, string>;
@@ -69,6 +72,12 @@ export interface FolderSyncSettings {
 
 export const DEFAULT_FOLDER_SYNC_SETTINGS: FolderSyncSettings = {
     enabled: true,
+<<<<<<< HEAD
+=======
+    liveCodeblockToolbar: false,
+    autoTurnOffToolbar: true,
+    autoTurnOffDelaySeconds: 60,
+>>>>>>> feat/stable-features-step-by-step
     cliRootFolder: 'Scripts',
     managerRootFolder: 'Digital Library/CLI & Commands',
     languageExtensionMap: {

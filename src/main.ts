@@ -34,6 +34,7 @@ export default class PakCLILocalPlugin extends Plugin {
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
 	badgeRenderer!: BadgeRenderer;
+	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
 
 	async onload() {
@@ -92,10 +93,16 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.syncManager.init();
 
+<<<<<<< HEAD
 		// Register Script Codeblock Processors (including :sync tag variants)
 		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
 		const allProcessLangs = [...scriptLangs, ...scriptLangs.map(l => `${l}:sync`)];
 		allProcessLangs.forEach((lang) => {
+=======
+		// Register Script Codeblock Processors (clean language names only; colons break Obsidian's internal querySelectorAll)
+		const scriptLangs = ['powershell', 'ps1', 'bash', 'sh', 'python', 'py', 'cmd', 'bat'];
+		scriptLangs.forEach((lang) => {
+>>>>>>> feat/stable-features-step-by-step
 			this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
 				const activeFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
 				ctx.addChild(new SyncCodeblockRenderer(el, source, lang, this.syncManager, this, activeFile instanceof TFile ? activeFile : null));
@@ -123,6 +130,10 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.app.workspace.onLayoutReady(() => {
 			this.copyPasteManager.runAwakeScan();
+<<<<<<< HEAD
+=======
+			void this.initDockLeaf();
+>>>>>>> feat/stable-features-step-by-step
 		});
 
 		// 7. Register YTD Downloader View & Ribbon Icon
@@ -160,10 +171,30 @@ export default class PakCLILocalPlugin extends Plugin {
 			).open();
 		});
 
+<<<<<<< HEAD
 		// 10. Register Commands
 		this.registerPluginCommands();
 
 		// 9. Register Master-Detail Settings Tab
+=======
+		// 10. Status Bar Item for ScriptSync
+		this.scriptSyncStatusBarItem = this.addStatusBarItem();
+		this.updateScriptSyncStatusBar();
+
+		// Auto-off when switching notes/tabs so the next note is always in pure editing mode
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', () => {
+				if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
+					void this.turnOffLiveCodeblockToolbar(true);
+				}
+			})
+		);
+
+		// 11. Register Commands
+		this.registerPluginCommands();
+
+		// 12. Register Master-Detail Settings Tab
+>>>>>>> feat/stable-features-step-by-step
 		this.registerSettingsHub();
 
 		// 10. Background Health Check
@@ -202,7 +233,108 @@ export default class PakCLILocalPlugin extends Plugin {
 		}
 	}
 
+	private scriptSyncAutoOffTimer: any = null;
+
+	clearScriptSyncAutoOffTimer() {
+		if (this.scriptSyncAutoOffTimer) {
+			window.clearTimeout(this.scriptSyncAutoOffTimer);
+			this.scriptSyncAutoOffTimer = null;
+		}
+	}
+
+	startScriptSyncAutoOffTimer() {
+		this.clearScriptSyncAutoOffTimer();
+		if (this.settings.autoTurnOffToolbar === false) return;
+		const delaySec = this.settings.autoTurnOffDelaySeconds || 60;
+		this.scriptSyncAutoOffTimer = window.setTimeout(() => {
+			void this.turnOffLiveCodeblockToolbar(true);
+		}, delaySec * 1000);
+	}
+
+	resetScriptSyncAutoOffTimer() {
+		if (this.settings.liveCodeblockToolbar && this.settings.autoTurnOffToolbar !== false) {
+			this.startScriptSyncAutoOffTimer();
+		}
+	}
+
+	updateScriptSyncStatusBar() {
+		if (!this.scriptSyncStatusBarItem) return;
+		const isLive = Boolean(this.settings.liveCodeblockToolbar);
+		const isAuto = this.settings.autoTurnOffToolbar !== false;
+		const text = isLive
+			? (isAuto ? '⚡ ScriptSync: ON (Auto)' : '⚡ ScriptSync: ON')
+			: '⚡ ScriptSync: OFF';
+		this.scriptSyncStatusBarItem.setText(text);
+		this.scriptSyncStatusBarItem.setAttribute(
+			'aria-label',
+			isLive
+				? 'ScriptSync In-Editor Toolbar is ON (Click to turn OFF)'
+				: 'ScriptSync In-Editor Toolbar is OFF (Click to turn ON)'
+		);
+		this.scriptSyncStatusBarItem.style.cursor = 'pointer';
+		this.scriptSyncStatusBarItem.onclick = () => {
+			void this.toggleLiveCodeblockToolbar();
+		};
+	}
+
+	refreshActiveLeaf() {
+		const mdView = this.app.workspace.getActiveViewOfType(import('obsidian').then(m => m.MarkdownView) as any);
+        // Using a safe casting workaround to avoid import issues for MarkdownView
+        const workspace = this.app.workspace;
+        let view: any = null;
+        workspace.getLeavesOfType('markdown').forEach(leaf => {
+            if (leaf.view.containerEl.isShown()) view = leaf.view;
+        });
+
+		if (view) {
+			if (typeof view.previewMode?.rerender === 'function') {
+				view.previewMode.rerender(true);
+			}
+			if (view.editor?.cm?.dispatch) {
+				view.editor.cm.dispatch({});
+			}
+		}
+		(this.app.workspace as any).trigger('layout-change');
+	}
+
+	async turnOffLiveCodeblockToolbar(isAuto = false) {
+		if (!this.settings.liveCodeblockToolbar) return;
+		this.clearScriptSyncAutoOffTimer();
+		this.settings.liveCodeblockToolbar = false;
+		await this.saveSettings();
+		this.updateScriptSyncStatusBar();
+		if (isAuto) {
+			new Notice('⚡ [PakCLI] ScriptSync Live Toolbar auto-disabled (pure editor mode).');
+		}
+		this.refreshActiveLeaf();
+	}
+
+	async toggleLiveCodeblockToolbar() {
+		if (this.settings.liveCodeblockToolbar) {
+			await this.turnOffLiveCodeblockToolbar(false);
+			new Notice('⚡ ScriptSync Live Toolbar: OFF (Pure Markdown Editor)');
+		} else {
+			this.settings.liveCodeblockToolbar = true;
+			await this.saveSettings();
+			this.updateScriptSyncStatusBar();
+			const delay = this.settings.autoTurnOffDelaySeconds || 60;
+			const autoMsg = this.settings.autoTurnOffToolbar !== false ? ` (Auto-off in ${delay}s)` : '';
+			new Notice(`⚡ ScriptSync Live Toolbar: ON${autoMsg}`);
+			this.startScriptSyncAutoOffTimer();
+			this.refreshActiveLeaf();
+		}
+	}
+
 	private registerPluginCommands() {
+		// Command: Toggle Live Codeblock Toolbar
+		this.addCommand({
+			id: 'pl-toggle-scriptsync-toolbar',
+			name: 'ScriptSync: Toggle In-Editor Codeblock Toolbar',
+			callback: () => {
+				void this.toggleLiveCodeblockToolbar();
+			}
+		});
+
 		// Command: Open Diagnostics Wizard
 		this.addCommand({
 			id: 'pl-open-wizard',
@@ -245,12 +377,49 @@ export default class PakCLILocalPlugin extends Plugin {
 			},
 		});
 
-		// Command: Scan & Sync Script Blocks
+		// Command: Scan & Sync Codeblock Scripts
 		this.addCommand({
 			id: 'pl-scriptsync-scan',
 			name: 'ScriptSync: Scan & Sync Codeblock Scripts',
 			callback: () => {
 				new ScanSyncModal(this.app, this.syncManager, () => this.settings, () => this.saveSettings()).open();
+			},
+		});
+
+		// Command: Run Script in Active Note (Background - zero editor interference)
+		this.addCommand({
+			id: 'pl-scriptsync-run-active',
+			name: 'ScriptSync: Run Script in Active Note (Background)',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) {
+					new Notice('⚠️ No active note open to execute script.');
+					return;
+				}
+				try {
+					const content = await this.app.vault.read(activeFile);
+					const langMap = (this.settings.languageExtensionMap as Record<string, string>) || {
+                        'powershell': 'ps1', 'ps1': 'ps1',
+                        'bash': 'sh', 'sh': 'sh',
+                        'python': 'py', 'py': 'py',
+                        'cmd': 'cmd', 'bat': 'bat'
+                    };
+                    // Dynamic import to avoid top-level import crash if file was reverted
+                    const { extractTargetCodeblock } = await import('./features/scriptSync/markdownParser');
+					const targetBlock = extractTargetCodeblock(content, langMap);
+					if (!targetBlock || !targetBlock.code.trim()) {
+						new Notice('⚠️ No executable script codeblock found in active note.');
+						return;
+					}
+					const baseLang = targetBlock.language.split(':')[0] || targetBlock.language;
+					new Notice(`⏳ Running ${baseLang.toUpperCase()} script in background...`);
+					const cliPath = this.syncManager.resolveCliPath(activeFile.path, baseLang);
+					const res = await this.syncManager.runScript(targetBlock.code, baseLang, cliPath);
+					const out = res.stdout || (res.stderr ? `Error:\n${res.stderr}` : `(Exit code: ${res.exitCode})`);
+					new Notice(`✅ [ScriptSync] Execution complete:\n${out.substring(0, 300)}`, 6000);
+				} catch (err: any) {
+					new Notice(`❌ [ScriptSync] Execution error: ${err?.message || err}`);
+				}
 			},
 		});
 
@@ -367,12 +536,48 @@ export default class PakCLILocalPlugin extends Plugin {
 		this.addSettingTab(settingsTab);
 	}
 
+<<<<<<< HEAD
+=======
+	async initDockLeaf() {
+		const { workspace } = this.app;
+		// Detach any existing leaf that accidentally sat in the center editor / rootSplit
+		const leaves = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE);
+		for (const leaf of leaves) {
+			if (leaf.getRoot() === workspace.rootSplit) {
+				leaf.detach();
+			}
+		}
+
+		// By default, if the view is not yet open in any dock, dock it into the right sidebar
+		if (workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE).length === 0) {
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({
+					type: YT_DOWNLOADER_VIEW_TYPE,
+					active: false,
+				});
+			}
+		}
+	}
+
+>>>>>>> feat/stable-features-step-by-step
 	async activateYTDownloaderView() {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(YT_DOWNLOADER_VIEW_TYPE)[0];
 
+<<<<<<< HEAD
 		if (!leaf) {
 			const rightLeaf = workspace.getLeaf(false);
+=======
+		// If a leaf exists but is in the rootSplit (center editor), detach it so it docks in the right sidebar
+		if (leaf && leaf.getRoot() === workspace.rootSplit) {
+			leaf.detach();
+			leaf = undefined as any;
+		}
+
+		if (!leaf) {
+			const rightLeaf = workspace.getRightLeaf(false);
+>>>>>>> feat/stable-features-step-by-step
 			if (rightLeaf) {
 				leaf = rightLeaf;
 				await leaf.setViewState({
@@ -384,6 +589,12 @@ export default class PakCLILocalPlugin extends Plugin {
 
 		if (leaf) {
 			void workspace.revealLeaf(leaf);
+<<<<<<< HEAD
+=======
+			if (leaf.view instanceof YTDownloaderView) {
+				void leaf.view.refreshData(true);
+			}
+>>>>>>> feat/stable-features-step-by-step
 		}
 	}
 }

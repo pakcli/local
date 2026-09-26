@@ -39,6 +39,10 @@ export class TableView {
   private unsubscribe?: () => void;
   private renderId = 0;
   private renderTimer: number | null = null;
+<<<<<<< HEAD
+=======
+  private resizeObserver: ResizeObserver | null = null;
+>>>>>>> feat/stable-features-step-by-step
 
   constructor(parentEl: HTMLElement, app: App, plugin: PakCLIPlugin, options: TableViewOptions) {
     this.app = app;
@@ -50,6 +54,24 @@ export class TableView {
     this.toolbarEl = this.containerEl.createDiv({ cls: "ytec-tableview-toolbar" });
     this.tableEl = this.containerEl.createDiv({ cls: "ytec-tableview-table" });
 
+<<<<<<< HEAD
+=======
+    // Responsive width observer: if < 900px, enable horizontal scroll; if >= 900px, fit width
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w < 900) {
+          this.containerEl.addClass("is-scrollable");
+          this.containerEl.removeClass("is-fit-width");
+        } else {
+          this.containerEl.addClass("is-fit-width");
+          this.containerEl.removeClass("is-scrollable");
+        }
+      }
+    });
+    this.resizeObserver.observe(this.containerEl);
+
+>>>>>>> feat/stable-features-step-by-step
     this.renderToolbar();
     this.renderTable();
 
@@ -66,6 +88,11 @@ export class TableView {
       window.clearTimeout(this.renderTimer);
       this.renderTimer = null;
     }
+<<<<<<< HEAD
+=======
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+>>>>>>> feat/stable-features-step-by-step
     this.unsubscribe?.();
   }
 
@@ -190,7 +217,11 @@ export class TableView {
     });
   }
 
+<<<<<<< HEAD
   async renderTable(): Promise<void> {
+=======
+  async renderTable(forceRescan = false): Promise<void> {
+>>>>>>> feat/stable-features-step-by-step
     const currentRenderId = ++this.renderId;
 
     // 1. Collect runtime tasks from taskManager
@@ -199,7 +230,11 @@ export class TableView {
     // 2. Collect completed items from vault history cache
     let vaultItems: CaptureHistoryItem[] = [];
     try {
+<<<<<<< HEAD
       vaultItems = await getIncrementalCaptureHistory(this.app, this.plugin);
+=======
+      vaultItems = await getIncrementalCaptureHistory(this.app, this.plugin, forceRescan);
+>>>>>>> feat/stable-features-step-by-step
     } catch (e) {
       console.error("[TableView] Error fetching history:", e);
     }
@@ -261,6 +296,7 @@ export class TableView {
 
     // 1. Thumb
     const tdThumb = tr.createEl("td", { cls: "col-thumb" });
+<<<<<<< HEAD
     if (row.thumbnail) {
       const img = tdThumb.createEl("img", {
         cls: "ytec-row-thumb-img",
@@ -268,6 +304,27 @@ export class TableView {
       });
       img.onerror = () => {
         img.style.display = "none";
+=======
+    let thumbSrc = row.thumbnail;
+    if (row.thumbnailPath) {
+      const tFile = this.app.vault.getAbstractFileByPath(row.thumbnailPath);
+      if (tFile instanceof TFile) {
+        thumbSrc = this.app.vault.getResourcePath(tFile);
+      }
+    }
+
+    if (thumbSrc) {
+      const img = tdThumb.createEl("img", {
+        cls: "ytec-row-thumb-img",
+        attr: { src: thumbSrc, alt: row.title },
+      });
+      img.onerror = () => {
+        img.remove();
+        if (!tdThumb.querySelector(".ytec-row-thumb-placeholder")) {
+          const placeholder = tdThumb.createDiv({ cls: "ytec-row-thumb-placeholder" });
+          setIcon(placeholder, row.platform === "youtube" ? "video" : "camera");
+        }
+>>>>>>> feat/stable-features-step-by-step
       };
     } else {
       const placeholder = tdThumb.createDiv({ cls: "ytec-row-thumb-placeholder" });
@@ -289,6 +346,20 @@ export class TableView {
       }
     });
 
+<<<<<<< HEAD
+=======
+    // Compact metadata line (visible in dock sidebar mode when quality/plat columns collapse)
+    const metaSub = tdTitle.createDiv({ cls: "ytec-row-meta" });
+    metaSub.createSpan({
+      cls: `ytec-badge ytec-badge-sm ytec-badge-${row.platform}`,
+      text: row.platform === "youtube" ? "🎬 YT" : "📸 IG",
+    });
+    const qualText = row.quality === "audio"
+      ? `Audio · ${row.timeRange}`
+      : `${row.quality} ${row.fps === "auto" ? "" : row.fps + "fps"} · ${row.timeRange}`;
+    metaSub.createSpan({ cls: "ytec-quality-tag-sm", text: qualText });
+
+>>>>>>> feat/stable-features-step-by-step
     const urlSub = tdTitle.createDiv({ cls: "ytec-row-url" });
     urlSub.setText(row.url);
     urlSub.title = row.url;
@@ -298,9 +369,12 @@ export class TableView {
     if (row.isFetchOnly) {
       tdQuality.createSpan({ cls: "ytec-badge ytec-badge-fetchonly", text: "🔵 Fetches Only" });
     } else {
+<<<<<<< HEAD
       const qualText = row.quality === "audio"
         ? `Audio · ${row.timeRange}`
         : `${row.quality} ${row.fps === "auto" ? "auto" : row.fps + "fps"} · ${row.timeRange}`;
+=======
+>>>>>>> feat/stable-features-step-by-step
       tdQuality.createSpan({ cls: "ytec-quality-tag", text: qualText });
     }
 
@@ -388,12 +462,76 @@ export class TableView {
     }
   }
 
+<<<<<<< HEAD
+=======
+  private getDownloadedQualities(row: CombinedRow): Set<string> {
+    const downloaded = new Set<string>();
+    const cache = this.plugin.settings.ytHistoryCache?.items || {};
+
+    const cleanTitle = (row.title || "")
+      .replace(/[/\\:*?"<>|#^[\]]/g, "")
+      .trim()
+      .toLowerCase();
+
+    for (const item of Object.values(cache)) {
+      const urlMatch = Boolean(item.url && row.url && item.url.trim() === row.url.trim());
+      const itemTitle = (item.title || "").toLowerCase();
+      const titleMatch = Boolean(
+        cleanTitle &&
+        cleanTitle.length > 5 &&
+        (itemTitle.includes(cleanTitle.slice(0, 15)) || cleanTitle.includes(itemTitle.slice(0, 15)))
+      );
+
+      if (urlMatch || titleMatch) {
+        if (item.resolution) {
+          downloaded.add(item.resolution.toLowerCase());
+        }
+        if (item.mediaPath) {
+          const lowerMedia = item.mediaPath.toLowerCase();
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerMedia.includes(`_${q}_`)) {
+              downloaded.add(q);
+            }
+          }
+          if (lowerMedia.endsWith(".mp3")) {
+            downloaded.add("audio");
+          }
+        }
+      }
+    }
+
+    // Also scan output folder files directly in vault
+    try {
+      const rawFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
+      const files = this.app.vault.getFiles().filter((f) =>
+        f.path.startsWith(rawFolder) && (f.extension === "mp4" || f.extension === "mp3")
+      );
+      for (const f of files) {
+        const lowerName = f.name.toLowerCase();
+        if (cleanTitle && cleanTitle.length > 5 && lowerName.includes(cleanTitle.slice(0, 12))) {
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerName.includes(`_${q}_`)) {
+              downloaded.add(q);
+            }
+          }
+          if (f.extension === "mp3") {
+            downloaded.add("audio");
+          }
+        }
+      }
+    } catch {}
+
+    return downloaded;
+  }
+
+>>>>>>> feat/stable-features-step-by-step
   private showQualityConfirmPopup(row: CombinedRow): void {
     const overlay = document.body.createDiv({ cls: "ytec-mini-popup-overlay" });
     const popup = overlay.createDiv({ cls: "ytec-mini-popup" });
 
     popup.createEl("h4", { text: `Download ${row.title.slice(0, 35)}...` });
 
+<<<<<<< HEAD
     // Quality selector
     const qRow = popup.createDiv({ cls: "ytec-popup-row" });
     qRow.createSpan({ text: "Quality:" });
@@ -404,6 +542,86 @@ export class TableView {
       if (q === row.quality) opt.selected = true;
     }
 
+=======
+    const downloadedQualities = this.getDownloadedQualities(row);
+
+    // Quality selector row
+    const qRow = popup.createDiv({ cls: "ytec-popup-row" });
+    qRow.createSpan({ text: "Quality:" });
+    const qSelectContainer = qRow.createDiv({ cls: "ytec-select-with-badge" });
+    const qSelect = qSelectContainer.createEl("select", { cls: "ytec-quality-select" });
+    const liveBadge = qSelectContainer.createSpan({ cls: "ytec-quality-live-badge" });
+
+    const qualities: VideoQuality[] = ["1080p", "720p", "480p", "360p", "audio"];
+    for (const q of qualities) {
+      const isDownloaded = downloadedQualities.has(q.toLowerCase());
+      const label = isDownloaded ? `✓ ${q} (Downloaded)` : q;
+      const opt = qSelect.createEl("option", { value: q, text: label });
+      if (q === row.quality) opt.selected = true;
+    }
+
+    const updateBadge = () => {
+      const val = qSelect.value;
+      const isDl = downloadedQualities.has(val.toLowerCase());
+      if (isDl) {
+        liveBadge.setText("✓ Downloaded");
+        liveBadge.className = "ytec-quality-live-badge is-downloaded";
+      } else {
+        liveBadge.setText("Available");
+        liveBadge.className = "ytec-quality-live-badge is-not-downloaded";
+      }
+    };
+    updateBadge();
+
+    // Checklist section: each quality with checklist checkbox & Downloaded badge
+    const checklistSection = popup.createDiv({ cls: "ytec-quality-checklist-section" });
+    checklistSection.createSpan({ cls: "ytec-checklist-label", text: "Quality checklist:" });
+    const checklistEl = checklistSection.createDiv({ cls: "ytec-quality-checklist" });
+
+    const refreshChecklistSelection = () => {
+      checklistEl.querySelectorAll(".ytec-checklist-item").forEach((el) => {
+        const qName = el.getAttribute("data-quality");
+        if (qName === qSelect.value) {
+          el.addClass("is-selected");
+        } else {
+          el.removeClass("is-selected");
+        }
+      });
+    };
+
+    for (const q of qualities) {
+      const isDl = downloadedQualities.has(q.toLowerCase());
+      const itemEl = checklistEl.createDiv({
+        cls: `ytec-checklist-item ${q === qSelect.value ? "is-selected" : ""} ${isDl ? "is-downloaded" : ""}`,
+        attr: { "data-quality": q },
+      });
+
+      // Checklist icon
+      const checkIcon = itemEl.createSpan({ cls: "ytec-checklist-icon" });
+      setIcon(checkIcon, isDl ? "check-circle-2" : "circle");
+
+      // Quality name
+      itemEl.createSpan({ cls: "ytec-checklist-name", text: q });
+
+      // Badge: "Downloaded" or "Not downloaded"
+      itemEl.createSpan({
+        cls: `ytec-badge ${isDl ? "ytec-badge-downloaded" : "ytec-badge-available"}`,
+        text: isDl ? "Downloaded" : "Not downloaded",
+      });
+
+      itemEl.addEventListener("click", () => {
+        qSelect.value = q;
+        updateBadge();
+        refreshChecklistSelection();
+      });
+    }
+
+    qSelect.addEventListener("change", () => {
+      updateBadge();
+      refreshChecklistSelection();
+    });
+
+>>>>>>> feat/stable-features-step-by-step
     // Range editor
     const rRow = popup.createDiv({ cls: "ytec-popup-row" });
     rRow.createSpan({ text: "Range:" });
@@ -532,6 +750,24 @@ export class TableView {
 
     // 2. Vault History Items
     for (const h of history) {
+<<<<<<< HEAD
+=======
+      // Exclude non-video scratch notes
+      const tLower = (h.title || "").toLowerCase();
+      const pLower = (h.filePath || "").toLowerCase();
+      if (
+        tLower === "untitled" ||
+        tLower === "yt captures" ||
+        pLower.endsWith("/untitled.md") ||
+        pLower.endsWith("/index.md") ||
+        pLower.endsWith("\\untitled.md") ||
+        pLower.endsWith("\\index.md") ||
+        (!h.url && !h.videoId)
+      ) {
+        continue;
+      }
+
+>>>>>>> feat/stable-features-step-by-step
       const fileKey = getHistoryKey(h);
       const existing = rowMap.get(fileKey);
 
@@ -539,6 +775,10 @@ export class TableView {
         // Merge vault history with live task
         if (!existing.thumbnail && h.thumbnail) {
           existing.thumbnail = h.thumbnail;
+<<<<<<< HEAD
+=======
+          existing.thumbnailPath = h.thumbnailPath;
+>>>>>>> feat/stable-features-step-by-step
         }
         if (!existing.noteFilePath) {
           existing.noteFilePath = h.filePath;
@@ -554,7 +794,14 @@ export class TableView {
           const matchQual = row.quality === (h.resolution || "best");
           if (matchUrl && matchQual) {
             row.noteFilePath = h.filePath;
+<<<<<<< HEAD
             if (!row.thumbnail && h.thumbnail) row.thumbnail = h.thumbnail;
+=======
+            if (!row.thumbnail && h.thumbnail) {
+              row.thumbnail = h.thumbnail;
+              row.thumbnailPath = h.thumbnailPath;
+            }
+>>>>>>> feat/stable-features-step-by-step
             matchedByProps = true;
             break;
           }
@@ -566,6 +813,10 @@ export class TableView {
             url: h.url,
             title: h.title,
             thumbnail: h.thumbnail || "",
+<<<<<<< HEAD
+=======
+            thumbnailPath: h.thumbnailPath,
+>>>>>>> feat/stable-features-step-by-step
             platform: h.platform,
             quality: (h.resolution as VideoQuality) || "best",
             fps: "auto",
@@ -617,6 +868,10 @@ interface CombinedRow {
   url: string;
   title: string;
   thumbnail: string;
+<<<<<<< HEAD
+=======
+  thumbnailPath?: string;
+>>>>>>> feat/stable-features-step-by-step
   platform: "youtube" | "instagram";
   quality: VideoQuality;
   fps: VideoFps;

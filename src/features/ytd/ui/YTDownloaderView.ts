@@ -20,10 +20,22 @@ import {
   downloadThumbnail,
   downloadSubtitles,
   findSubtitleFile,
+<<<<<<< HEAD
 } from "../utils/ytdlp";
 import { parseSubtitleFile, extractClipTranscript, formatTranscriptForMarkdown } from "../utils/transcript";
 import { parseYtDlpProgress } from "../utils/progressParser";
 import { buildNotesMarkdown, buildMediaBaseName, formatTime } from "../utils/fileHelpers";
+=======
+  getVideoDimensions,
+  upscaleVideo,
+  QUALITY_HEIGHT_MAP,
+  getQualityFromHeight,
+} from "../utils/ytdlp";
+import { InfoModal } from "./InfoModal";
+import { parseSubtitleFile, extractClipTranscript, formatTranscriptForMarkdown } from "../utils/transcript";
+import { parseYtDlpProgress } from "../utils/progressParser";
+import { buildNotesMarkdown, buildMediaBaseName, formatTime, extractVideoDuration } from "../utils/fileHelpers";
+>>>>>>> feat/stable-features-step-by-step
 import { PathUtils, getNodeFs, getNodeOs } from "../../../utils/nodeHelpers";
 
 export const YT_DOWNLOADER_VIEW_TYPE = "ytd-downloader-view";
@@ -95,6 +107,18 @@ export class YTDownloaderView extends ItemView {
     this.taskFooter?.destroy();
   }
 
+<<<<<<< HEAD
+=======
+  async refreshData(forceRescan = true): Promise<void> {
+    if (this.recentTable) {
+      await this.recentTable.renderTable(forceRescan);
+    }
+    if (this.fullTable) {
+      await this.fullTable.renderTable(forceRescan);
+    }
+  }
+
+>>>>>>> feat/stable-features-step-by-step
   private renderHeader(parentEl: HTMLElement): void {
     this.headerEl = parentEl.createDiv({ cls: "ytec-view-header" });
 
@@ -188,12 +212,28 @@ export class YTDownloaderView extends ItemView {
       },
     });
 
+<<<<<<< HEAD
     // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download)
     this.form = new DownloadForm(tabContainer, this.plugin.settings, {
       onFetchOnly: (state) => this.handleFetchOnly(state),
       onFetchAndDownload: (state) => this.handleFetchAndDownload(state),
     });
 
+=======
+    // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download) + Info button
+    this.form = new DownloadForm(tabContainer, this.plugin.settings, {
+      onFetchOnly: (state) => this.handleFetchOnly(state),
+      onFetchAndDownload: (state) => this.handleFetchAndDownload(state),
+      onInfo: () => new InfoModal(this.app, this.plugin).open(),
+    });
+
+    if (this.currentPreview) {
+      this.hero.setPreview(this.currentPreview);
+      this.form.setPreview(this.currentPreview);
+      this.updateFormDownloadedQualities();
+    }
+
+>>>>>>> feat/stable-features-step-by-step
     // 3. Top Debug Panel
     this.debugPanel = new DebugPanel(tabContainer);
     if (this.currentTaskId) {
@@ -210,7 +250,25 @@ export class YTDownloaderView extends ItemView {
     setIcon(toggleIcon, this.recentDownloadsCollapsed ? "chevron-right" : "chevron-down");
     titleSpan.createSpan({ text: "🕐 Recent Downloads" });
 
+<<<<<<< HEAD
     recentHeader.addEventListener("click", () => {
+=======
+    const recentActions = recentHeader.createDiv({ cls: "ytec-section-actions" });
+    const refreshBtn = recentActions.createEl("button", {
+      cls: "ytec-icon-btn ytec-recent-rescan-btn",
+      title: "Rescan and refresh downloads from vault",
+      type: "button",
+    });
+    setIcon(refreshBtn, "refresh-cw");
+    refreshBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.refreshData(true);
+      new Notice("🔄 Scanned YT Captures folder");
+    });
+
+    recentHeader.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".ytec-recent-rescan-btn")) return;
+>>>>>>> feat/stable-features-step-by-step
       this.recentDownloadsCollapsed = !this.recentDownloadsCollapsed;
       setIcon(toggleIcon, this.recentDownloadsCollapsed ? "chevron-right" : "chevron-down");
       if (recentContainer) {
@@ -280,6 +338,7 @@ export class YTDownloaderView extends ItemView {
 
   // ── Core Business Actions ────────────────────────────────────────────────
 
+<<<<<<< HEAD
   private async handleUrlChanged(url: string): Promise<void> {
     const parsed = parseMediaUrl(url);
     if (!parsed) return;
@@ -287,6 +346,31 @@ export class YTDownloaderView extends ItemView {
   }
 
   private async handleFetchOnly(formState: DownloadFormState): Promise<void> {
+=======
+  private autoFetchTimeout: number | null = null;
+
+  private async handleUrlChanged(url: string): Promise<void> {
+    const parsed = parseMediaUrl(url);
+    if (!parsed) return;
+    if (this.currentPreview && this.currentPreview.original_url === url) return;
+
+    if (this.autoFetchTimeout) {
+      window.clearTimeout(this.autoFetchTimeout);
+    }
+    this.autoFetchTimeout = window.setTimeout(() => {
+      this.autoFetchTimeout = null;
+      if (this.hero && this.hero.getUrl() === url) {
+        void this.handleFetchOnly(this.form.getState());
+      }
+    }, 700);
+  }
+
+  private async handleFetchOnly(formState: DownloadFormState): Promise<void> {
+    if (this.autoFetchTimeout) {
+      window.clearTimeout(this.autoFetchTimeout);
+      this.autoFetchTimeout = null;
+    }
+>>>>>>> feat/stable-features-step-by-step
     const url = this.hero.getUrl();
     if (!url) {
       new Notice("Please enter a YouTube or Instagram link first.");
@@ -301,6 +385,10 @@ export class YTDownloaderView extends ItemView {
       const info = await fetchVideoInfo(url, this.plugin.settings);
       const parsed = parseMediaUrl(url);
       const platform = parsed?.platform || "youtube";
+<<<<<<< HEAD
+=======
+      const totalDur = extractVideoDuration(info);
+>>>>>>> feat/stable-features-step-by-step
 
       const preview: VideoPreview = {
         video_id: info.id,
@@ -310,11 +398,19 @@ export class YTDownloaderView extends ItemView {
         channel: info.channel || info.uploader || "",
         channel_url: info.channel_url || info.uploader_url || "",
         thumbnail: info.thumbnail || "",
+<<<<<<< HEAD
         start: formState.start,
         end: formState.end > 0 ? formState.end : (info.duration || 10),
         duration: info.duration || 0,
         has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
         video_duration: info.duration || 0,
+=======
+        start: formState.isFull ? 0 : formState.start,
+        end: formState.isFull ? (totalDur || formState.end) : formState.end,
+        duration: totalDur,
+        has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
+        video_duration: totalDur,
+>>>>>>> feat/stable-features-step-by-step
         upload_date: info.upload_date || "",
         view_count: info.view_count || 0,
         tags: info.tags || [],
@@ -326,6 +422,10 @@ export class YTDownloaderView extends ItemView {
       this.currentPreview = preview;
       this.hero.setPreview(preview);
       this.form.setPreview(preview);
+<<<<<<< HEAD
+=======
+      this.updateFormDownloadedQualities();
+>>>>>>> feat/stable-features-step-by-step
 
       // Create a "Fetches Only" task in taskManager
       const taskId = "fetch_" + Date.now();
@@ -377,6 +477,10 @@ export class YTDownloaderView extends ItemView {
         const parsed = parseMediaUrl(url);
         const platform = parsed?.platform || "youtube";
 
+<<<<<<< HEAD
+=======
+        const totalDur = extractVideoDuration(info);
+>>>>>>> feat/stable-features-step-by-step
         this.currentPreview = {
           video_id: info.id,
           original_url: url,
@@ -385,11 +489,19 @@ export class YTDownloaderView extends ItemView {
           channel: info.channel || info.uploader || "",
           channel_url: info.channel_url || info.uploader_url || "",
           thumbnail: info.thumbnail || "",
+<<<<<<< HEAD
           start: formState.start,
           end: formState.end > 0 ? formState.end : (info.duration || 10),
           duration: info.duration || 0,
           has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
           video_duration: info.duration || 0,
+=======
+          start: formState.isFull ? 0 : formState.start,
+          end: formState.isFull ? (totalDur || formState.end) : formState.end,
+          duration: totalDur,
+          has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
+          video_duration: totalDur,
+>>>>>>> feat/stable-features-step-by-step
           upload_date: info.upload_date || "",
           view_count: info.view_count || 0,
           tags: info.tags || [],
@@ -400,6 +512,10 @@ export class YTDownloaderView extends ItemView {
 
         this.hero.setPreview(this.currentPreview);
         this.form.setPreview(this.currentPreview);
+<<<<<<< HEAD
+=======
+        this.updateFormDownloadedQualities();
+>>>>>>> feat/stable-features-step-by-step
       } catch (e: any) {
         new Notice(`Fetch error: ${e.message}`);
         this.hero.setLoading(false);
@@ -420,6 +536,10 @@ export class YTDownloaderView extends ItemView {
       isFull: formState.isFull,
       presetId: formState.presetId,
       folder: formState.folder,
+<<<<<<< HEAD
+=======
+      forceResolution: formState.forceResolution,
+>>>>>>> feat/stable-features-step-by-step
       preview: this.currentPreview,
     });
   }
@@ -433,9 +553,16 @@ export class YTDownloaderView extends ItemView {
     isFull: boolean;
     presetId: string;
     folder: string;
+<<<<<<< HEAD
     preview?: VideoPreview | null;
   }): Promise<void> {
     const { url, quality, fps, start, end, isFull, presetId, folder } = params;
+=======
+    forceResolution?: boolean;
+    preview?: VideoPreview | null;
+  }): Promise<void> {
+    const { url, quality, fps, start, end, isFull, presetId, folder, forceResolution } = params;
+>>>>>>> feat/stable-features-step-by-step
     const preview = params.preview || this.currentPreview;
 
     const taskId = "task_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
@@ -459,6 +586,10 @@ export class YTDownloaderView extends ItemView {
       currentStep: "deps",
       progress: { percent: 0, downloaded: "0MB", total: "--", speed: "--", eta: "--", rawMsg: "Verifying dependencies..." },
       logs: [`Initiating download pipeline for ${url}`],
+<<<<<<< HEAD
+=======
+      forceResolution,
+>>>>>>> feat/stable-features-step-by-step
       createdAt: Date.now(),
       abortFn: () => abortController.abort(),
     };
@@ -481,6 +612,10 @@ export class YTDownloaderView extends ItemView {
         if (!activePreview || activePreview.original_url !== url) {
           taskManager.log(taskId, "Fetching stream metadata via yt-dlp...");
           const info = await fetchVideoInfo(url, this.plugin.settings);
+<<<<<<< HEAD
+=======
+          const totalDur = extractVideoDuration(info);
+>>>>>>> feat/stable-features-step-by-step
           activePreview = {
             video_id: info.id,
             original_url: url,
@@ -490,10 +625,17 @@ export class YTDownloaderView extends ItemView {
             channel_url: info.channel_url || info.uploader_url || "",
             thumbnail: info.thumbnail || "",
             start,
+<<<<<<< HEAD
             end: end > 0 ? end : (info.duration || 10),
             duration: info.duration || 0,
             has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
             video_duration: info.duration || 0,
+=======
+            end: end > 0 ? end : (totalDur || 10),
+            duration: totalDur,
+            has_transcript: Boolean(info.subtitles && Object.keys(info.subtitles).length > 0),
+            video_duration: totalDur,
+>>>>>>> feat/stable-features-step-by-step
             upload_date: info.upload_date || "",
             view_count: info.view_count || 0,
             tags: info.tags || [],
@@ -586,6 +728,49 @@ export class YTDownloaderView extends ItemView {
 
         taskManager.log(taskId, `Clip download completed (${actualClipPath}). Processing outputs...`);
 
+<<<<<<< HEAD
+=======
+        // Inspect actual video dimensions and apply Smart Fallback / Force Upscale
+        let effectiveQuality = quality;
+        if (quality !== "audio" && fs.existsSync(actualClipPath)) {
+          try {
+            const dims = await getVideoDimensions(actualClipPath, this.plugin.settings);
+            if (dims) {
+              taskManager.log(taskId, `Detected media resolution: ${dims.width}x${dims.height}`);
+              const targetHeight = QUALITY_HEIGHT_MAP[quality] || 0;
+
+              // Check if actual downloaded resolution is lower than user requested
+              if (targetHeight > 0 && dims.height < targetHeight) {
+                if (forceResolution) {
+                  taskManager.log(taskId, `⚡ Force resolution active: upscaling from ${dims.height}p to ${targetHeight}p...`);
+                  taskManager.updateProgress(taskId, {
+                    percent: 100,
+                    downloaded: "--",
+                    total: "--",
+                    eta: "",
+                    speed: "",
+                    rawMsg: `Upscaling video to ${targetHeight}p (FFmpeg)...`,
+                  });
+                  actualClipPath = await upscaleVideo(actualClipPath, targetHeight, this.plugin.settings, (msg) => {
+                    taskManager.log(taskId, msg);
+                  });
+                  taskManager.log(taskId, `✓ Force upscale completed: ${targetHeight}p`);
+                  effectiveQuality = quality;
+                } else {
+                  // Smart Auto-Fallback: adapt to actual available quality
+                  effectiveQuality = getQualityFromHeight(dims.height);
+                  taskManager.log(taskId, `ℹ Auto-fallback adapted quality from ${quality} to ${effectiveQuality} (source maximum)`);
+                }
+              } else if (dims.height > 0) {
+                effectiveQuality = getQualityFromHeight(dims.height);
+              }
+            }
+          } catch (inspectErr) {
+            taskManager.log(taskId, `[WARN] Dimension inspection/upscale skipped: ${inspectErr}`);
+          }
+        }
+
+>>>>>>> feat/stable-features-step-by-step
         // Download thumbnail
         let thumbBuffer: Buffer | Uint8Array | null = null;
         if (activePreview.thumbnail) {
@@ -626,7 +811,11 @@ export class YTDownloaderView extends ItemView {
           activePreview.title,
           start,
           end,
+<<<<<<< HEAD
           quality,
+=======
+          effectiveQuality,
+>>>>>>> feat/stable-features-step-by-step
           fps,
           platform,
           new Date(),
@@ -749,6 +938,10 @@ export class YTDownloaderView extends ItemView {
         });
         taskManager.log(taskId, `✓ Successfully saved note to: ${targetNoteVaultPath}`);
         new Notice(`✓ Completed download: "${activePreview.title.slice(0, 28)}..."`);
+<<<<<<< HEAD
+=======
+        this.updateFormDownloadedQualities();
+>>>>>>> feat/stable-features-step-by-step
       } catch (err: any) {
         if (abortController.signal.aborted) {
           taskManager.cancelTask(taskId);
@@ -765,6 +958,58 @@ export class YTDownloaderView extends ItemView {
     })();
   }
 
+<<<<<<< HEAD
+=======
+  private updateFormDownloadedQualities(): void {
+    if (!this.form || !this.currentPreview) return;
+    const downloaded = new Set<string>();
+    const cache = this.plugin.settings.ytHistoryCache?.items || {};
+    const url = this.currentPreview.original_url || "";
+    const cleanTitle = (this.currentPreview.title || "")
+      .replace(/[/\\:*?"<>|#^[\]]/g, "")
+      .trim()
+      .toLowerCase();
+
+    for (const item of Object.values(cache)) {
+      const urlMatch = Boolean(item.url && url && item.url.trim() === url.trim());
+      const itemTitle = (item.title || "").toLowerCase();
+      const titleMatch = Boolean(
+        cleanTitle &&
+        cleanTitle.length > 5 &&
+        (itemTitle.includes(cleanTitle.slice(0, 15)) || cleanTitle.includes(itemTitle.slice(0, 15)))
+      );
+      if (urlMatch || titleMatch) {
+        if (item.resolution) downloaded.add(item.resolution.toLowerCase());
+        if (item.mediaPath) {
+          const lowerMedia = item.mediaPath.toLowerCase();
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerMedia.includes(`_${q}_`)) downloaded.add(q);
+          }
+          if (lowerMedia.endsWith(".mp3")) downloaded.add("audio");
+        }
+      }
+    }
+
+    try {
+      const rawFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
+      const files = this.app.vault.getFiles().filter((f) =>
+        f.path.startsWith(rawFolder) && (f.extension === "mp4" || f.extension === "mp3")
+      );
+      for (const f of files) {
+        const lowerName = f.name.toLowerCase();
+        if (cleanTitle && cleanTitle.length > 5 && lowerName.includes(cleanTitle.slice(0, 12))) {
+          for (const q of ["4k", "2k", "1080p", "720p", "480p", "360p", "240p", "144p", "audio"]) {
+            if (lowerName.includes(`_${q}_`)) downloaded.add(q);
+          }
+          if (f.extension === "mp3") downloaded.add("audio");
+        }
+      }
+    } catch {}
+
+    this.form.setDownloadedQualities(downloaded);
+  }
+
+>>>>>>> feat/stable-features-step-by-step
   private async ensureFolder(path: string): Promise<void> {
     if (!this.app.vault.getAbstractFileByPath(path)) {
       await this.app.vault.createFolder(path);

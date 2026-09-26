@@ -1,5 +1,9 @@
 import { setIcon } from "obsidian";
+<<<<<<< HEAD
 import type { VideoQuality, VideoFps, YTPreset, YTCaptureSettings, VideoPreview } from "../../types";
+=======
+import type { VideoQuality, VideoFps, YTCaptureSettings, VideoPreview } from "../../types";
+>>>>>>> feat/stable-features-step-by-step
 import { formatTime, parseTimeInput } from "../../utils/fileHelpers";
 
 export interface DownloadFormState {
@@ -10,11 +14,19 @@ export interface DownloadFormState {
   isFull: boolean;
   presetId: string;
   folder: string;
+<<<<<<< HEAD
+=======
+  forceResolution?: boolean;
+>>>>>>> feat/stable-features-step-by-step
 }
 
 export interface DownloadFormCallbacks {
   onFetchOnly: (state: DownloadFormState) => void;
   onFetchAndDownload: (state: DownloadFormState) => void;
+<<<<<<< HEAD
+=======
+  onInfo?: () => void;
+>>>>>>> feat/stable-features-step-by-step
   onChange?: (state: DownloadFormState) => void;
 }
 
@@ -53,6 +65,10 @@ export class DownloadForm {
   private state: DownloadFormState;
   private totalDuration: number = 0;
   private callbacks: DownloadFormCallbacks;
+<<<<<<< HEAD
+=======
+  private downloadedQualities: Set<string> = new Set();
+>>>>>>> feat/stable-features-step-by-step
 
   constructor(
     parentEl: HTMLElement,
@@ -68,6 +84,10 @@ export class DownloadForm {
       isFull: true,
       presetId: settings.activePresetId || "yt_evidence_standard",
       folder: settings.ytCaptureOutputFolder || "YT Captures",
+<<<<<<< HEAD
+=======
+      forceResolution: settings.ytCaptureForceResolution || false,
+>>>>>>> feat/stable-features-step-by-step
     };
 
     this.containerEl = parentEl.createDiv({ cls: "ytec-form-container" });
@@ -94,6 +114,7 @@ export class DownloadForm {
     this.renderActionButtons();
   }
 
+<<<<<<< HEAD
   private renderQualityPills(): void {
     this.qualityPillsEl.empty();
     for (const opt of QUALITY_OPTIONS) {
@@ -102,6 +123,25 @@ export class DownloadForm {
         text: opt.label,
         type: "button",
       });
+=======
+  setDownloadedQualities(qualities: Set<string>): void {
+    this.downloadedQualities = qualities;
+    this.renderQualityPills();
+  }
+
+  private renderQualityPills(): void {
+    this.qualityPillsEl.empty();
+    for (const opt of QUALITY_OPTIONS) {
+      const isDl = this.downloadedQualities.has(opt.value.toLowerCase());
+      const pill = this.qualityPillsEl.createEl("button", {
+        cls: `ytec-pill-btn ${this.state.quality === opt.value ? "is-active" : ""} ${isDl ? "is-downloaded" : ""}`,
+        text: isDl ? `${opt.label} ✓` : opt.label,
+        type: "button",
+      });
+      if (isDl) {
+        pill.title = `${opt.label} (Downloaded)`;
+      }
+>>>>>>> feat/stable-features-step-by-step
       pill.addEventListener("click", () => {
         this.state.quality = opt.value;
         this.renderQualityPills();
@@ -145,6 +185,21 @@ export class DownloadForm {
       this.renderFpsPills();
       this.callbacks.onChange?.(this.state);
     });
+<<<<<<< HEAD
+=======
+
+    // Beside the file format switch: Force toggle!
+    const forceToggle = this.formatNoteEl.createSpan({
+      cls: `ytec-force-toggle ${this.state.forceResolution ? "is-active" : ""}`,
+      text: this.state.forceResolution ? "⚡ Force: ON" : "⚡ Force: OFF",
+    });
+    forceToggle.title = "Force requested resolution via FFmpeg scaling if source video resolution is lower";
+    forceToggle.addEventListener("click", () => {
+      this.state.forceResolution = !this.state.forceResolution;
+      this.renderFormatNote();
+      this.callbacks.onChange?.(this.state);
+    });
+>>>>>>> feat/stable-features-step-by-step
   }
 
   private renderFpsPills(): void {
@@ -180,7 +235,13 @@ export class DownloadForm {
     this.fullBtnEl.addEventListener("click", () => {
       this.state.isFull = true;
       this.state.start = 0;
+<<<<<<< HEAD
       this.state.end = this.totalDuration > 0 ? this.totalDuration : 600;
+=======
+      if (this.totalDuration > 0) {
+        this.state.end = this.totalDuration;
+      }
+>>>>>>> feat/stable-features-step-by-step
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -207,7 +268,11 @@ export class DownloadForm {
     dualContainer.createDiv({ cls: "ytec-dual-range-track" });
     this.highlightEl = dualContainer.createDiv({ cls: "ytec-dual-range-highlight" });
 
+<<<<<<< HEAD
     const totalMax = Math.max(60, this.totalDuration || 600);
+=======
+    const totalMax = this.getEffectiveMax();
+>>>>>>> feat/stable-features-step-by-step
 
     // Handle 1: Start Handle
     this.rangeMinEl = dualContainer.createEl("input", {
@@ -247,14 +312,25 @@ export class DownloadForm {
     });
 
     this.rangeMaxEl.addEventListener("input", () => {
+<<<<<<< HEAD
       const val = parseInt(this.rangeMaxEl.value, 10);
       if (val <= this.state.start) {
         this.state.end = Math.min(totalMax, this.state.start + 1);
+=======
+      const maxVal = this.getEffectiveMax();
+      const val = parseInt(this.rangeMaxEl.value, 10);
+      if (val <= this.state.start) {
+        this.state.end = Math.min(maxVal, this.state.start + 1);
+>>>>>>> feat/stable-features-step-by-step
         this.rangeMaxEl.value = String(this.state.end);
       } else {
         this.state.end = val;
       }
+<<<<<<< HEAD
       this.state.isFull = false;
+=======
+      this.state.isFull = (this.state.start === 0 && this.state.end >= maxVal);
+>>>>>>> feat/stable-features-step-by-step
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -268,8 +344,14 @@ export class DownloadForm {
     this.endInputEl.title = "End timestamp (e.g. 05:00 or 18:42)";
     this.endInputEl.addEventListener("change", () => {
       const parsed = parseTimeInput(this.endInputEl.value);
+<<<<<<< HEAD
       this.state.end = Math.max(this.state.start + 1, parsed);
       this.state.isFull = false;
+=======
+      const maxVal = this.getEffectiveMax();
+      this.state.end = Math.max(this.state.start + 1, parsed);
+      this.state.isFull = (this.state.start === 0 && this.state.end >= maxVal);
+>>>>>>> feat/stable-features-step-by-step
       this.syncRangeUI();
       this.callbacks.onChange?.(this.state);
     });
@@ -277,20 +359,62 @@ export class DownloadForm {
     this.syncRangeUI();
   }
 
+<<<<<<< HEAD
   private syncRangeUI(): void {
     const totalMax = Math.max(60, this.totalDuration || 600);
+=======
+  private getEffectiveMax(): number {
+    if (this.totalDuration > 0) {
+      return this.totalDuration;
+    }
+    if (this.state.end > 0) {
+      return Math.max(60, this.state.end);
+    }
+    return 60;
+  }
+
+  private syncRangeUI(): void {
+    const totalMax = this.getEffectiveMax();
+
+    if (this.state.isFull) {
+      this.state.start = 0;
+      if (this.totalDuration > 0) {
+        this.state.end = this.totalDuration;
+      } else if (this.state.end <= 0) {
+        this.state.end = totalMax;
+      }
+    }
+>>>>>>> feat/stable-features-step-by-step
 
     this.startInputEl.value = formatTime(this.state.start);
     this.endInputEl.value = formatTime(this.state.end);
 
     this.rangeMinEl.max = String(totalMax);
     this.rangeMaxEl.max = String(totalMax);
+<<<<<<< HEAD
     this.rangeMinEl.value = String(this.state.start);
     this.rangeMaxEl.value = String(this.state.end);
 
     // Calculate percent positions for highlight bar
     const leftPercent = Math.max(0, Math.min(100, (this.state.start / totalMax) * 100));
     const rightPercent = Math.max(0, Math.min(100, (this.state.end / totalMax) * 100));
+=======
+
+    // Calculate percent positions for highlight bar and pin handles to edges on isFull
+    let leftPercent = 0;
+    let rightPercent = 100;
+    if (this.state.isFull) {
+      leftPercent = 0;
+      rightPercent = 100;
+      this.rangeMinEl.value = "0";
+      this.rangeMaxEl.value = String(totalMax);
+    } else if (totalMax > 0) {
+      this.rangeMinEl.value = String(this.state.start);
+      this.rangeMaxEl.value = String(this.state.end);
+      leftPercent = Math.max(0, Math.min(100, (this.state.start / totalMax) * 100));
+      rightPercent = Math.max(0, Math.min(100, (this.state.end / totalMax) * 100));
+    }
+>>>>>>> feat/stable-features-step-by-step
 
     this.highlightEl.style.left = `${leftPercent}%`;
     this.highlightEl.style.width = `${Math.max(0, rightPercent - leftPercent)}%`;
@@ -330,6 +454,23 @@ export class DownloadForm {
     this.fetchAndDownloadBtn.addEventListener("click", () => {
       this.callbacks.onFetchAndDownload(this.state);
     });
+<<<<<<< HEAD
+=======
+
+    // 3. [ ⓘ i ] How It Works & GitHub Repos
+    const infoBtn = this.actionBtnsContainer.createEl("button", {
+      cls: "ytec-btn ytec-btn-info",
+      title: "How this thing works & related GitHub repositories",
+      type: "button",
+    });
+    const infoIcon = infoBtn.createSpan({ cls: "ytec-btn-icon" });
+    setIcon(infoIcon, "info");
+    infoBtn.createSpan({ text: "i", cls: "ytec-info-btn-text" });
+
+    infoBtn.addEventListener("click", () => {
+      this.callbacks.onInfo?.();
+    });
+>>>>>>> feat/stable-features-step-by-step
   }
 
   setPreview(preview: VideoPreview | null): void {
@@ -337,10 +478,20 @@ export class DownloadForm {
       this.totalDuration = 0;
       return;
     }
+<<<<<<< HEAD
     this.totalDuration = preview.duration || preview.video_duration || 0;
     if (this.state.isFull && this.totalDuration > 0) {
       this.state.start = 0;
       this.state.end = this.totalDuration;
+=======
+    const dur = preview.duration || preview.video_duration || 0;
+    this.totalDuration = dur;
+    if (this.state.isFull && dur > 0) {
+      this.state.start = 0;
+      this.state.end = dur;
+    } else if (this.state.end > dur && dur > 0) {
+      this.state.end = dur;
+>>>>>>> feat/stable-features-step-by-step
     }
     this.syncRangeUI();
   }
