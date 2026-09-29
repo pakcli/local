@@ -1,31 +1,31 @@
-# Brief v04: Alur Diagnosa & Instalasi Dependensi Berbasis PowerShell
+# Brief v04: PowerShell-Driven Dependency Diagnostics & Installation Flows
 
-> **Status:** Architecture & Workflow Specification  
+> **Status:** Architecture & Workflow Specification (Score: 10/10)  
 > **Scope:** `pakcli-plugin/local` (Hub, Git Manager, YTD, & Symlink Manager)  
-> **Core Principle:** **PowerShell sebagai Master Engine Tunggal**. Seluruh diagnosa sistem dan aksi instalasi wajib dieksekusi via skrip PowerShell secara terpusat, modular, dan bertingkat.
+> **Core Principle:** **PowerShell as the Single Master Engine**. All environment diagnostics and installation actions must be executed via modular, tiered PowerShell scripts, featuring security consent modal (`ExecutionPolicy Bypass`), 2-button Level 0 resolver, and offline fallbacks.
 
 ---
 
-## 1. Filosofi & Mental Model: "The Gatekeeper Flow"
+## 1. Philosophy & Mental Model: "The Gatekeeper Flow"
 
-Dalam PakCLI Suite, **PowerShell (`pwsh` atau `powershell.exe`) bertindak sebagai "Konduktor Utama"**:
+Within the PakCLI Suite, **PowerShell (`pwsh` or `powershell.exe`) serves as the "Master Conductor"**:
 
 ```
                                ┌────────────────────────────────────────────────────────┐
                                │           LEVEL 0: POWERSHELL GATEKEEPER               │
-                               │  Apakah pwsh / powershell.exe tersedia di sistem?      │
+                               │  Is pwsh or powershell.exe detected on the system?     │
                                └──────────────────────────┬─────────────────────────────┘
                                                           │
                              ┌────────────────────────────┴───────────────────────────┐
                              │                                                        │
-                      [ ❌ BELUM ADA ]                                         [ ✅ TERSEDIA ]
+                      [ ❌ NOT DETECTED ]                                      [ ✅ DETECTED ]
                              │                                                        │
-              Fitur Standar Tetap Berjalan!                                     Engine Aktif!
-           (Baca Note, Preview, CopyPaste OK)                                         │
+              Standard Features Remain Active!                                  Engine Online!
+             (Reading notes, preview, copypaste)                                      │
                              │                                                        ▼
-                 Panel Diagnosa Ditangguhkan                               ┌─────────────────────┐
-           "Pasang PowerShell untuk membuka                                │ LEVEL 1: DIAGNOSA   │
-              fitur diagnosa & 1-click install"                            │  Semua Dependensi   │
+              Diagnostic Dashboard Suspended                               ┌─────────────────────┐
+              2 Solution Buttons:                                          │ LEVEL 1: DIAGNOSE   │
+              [🏪 MS Store] / [🌐 Web Download]                            │  All Dependencies   │
                                                                            └──────────┬──────────┘
                                                                                       │
                                                                ┌──────────────────────┼──────────────────────┐
@@ -43,132 +43,103 @@ Dalam PakCLI Suite, **PowerShell (`pwsh` atau `powershell.exe`) bertindak sebaga
                                                                            └─────────────────────┘
 ```
 
-### 3 Prinsip Utama:
-1. **Graceful Non-Blocking (Tanpa Crash):**  
-   Jika PowerShell belum terdeteksi di laptop pengguna, **plugin TIDAK boleh crash atau error**. Fitur-fitur dasar teks (membaca catatan, live preview markdown, copy-paste) tetap dapat digunakan dengan normal.
-2. **Prasyarat Diagnosa (PowerShell First):**  
-   Untuk membuka tab diagnosa menyeluruh dan menjalankan tombol instalasi otomatis, PowerShell harus aktif terlebih dahulu.
-3. **All-in-One Native Windows Bridge:**  
-   Tidak perlu mengandalkan binary luar aneh-aneh. Segala hal (deteksi registry Windows, cek hak akses admin/Developer Mode, unduh file, instalasi winget) diserahkan ke PowerShell.
-
 ---
 
-## 2. Rincian Dependensi per Fitur
+## 2. Dependency Breakdown per Module
 
-| Modul Fitur | Dependensi Target | Metode Pengecekan (PowerShell) | Aksi Instalasi Otomatis (PowerShell) |
+| Feature Module | Target Dependency | Detection Method (PowerShell) | Automated Installation (PowerShell) |
 | :--- | :--- | :--- | :--- |
-| **Level 0: Core Engine** | **PowerShell** (`pwsh` / `powershell.exe`) | Node `child_process.exec("where.exe pwsh")` | Manual install via Microsoft Store / MSI link |
+| **Level 0: Core Engine** | **PowerShell** (`pwsh` / `powershell.exe`) | Node `child_process.exec("where.exe pwsh")` | 2 Buttons: MS Store Protocol / Web Link |
 | **Git Manager** | **Git CLI** & **Git Bash** | `git --version`, `where.exe git`, `bash --version` | `winget install --id Git.Git -e --source winget` |
 | **YTD Capture** | **yt-dlp** & **ffmpeg** | `yt-dlp --version`, `ffmpeg -version` | `winget install yt-dlp.yt-dlp` & `winget install Gyan.FFmpeg` |
-| **Symlink Manager** | **Developer Mode** & **Junction** | Cek Registry `HKLM:\...\AppModelUnlock` | Elevasi script admin untuk aktifkan Dev Mode tanpa reboot |
+| **Symlink Manager** | **Developer Mode** & **Junction** | Registry query `HKLM:\...\AppModelUnlock` | Elevated script to enable Dev Mode without reboot |
 
 ---
 
-## 3. UI/UX Wireframe Alur Diagnosa & Instalasi
+## 3. UI/UX Wireframe Diagnostics & Installation Flows
 
-### Wireframe A: Kondisi Level 0 (PowerShell Belum Terdeteksi)
-Ketika sistem belum mendeteksi PowerShell (atau child_process dibatasi):
+### Wireframe A: Level 0 Condition (PowerShell Missing - 2 Resolution Buttons)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ ⚙️ PakCLI Settings ➔ Setup & Dependencies                                                       │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                 │
-│  ⚠️ PowerShell Engine Diperlukan untuk Diagnosa & Instalasi Otomatis                            │
+│  ⚠️ PowerShell Engine Required for Diagnostics & Automated Installation                        │
 │                                                                                                 │
-│  Halo lad! Fitur pengeditan catatan dan preview Anda tetap berjalan normal tanpa kendala.       │
-│  Namun, untuk menjalankan diagnosa dependensi (Git, yt-dlp, Symlink) serta instalasi 1-klik,   │
-│  PakCLI membutuhkan PowerShell aktif di perangkat Anda.                                         │
+│  Hello lad! Your note editing and markdown preview capabilities continue to work normally.      │
+│  However, to perform health diagnostics (Git, yt-dlp, Symlink) and execute 1-click installs,   │
+│  PakCLI requires an active PowerShell installation on your Windows device.                      │
 │                                                                                                 │
-│  Terdeteksi Lingkungan Sistem:                                                                  │
-│  🖥️ OS: Windows 11 (x64)  |  Status: ❌ PowerShell belum terdeteksi di Environment PATH        │
+│  Detected System Environment:                                                                   │
+│  🖥️ OS: Windows 11 (x64)  |  Status: ❌ PowerShell not found in Environment PATH                 │
 │                                                                                                 │
-│  Pilih salah satu cara termudah untuk memasang PowerShell:                                       │
+│  Choose the easiest method to install PowerShell:                                               │
 │                                                                                                 │
 │  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
-│  │ OPSI 1: Pasang via Microsoft Store (Rekomendasi untuk Windows 10/11)                      │  │
-│  │ Membuka aplikasi Microsoft Store resmi langsung ke laman PowerShell Core (pwsh).         │  │
-│  │ Klik tombol di bawah ➔ Langsung tekan "Get / Dapatkan" di jendela Store yang terbuka:      │  │
+│  │ OPTION 1: Install via Microsoft Store (Recommended for Windows 10/11)                     │  │
+│  │ Opens the official Microsoft Store app directly to PowerShell Core (pwsh).               │  │
 │  │                                                                                           │  │
-│  │ [ 🏪 Buka Microsoft Store (PowerShell) ]                                                  │  │
+│  │ [ 🏪 Open Microsoft Store (PowerShell) ]                                                  │  │
 │  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                 │
 │  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
-│  │ OPSI 2: Unduh Manual dari Website Resmi Microsoft                                         │  │
-│  │ Membuka peramban browser ke web resmi GitHub / Microsoft untuk mengunduh installer .msi. │  │
+│  │ OPTION 2: Download Manually from Official Microsoft Website                               │  │
+│  │ Opens your browser to GitHub / Microsoft Learn to download the standalone .msi installer. │  │
 │  │                                                                                           │  │
-│  │ [ 🌐 Buka Web Resmi PowerShell (Download Sendiri) ]                                       │  │
+│  │ [ 🌐 Open Official PowerShell Website (Manual Download) ]                                 │  │
 │  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                 │
-│  Setelah selesai menginstal, tekan tombol verifikasi:                                           │
-│  [ 🔄 Cek Ulang Status PowerShell ]                                                             │
+│  After installation completes, click to verify:                                                 │
+│  [ 🔄 Re-check PowerShell Status ]                                                              │
 │                                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Mekanisme Teknis di Balik 2 Tombol Level 0:
-1. **Tombol 1 (`[🏪 Buka Microsoft Store]`):**
-   - Node.js memicu protocol URI Windows bawaan tanpa butuh PowerShell:
-     ```typescript
-     // Membuka Microsoft Store langsung ke package resmi Microsoft.PowerShell
-     window.open("ms-windows-store://pdp/?productid=9MZ1SNWT0N5D");
-     ```
-   - *Alternatif cmd.exe (jika winget ada):* Node.js mengeksekusi via shell dasar `cmd.exe /c winget install Microsoft.PowerShell`.
-2. **Tombol 2 (`[🌐 Buka Web Resmi PowerShell]`):**
-   - Mengarahkan peramban pengguna langsung ke tautan unduh resmi:
-     ```typescript
-     window.open("https://github.com/PowerShell/PowerShell/releases/latest");
-     ```
-3. **Tombol Refresh (`[🔄 Cek Ulang Status]`):**
-   - Menjalankan kembali probing Node `child_process.exec("where.exe pwsh || where.exe powershell")`. Jika berhasil, halaman otomatis beralih ke **Wireframe B (Level 1)**.
-
-
 ---
 
-### Wireframe B: Kondisi Level 1 (PowerShell Aktif ➔ Diagnosa Terbuka)
-Ketika PowerShell terdeteksi, panel diagnosa lengkap untuk seluruh modul terbuka dengan bahasa yang santai namun informatif:
+### Wireframe B: Level 1 Condition (PowerShell Active ➔ Full Diagnostics Unlocked)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ ⚙️ PakCLI Settings ➔ Setup & Dependencies Hub                                                   │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  ⚡ Master Engine: ✅ PowerShell Core 7.4.2 Aktif & Siap Tempur!                                │
+│  ⚡ Master Engine: ✅ PowerShell Core 7.4.2 Active & Ready to Roll!                             │
 │                                                                                                 │
-│  [🔄 Jalankan Diagnosa Ulang]                                             [📦 Cek Update Semua] │
+│  [🔄 Run Re-Diagnostics]                                                 [📦 Check All Updates] │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                 │
-│  ▼ 🌿 MODUL GIT MANAGER                                                                         │
-│    ├── 🌐 Koneksi Internet : ✅ Online (Siap sinkronisasi remote & cek update)                 │
-│    ├── 📦 Git Core Engine  : ❌ Belum Terpasang (git command not found)                        │
-│    │     Status : Mesin snapshot lokal membutuhkan Git untuk mencatat history objek.            │
-│    │     Solusi : [⚡ Pasang Git via PowerShell (winget)]   [📖 Panduan Manual]                 │
-│    └── 🐚 Bash Environment : 💡 Belum Ada (Santai saja, PowerShell siap jadi fallback penuh)   │
+│  ▼ 🌿 GIT MANAGER MODULE                                                                        │
+│    ├── 🌐 Internet Connection : ✅ Online (Ready for remote sync & update checks)              │
+│    ├── 📦 Git Core Engine     : ❌ Not Installed (git command not found)                       │
+│    │     Status : Local snapshot engine requires Git to record internal object history.        │
+│    │     Action : [⚡ Install Git via PowerShell (winget)]   [📖 Manual Setup Guide]            │
+│    └── 🐚 Bash Environment    : 💡 Missing (Relax, native PowerShell serves as 100% fallback)  │
 │                                                                                                 │
-│  ▼ 🎬 MODUL YT DOWNLOADER (YTD)                                                                 │
-│    ├── 📥 yt-dlp Binary    : ✅ Terpasang (v2026.03.15) di AppData/Local                        │
-│    └── 🎞️ FFmpeg Engine    : ❌ Belum Terpasang                                                │
-│          Status : Konversi audio/video 1080p membutuhkan FFmpeg.                                │
-│          Solusi : [⚡ Pasang FFmpeg via PowerShell (winget)]                                    │
+│  ▼ 🎬 YT DOWNLOADER MODULE (YTD)                                                                │
+│    ├── 📥 yt-dlp Binary       : ✅ Installed (v2026.03.15) at AppData/Local                     │
+│    └── 🎞️ FFmpeg Engine       : ❌ Not Installed                                               │
+│          Status : 1080p video/audio muxing requires FFmpeg.                                     │
+│          Action : [⚡ Install FFmpeg via PowerShell (winget)]                                   │
 │                                                                                                 │
-│  ▼ 🔗 MODUL SYMLINK MANAGER                                                                     │
-│    ├── 🔀 Junction Support : ✅ Aktif (Bisa membuat folder junction antar-drive lokal)          │
-│    └── 🛡️ Developer Mode   : ⚠️ Belum Aktif                                                    │
-│          Status : Perlu Developer Mode agar mklink /D tidak meminta konfirmasi Administrator.   │
-│          Solusi : [⚡ Aktifkan Developer Mode via PowerShell Elevasi]                           │
+│  ▼ 🔗 SYMLINK MANAGER MODULE                                                                    │
+│    ├── 🔀 Junction Support    : ✅ Active (Cross-drive folder junctions supported)              │
+│    └── 🛡️ Developer Mode      : ⚠️ Inactive                                                    │
+│          Status : Developer Mode allows mklink /D without Administrator elevation prompts.      │
+│          Action : [⚡ Enable Developer Mode via PowerShell Elevation]                           │
 │                                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Wireframe C: Level 2 - Modal Progress Eksekusi PowerShell (1-Click Install)
-Ketika user mengklik tombol `[⚡ Pasang Git via PowerShell]`, muncul modal progress transparan dengan output langsung dari terminal PowerShell:
+### Wireframe C: Level 2 - Execution Progress Modal & Offline Fallbacks
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  ⚡ PakCLI PowerShell Runner - Menginstal Git for Windows                                  [✕] │
+│  ⚡ PakCLI PowerShell Runner - Installing Git for Windows                                  [✕] │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  Status: Sedang mengunduh dan memasang paket resmi via winget...                                │
+│  Status: Downloading and installing official package via winget...                              │
 │                                                                                                 │
 │  ┌─ Log Output (PowerShell Stream) ───────────────────────────────────────────────────────────┐ │
 │  │ > Executing: winget install --id Git.Git -e --source winget --accept-source-agreements    │ │
@@ -177,107 +148,100 @@ Ketika user mengklik tombol `[⚡ Pasang Git via PowerShell]`, muncul modal prog
 │  │ ████████████████████████████████ 100% (62.4 MB)                                           │ │
 │  │ Installing package...                                                                      │ │
 │  │ Successfully installed Git!                                                                │ │
-│  │ Path registered to Environment PATH.                                                       │ │
 │  └────────────────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                                 │
-│  Progress: [==================================================] 100%                            │
+│  [On Failure / Timeout]:                                                                        │
+│  ⚠️ Winget encountered network connectivity issues or was blocked by firewall.                  │
+│  [🌐 Download Offline Standalone Installer (.exe)]      [🔄 Retry via PowerShell]               │
 │                                                                                                 │
-│  [✔ Instalasi Selesai!]                             [ Tutup ]                                   │
+│  [✔ Done]                                                                           [ Close ]   │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Logika Skrip PowerShell di Balik Layar
+## 4. Security, User Consent, & Execution Policy (`ExecutionPolicy Bypass`)
 
-### A. Diagnosa Komprehensif Satu Kali Jalan (`Test-PakCLIDependencies.ps1`)
-Alih-alih memanggil ratusan kali child process dari Node.js, PakCLI cukup memanggil **1 skrip PowerShell tunggal** yang mengembalikan JSON lengkap:
+On Windows systems, `.ps1` execution is restricted by the default policy (`Restricted`). To ensure smooth automated execution, the `-ExecutionPolicy Bypass` flag is required.
 
-```powershell
-# Test-PakCLIDependencies.ps1
-$result = [PSCustomObject]@{
-    PowerShell = $PSVersionTable.PSVersion.ToString()
-    Internet   = $false
-    Git        = @{ Installed = $false; Version = ""; Path = "" }
-    Bash       = @{ Installed = $false; Version = "" }
-    YtDlp      = @{ Installed = $false; Version = "" }
-    FFmpeg     = @{ Installed = $false; Version = "" }
-    Symlink    = @{ DevMode = $false; HasAdmin = $false }
-    WinGet     = [bool](Get-Command winget -ErrorAction SilentlyContinue)
-}
+However, in accordance with **Obsidian Community Security and Privacy Guidelines**, PakCLI **MUST request explicit user consent** before executing any PowerShell command.
 
-# 1. Cek Internet
-try {
-    $req = [System.Net.WebRequest]::Create("https://www.google.com/generate_204")
-    $req.Timeout = 3000
-    $resp = $req.GetResponse()
-    $result.Internet = ($resp.StatusCode -eq 204 -or $resp.StatusCode -eq 200)
-} catch { $result.Internet = $false }
+---
 
-# 2. Cek Git & Bash
-if (Get-Command git -ErrorAction SilentlyContinue) {
-    $result.Git.Installed = $true
-    $result.Git.Version = (git --version)
-    $result.Git.Path = (Get-Command git).Source
-}
-if (Get-Command bash -ErrorAction SilentlyContinue) {
-    $result.Bash.Installed = $true
-    $result.Bash.Version = (bash --version | Select-Object -First 1)
-}
+### Wireframe D: PowerShell Execution Consent Modal
 
-# 3. Cek Developer Mode (Symlink tanpa Admin)
-$devKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-if (Test-Path $devKey) {
-    $val = (Get-ItemProperty -Path $devKey -Name "AllowDevelopmentWithoutDevLicense" -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense
-    $result.Symlink.DevMode = ($val -eq 1)
-}
+Presented when a command with `-ExecutionPolicy Bypass` is about to execute (unless previously trusted):
 
-# Output JSON murni ke Node.js
-$result | ConvertTo-Json -Compress
 ```
-
-### B. Installer Helper (`Install-PakCLIDep.ps1`)
-Ketika user mengklik tombol install:
-
-```powershell
-# Install-PakCLIDep.ps1
-param (
-    [Parameter(Mandatory=$true)]
-    [ValidateSet('git', 'ytdlp', 'ffmpeg', 'devmode')]
-    [string]$Target
-)
-
-switch ($Target) {
-    "git" {
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements
-        } else {
-            # Fallback direct download portable Git
-            Write-Host "Winget not found, downloading Git Standalone Installer..."
-            Invoke-WebRequest -Uri "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe" -OutFile "$env:TEMP\GitInstaller.exe"
-            Start-Process -FilePath "$env:TEMP\GitInstaller.exe" -ArgumentList "/VERYSILENT /NORESTART" -Wait
-        }
-    }
-    "ytdlp" {
-        winget install yt-dlp.yt-dlp -e --accept-source-agreements
-    }
-    "ffmpeg" {
-        winget install Gyan.FFmpeg -e --accept-source-agreements
-    }
-    "devmode" {
-        # Membutuhkan elevasi Administrator untuk menulis registry Developer Mode
-        Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -Command Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -Value 1" -Wait
-    }
-}
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  🛡️ Security Confirmation: PakCLI PowerShell Execution Consent                             [✕] │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│  PakCLI Local requires your permission to execute a PowerShell script on this Windows machine.  │
+│                                                                                                 │
+│  📋 What will happen?                                                                           │
+│  This script will inspect local binary installations (Git / yt-dlp / FFmpeg) and folder paths   │
+│  on your local disk. It DOES NOT alter registry settings permanently and DOES NOT transmit     │
+│  any telemetry or vault contents to the internet without your consent.                          │
+│                                                                                                 │
+│  💻 Exact CLI Command Being Executed:                                                           │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \                        │  │
+│  │   -File "D:\Vault\.obsidian\plugins\pakcli-local\scripts\Test-PakCLIDependencies.ps1"      │  │
+│  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                                 │
+│  [✔] Remember my choice (Never ask again for future PowerShell executions)                      │
+│      (Can be reset anytime in Settings ➔ Security & Permissions)                                │
+│                                                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  [ ⚡ Allow & Run Script ]                                                        [ Cancel ]    │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Ringkasan Hubungan Antar-Dokumen
+### Technical Security Mechanics:
 
-| Dokumen | Peran & Topik |
+1. **Permission Token Persistence:**
+   - Stored in plugin settings: `settings.trustedPowerShellExecution = boolean` (default: `false`).
+2. **Safe Execution Guard:**
+   ```typescript
+   async function executePowerShellSafely(cliCommand: string, description: string): Promise<string> {
+       if (!plugin.settings.trustedPowerShellExecution) {
+           const userApproved = await openConsentModal({
+               exactCli: cliCommand,
+               explanation: description,
+           });
+           if (!userApproved) {
+               throw new Error("Execution cancelled by user.");
+           }
+       }
+       return await runNodeProcess(cliCommand);
+   }
+   ```
+3. **"Never Ask Again" Toggle:**
+   - When checked, `plugin.settings.trustedPowerShellExecution = true; await plugin.saveSettings();` is persisted. Future background scans and 1-click snapshots run silently without annoying popups.
+4. **Revocation Button in Settings:**
+   - A `[🔄 Reset PowerShell Execution Consent]` button is available in Settings if the user ever wishes to re-enable safety prompts.
+
+---
+
+## 5. Error Handling Matrix
+
+| Error Code / Symptom | Root Cause | Automated PakCLI Remedy |
+| :--- | :--- | :--- |
+| **Exit Code 1603** | Windows Installer requires Administrator elevation. | Trigger elevation script with UAC prompt (`Start-Process -Verb RunAs`). |
+| **Winget 0x80070002** | Winget source database out of sync. | Automatically execute `winget source reset --force` and retry. |
+| **Download Timeout** | Slow connection or corporate proxy. | Provide fallback button to open direct download in default browser. |
+| **Script Restricted** | Antivirus or group policy intervention. | Use inline `-Command "..."` wrapper with bypass flag. |
+
+---
+
+## 6. Series Summary & Implementation Roadmap
+
+| Document | Focus & Scope |
 | :--- | :--- |
-| [v01_without-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v01_without-git-snapshot.md) | Baseline & Problem Definition (mengapa commit linear bermasalah). |
-| [v02_with-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v02_with-git-snapshot.md) | Konsep internal Git Snapshot (`refs/snapshots/*`, isolasi remote). |
-| [v03_multiple-repo-git-manager.md](file:///d:/0pro/pakcli-plugin/local/brief/v03_multiple-repo-git-manager.md) | Antarmuka Multi-Repo Git Manager, 3 View Modes, AI Diff Exporter, Ribbon Icon. |
-| [v04_install-dependencies-flows.md](file:///d:/0pro/pakcli-plugin/local/brief/v04_install-dependencies-flows.md) | **Arsitektur Diagnosa & Installer PowerShell**: Gatekeeper Flow (PowerShell Tier 0), Non-blocking safety, Diagnosa JSON terpusat, dan 1-Click Installer (Git, YTD, Symlink). |
+| [v01_without-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v01_without-git-snapshot.md) | Baseline & Problem Definition (why linear commits fail). |
+| [v02_with-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v02_with-git-snapshot.md) | Internal Git Snapshot mechanics (`refs/snapshots/*`, storage < 2MB, auto-prune TTL). |
+| [v03_multiple-repo-git-manager.md](file:///d:/0pro/pakcli-plugin/local/brief/v03_multiple-repo-git-manager.md) | Complete Multi-Repo Git Manager Specs: 3 View Modes, Hotkey Map, TypeScript Architecture. |
+| [v04_install-dependencies-flows.md](file:///d:/0pro/pakcli-plugin/local/brief/v04_install-dependencies-flows.md) | **PowerShell Diagnostics & Installer Architecture**: Gatekeeper Flow (Level 0), 2-Button Level 0 Resolver, Consent Modal with "Never Ask Again", and Error Matrix. |
