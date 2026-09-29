@@ -15,6 +15,7 @@
 @use 'asciidraw';
 @use 'settingsHub';
 @use 'copypaste';
+@use 'gitManager';
 
 
 
@@ -809,8 +810,8 @@ body.codeblock-scalefit {
 
 .pakcli-scan-meta-bar {
     padding: 8px 14px;
-    background-color: transparent;
-    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--divider-color, var(--background-modifier-border-hover, rgba(128, 128, 128, 0.35)));
     border-radius: var(--radius-s);
     font-size: 11.5px;
     font-family: var(--font-monospace);
@@ -829,8 +830,8 @@ body.codeblock-scalefit {
     align-items: center;
     gap: 12px;
     padding: 8px 12px;
-    background-color: transparent;
-    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--divider-color, var(--background-modifier-border-hover, rgba(128, 128, 128, 0.35)));
     border-radius: var(--radius-m);
     margin-bottom: 12px;
     flex-wrap: wrap;
@@ -851,8 +852,8 @@ body.codeblock-scalefit {
         cursor: pointer;
         padding: 4px 10px;
         border-radius: var(--radius-s);
-        background-color: transparent;
-        border: 1px solid var(--background-modifier-border);
+        background-color: var(--background-secondary);
+        border: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
         color: var(--text-muted);
         transition: all 0.15s ease;
 
@@ -865,13 +866,15 @@ body.codeblock-scalefit {
         &.active {
             color: var(--text-normal);
             border-color: var(--interactive-accent);
-            background-color: var(--background-modifier-hover);
+            border-width: 1.5px;
+            background-color: var(--background-primary);
             font-weight: 600;
         }
 
         &:hover:not(.active) {
             background-color: var(--background-modifier-hover);
             color: var(--text-normal);
+            border-color: var(--interactive-accent);
         }
     }
 }
@@ -905,27 +908,27 @@ body.codeblock-scalefit {
     display: grid;
     grid-template-columns: 1fr 110px 1.2fr;
     gap: 0;
-    padding: 8px 0;
+    padding: 9px 0;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
-    border: 1px solid var(--background-modifier-border);
-    border-bottom: none;
+    border: 1px solid var(--divider-color, var(--background-modifier-border-hover, rgba(128, 128, 128, 0.35)));
+    border-bottom: 1px solid var(--divider-color, var(--background-modifier-border-hover, rgba(128, 128, 128, 0.35)));
     border-radius: var(--radius-s) var(--radius-s) 0 0;
-    background-color: transparent;
+    background-color: var(--background-secondary);
 
     .pakcli-header-col-left {
         padding-left: 36px;
         padding-right: 12px;
-        border-right: 1px solid var(--background-modifier-border);
+        border-right: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
     }
 
     .pakcli-header-col-middle {
         text-align: center;
         padding: 0 8px;
-        border-right: 1px solid var(--background-modifier-border);
+        border-right: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
     }
 
     .pakcli-header-col-right {
@@ -938,16 +941,18 @@ body.codeblock-scalefit {
     flex-direction: column;
     max-height: 56vh;
     overflow-y: auto;
-    border: 1px solid var(--background-modifier-border);
+    border: 1px solid var(--divider-color, var(--background-modifier-border-hover, rgba(128, 128, 128, 0.35)));
+    border-top: none;
     border-radius: 0 0 var(--radius-s) var(--radius-s);
-    background-color: transparent;
+    background-color: var(--background-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .pakcli-scan-item-card {
     border: none;
-    border-bottom: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
     border-radius: 0;
-    background-color: transparent;
+    background-color: var(--background-primary);
     padding: 10px 12px;
     transition: background-color 0.15s ease;
 
@@ -960,7 +965,9 @@ body.codeblock-scalefit {
     }
 
     &.is-selected {
-        background-color: transparent;
+        background-color: var(--background-primary);
+        border-left: 3px solid var(--interactive-accent);
+        padding-left: 9px;
     }
 }
 
@@ -977,7 +984,7 @@ body.codeblock-scalefit {
     gap: 12px;
     min-width: 0;
     padding-right: 14px;
-    border-right: 1px solid var(--background-modifier-border);
+    border-right: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
 
     .pakcli-row-checkbox {
         cursor: pointer;
@@ -1011,6 +1018,16 @@ body.codeblock-scalefit {
         color: var(--text-normal);
     }
 
+    .pakcli-scan-lang-pill {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background-color: var(--background-secondary);
+        border: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
+        color: var(--text-muted);
+    }
+
     .pakcli-note-path {
         font-size: 11px;
         font-family: var(--font-monospace);
@@ -1028,15 +1045,15 @@ body.codeblock-scalefit {
     justify-content: center;
     gap: 5px;
     padding: 0 10px;
-    border-right: 1px solid var(--background-modifier-border);
+    border-right: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
 
     .pakcli-sync-status-badge {
         font-size: 10px;
         font-weight: 600;
         padding: 2px 7px;
         border-radius: 4px;
-        border: 1px solid var(--background-modifier-border);
-        background: var(--background-modifier-hover);
+        border: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
+        background: var(--background-secondary);
         color: var(--text-muted);
         white-space: nowrap;
     }
@@ -1118,8 +1135,8 @@ body.codeblock-scalefit {
     height: 28px;
     padding: 4px;
     border-radius: var(--radius-s);
-    background-color: var(--background-modifier-hover);
-    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    border: 1px solid var(--divider-color, var(--background-modifier-border, rgba(128, 128, 128, 0.25)));
     cursor: pointer;
     color: var(--text-muted);
     transition: all 0.15s ease;
@@ -1132,7 +1149,7 @@ body.codeblock-scalefit {
     &:hover {
         color: var(--text-accent);
         border-color: var(--interactive-accent);
-        background-color: var(--background-modifier-active-hover);
+        background-color: var(--background-modifier-hover);
     }
 
     &.is-active {

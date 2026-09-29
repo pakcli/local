@@ -29,10 +29,14 @@ import { CopyPasteManager } from './features/copypaste/CopyPasteManager';
 import { CopyPasteModal } from './features/copypaste/ui/CopyPasteModal';
 import { renderCopyPasteSettings } from './features/copypaste/settings';
 
+// Git Sentinel Manager Imports
+import { GitManager, registerGitManager, renderGitManagerSettings } from './features/gitManager';
+
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
+	gitManager!: GitManager;
 	badgeRenderer!: BadgeRenderer;
 	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
@@ -161,7 +165,10 @@ export default class PakCLILocalPlugin extends Plugin {
 			).open();
 		});
 
-		// 10. Status Bar Item for ScriptSync
+		// 10. Initialize Git Sentinel & Local Snapshot Manager
+		this.gitManager = registerGitManager(this);
+
+		// 11. Status Bar Item for ScriptSync
 		this.scriptSyncStatusBarItem = this.addStatusBarItem();
 		this.updateScriptSyncStatusBar();
 
@@ -513,6 +520,18 @@ export default class PakCLILocalPlugin extends Plugin {
 					() => this.saveSettings(),
 					containerEl
 				);
+			}
+		});
+
+		// 5. Git Sentinel Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-git-manager',
+			category: 'local',
+			title: 'Git Sentinel (Multi-Repo & Snapshot Hub)',
+			icon: 'git-branch',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderGitManagerSettings(this.app, this, containerEl);
 			}
 		});
 

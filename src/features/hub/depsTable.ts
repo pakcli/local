@@ -131,6 +131,19 @@ export const DEP_DEFINITIONS: DepDefinition[] = [
     uninstallCmd: "winget uninstall Git.Git",
     hint: "Version control — used by some plugin features",
   },
+  {
+    name: "GitHub CLI (gh)",
+    cmd: "gh",
+    versionArg: "--version",
+    whichCmd: (isWin: boolean) => (isWin ? "where.exe gh" : "which gh"),
+    fallbackPaths: [
+      "C:\\Program Files\\GitHub CLI\\gh.exe",
+      "C:\\Program Files (x86)\\GitHub CLI\\gh.exe",
+    ],
+    installCmd: "winget install --id GitHub.cli -e --source winget",
+    uninstallCmd: "winget uninstall --id GitHub.cli",
+    hint: "Official GitHub command-line tool — required for GitHub auth and remote sync",
+  },
 ];
 
 // ─── OS Detection ────────────────────────────────────────────────────────────

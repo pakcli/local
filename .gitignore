@@ -23,3 +23,6 @@ data.json
 
 # Local publisher configuration
 .publish-config.json
+# Build output directory
+dist/
+dist/**
