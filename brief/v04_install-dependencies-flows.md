@@ -1,8 +1,8 @@
 # Brief v04: PowerShell-Driven Dependency Diagnostics & Installation Flows
 
-> **Status:** Architecture & Workflow Specification (Score: 10/10)  
-> **Scope:** `pakcli-plugin/local` (Hub, Git Manager, YTD, & Symlink Manager)  
-> **Core Principle:** **PowerShell as the Single Master Engine**. All environment diagnostics and installation actions must be executed via modular, tiered PowerShell scripts, featuring security consent modal (`ExecutionPolicy Bypass`), 2-button Level 0 resolver, and offline fallbacks.
+> **Status:** Architecture & Workflow Specification (Score: 10/10)
+> **Scope:** `pakcli-plugin/local` (Hub, Git Manager, YTD, & Symlink Manager)
+> **Core Principle:** **PowerShell as the Single Master Engine**. All environment diagnostics and installation actions must be executed via modular, tiered PowerShell scripts, featuring security consent modal (`ExecutionPolicy Bypass`), 2-button Level 0 resolver, offline fallbacks, and **per-feature-tab focused dependency panels**.
 
 ---
 
@@ -52,11 +52,86 @@ Within the PakCLI Suite, **PowerShell (`pwsh` or `powershell.exe`) serves as the
 | **Level 0: Core Engine** | **PowerShell** (`pwsh` / `powershell.exe`) | Node `child_process.exec("where.exe pwsh")` | 2 Buttons: MS Store Protocol / Web Link |
 | **Git Manager** | **Git CLI** & **Git Bash** | `git --version`, `where.exe git`, `bash --version` | `winget install --id Git.Git -e --source winget` |
 | **YTD Capture** | **yt-dlp** & **ffmpeg** | `yt-dlp --version`, `ffmpeg -version` | `winget install yt-dlp.yt-dlp` & `winget install Gyan.FFmpeg` |
-| **Symlink Manager** | **Developer Mode** & **Junction** | Registry query `HKLM:\...\AppModelUnlock` | Elevated script to enable Dev Mode without reboot |
+| **Symlink Manager** | **Developer Mode** & **Junction** | Registry query `HKLM:\...\ AppModelUnlock` | Elevated script to enable Dev Mode without reboot |
 
 ---
 
-## 3. UI/UX Wireframe Diagnostics & Installation Flows
+## 3. Per-Feature-Tab Dependency Panel (Design Rule)
+
+> [!IMPORTANT]
+> **Every feature settings tab must include its own focused dependency panel.** This is not optional — it is the primary mechanism for users to discover and fix missing dependencies without leaving the context of the feature they are configuring.
+
+### 3.1 Design Rule
+
+Each settings tab that has external dependencies (Git, yt-dlp, etc.) **must** render a compact dependency health panel scoped to that feature's required tools only.
+
+**Do NOT show all system deps on every tab.** The global "Setup & Dependencies" hub remains for full-system audit. Per-tab panels show only what that specific tab needs.
+
+```
+┌─ Pattern for every feature settings tab ───────────────────────────────────────┐
+│                                                                                │
+│  [Feature Name] Settings                                                       │
+│  ─────────────────────────────────────────────────────────────────────         │
+│  [feature-specific settings here...]                                           │
+│                                                                                │
+│  ──────────────────────────────────────────────────────────────────────────    │
+│  ⚙️ Dependencies for [Feature Name]                              [🔍 Check]   │
+│  ──────────────────────────────────────────────────────────────────────────    │
+│  │ Tool        │ Status │ Version     │ Action                             │   │
+│  │ ─────────── │ ────── │ ─────────── │ ────────────────────────────────── │   │
+│  │ PowerShell  │ ✅ OK  │ pwsh 7.4.2  │ —                                  │   │
+│  │ [dep 1]     │ ✅ OK  │ v2026.03.15 │ —                                  │   │
+│  │ [dep 2]     │ ❌     │ not found   │ [⬇️ Install]                       │   │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Per-Feature Dependency Map
+
+| Settings Tab | Deps to Show in Tab Panel | Global Hub |
+| :--- | :--- | :--- |
+| **YTD Capture** | PowerShell, yt-dlp, ffmpeg | Full audit |
+| **Git Manager** | PowerShell, Git, Bash (Git Bash) | Full audit |
+| **Symlink Manager** | PowerShell, Developer Mode status | Full audit |
+| **PakCLI Agent** | PowerShell, Python 3, pip, agy (Antigravity CLI) | Full audit |
+| **Hub / Setup tab** | ALL — PowerShell, Git, yt-dlp, ffmpeg, Python, pip, agy | — |
+
+### 3.3 Implementation Pattern
+
+Each feature tab renders a focused deps panel using the **same shared `renderDepsTable` function** from `depsTable.ts`, but passes a filtered subset of `DEP_DEFINITIONS`:
+
+```ts
+// Example: Git Manager settings tab — only shows relevant deps
+const GIT_DEPS = DEP_DEFINITIONS.filter(d =>
+  ["PowerShell (pwsh)", "Windows PowerShell", "git"].includes(d.name)
+);
+
+const doCheck = async () => {
+  tableContainer.empty();
+  tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "🔍 Checking Git dependencies…" });
+  const results = await Promise.all(GIT_DEPS.map(d => checkSingleDep(d, isWin)));
+  renderDepsTable(tableContainer, results, doCheck, ctx);
+};
+```
+
+```ts
+// Example: YTD settings tab — shows yt-dlp + ffmpeg + PowerShell only
+const YTD_DEPS = DEP_DEFINITIONS.filter(d =>
+  ["PowerShell (pwsh)", "Windows PowerShell", "yt-dlp", "ffmpeg"].includes(d.name)
+);
+```
+
+### 3.4 Visual Behavior Rules
+
+- Panel header shows: **"⚙️ Dependencies for [Feature Name]"** + `[🔍 Check]` button (right-aligned).
+- Initial state: **not auto-checked** — user clicks `[🔍 Check]` to trigger the scan (respects startup performance, per AGENTS.md).
+- On missing dep: Install button is **active**, runs via `psRunner.ts` + consent gate.
+- On all deps OK: Show a green summary banner: **"✅ All dependencies for [Feature] are ready."**
+- Level 0 missing (no PowerShell): Show the 2-button resolver inline in the panel (compact version of Wireframe A below).
+
+---
+
+## 4. UI/UX Wireframe Diagnostics & Installation Flows
 
 ### Wireframe A: Level 0 Condition (PowerShell Missing - 2 Resolution Buttons)
 
@@ -160,7 +235,7 @@ Within the PakCLI Suite, **PowerShell (`pwsh` or `powershell.exe`) serves as the
 
 ---
 
-## 4. Security, User Consent, & Execution Policy (`ExecutionPolicy Bypass`)
+## 5. Security, User Consent, & Execution Policy (`ExecutionPolicy Bypass`)
 
 On Windows systems, `.ps1` execution is restricted by the default policy (`Restricted`). To ensure smooth automated execution, the `-ExecutionPolicy Bypass` flag is required.
 
@@ -187,7 +262,7 @@ Presented when a command with `-ExecutionPolicy Bypass` is about to execute (unl
 │  💻 Exact CLI Command Being Executed:                                                           │
 │  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
 │  │ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \                        │  │
-│  │   -File "D:\Vault\.obsidian\plugins\pakcli-local\scripts\Test-PakCLIDependencies.ps1"      │  │
+│  │   -Command "winget install --id Git.Git -e --source winget"                               │  │
 │  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                 │
 │  [✔] Remember my choice (Never ask again for future PowerShell executions)                      │
@@ -226,7 +301,7 @@ Presented when a command with `-ExecutionPolicy Bypass` is about to execute (unl
 
 ---
 
-## 5. Error Handling Matrix
+## 6. Error Handling Matrix
 
 | Error Code / Symptom | Root Cause | Automated PakCLI Remedy |
 | :--- | :--- | :--- |
@@ -237,11 +312,12 @@ Presented when a command with `-ExecutionPolicy Bypass` is about to execute (unl
 
 ---
 
-## 6. Series Summary & Implementation Roadmap
+## 7. Series Summary & Implementation Roadmap
 
 | Document | Focus & Scope |
 | :--- | :--- |
 | [v01_without-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v01_without-git-snapshot.md) | Baseline & Problem Definition (why linear commits fail). |
 | [v02_with-git-snapshot.md](file:///d:/0pro/pakcli-plugin/local/brief/v02_with-git-snapshot.md) | Internal Git Snapshot mechanics (`refs/snapshots/*`, storage < 2MB, auto-prune TTL). |
 | [v03_multiple-repo-git-manager.md](file:///d:/0pro/pakcli-plugin/local/brief/v03_multiple-repo-git-manager.md) | Complete Multi-Repo Git Manager Specs: 3 View Modes, Hotkey Map, TypeScript Architecture. |
-| [v04_install-dependencies-flows.md](file:///d:/0pro/pakcli-plugin/local/brief/v04_install-dependencies-flows.md) | **PowerShell Diagnostics & Installer Architecture**: Gatekeeper Flow (Level 0), 2-Button Level 0 Resolver, Consent Modal with "Never Ask Again", and Error Matrix. |
+| [v04_install-dependencies-flows.md](file:///d:/0pro/pakcli-plugin/local/brief/v04_install-dependencies-flows.md) | **PowerShell Diagnostics & Installer Architecture**: Gatekeeper Flow, Per-Feature-Tab Panels, Consent Modal, Error Matrix. |
+| [v05_task-implement.md](file:///d:/0pro/pakcli-plugin/local/brief/v05_task-implement.md) | **Implementation Task Brief**: Fix deps install flow (Phase A) + Git Sentinel feature (Phases 1–10). |
