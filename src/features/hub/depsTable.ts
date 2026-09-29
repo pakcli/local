@@ -1,5 +1,5 @@
 import { App, Notice } from "obsidian";
-import { getNodeChildProcess, getNodeOs } from "../../utils/nodeHelpers";
+import { getNodeChildProcess, getNodeOs, getNodeFs } from "../../utils/nodeHelpers";
 import { detectPsExe, runPsCommand } from "./psRunner";
 import { ConsentModal } from "./consentModal";
 
@@ -31,32 +31,43 @@ export interface OsInfo {
   label: string; // human-readable e.g. "Windows 11 (x64)"
 }
 
+export interface DepDefinition {
+  name: string;
+  cmd: string;
+  versionArg: string;
+  whichCmd: (isWin: boolean) => string;
+  fallbackPaths?: string[];
+  installCmd: string;
+  uninstallCmd: string;
+  hint: string;
+}
+
 // ─── Dependency Definitions ──────────────────────────────────────────────────
 
-export const DEP_DEFINITIONS = [
+export const DEP_DEFINITIONS: DepDefinition[] = [
   {
-    name: "PowerShell (pwsh)",
-    cmd: "pwsh",
-    versionArg: "--version",
-    whichCmd: (isWin: boolean) => (isWin ? "where.exe pwsh" : "which pwsh"),
-    installCmd: "winget install Microsoft.PowerShell",
-    uninstallCmd: "winget uninstall Microsoft.PowerShell",
-    hint: "Install PowerShell Core from Microsoft",
-  },
-  {
-    name: "Windows PowerShell",
+    name: "PowerShell",
     cmd: "powershell",
     versionArg: "-NoProfile -Command $PSVersionTable.PSVersion.ToString()",
-    whichCmd: (isWin: boolean) => (isWin ? "where.exe powershell" : "which powershell"),
-    installCmd: "# Built-in on Windows",
-    uninstallCmd: "# Built-in — cannot uninstall",
-    hint: "Pre-installed on Windows",
+    whichCmd: (isWin: boolean) => (isWin ? "where.exe powershell" : "which pwsh"),
+    fallbackPaths: [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Program Files (x86)\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ],
+    installCmd: "winget install Microsoft.PowerShell",
+    uninstallCmd: "# Built-in (Windows PowerShell) or winget uninstall Microsoft.PowerShell",
+    hint: "Windows PowerShell 5.1+ or PowerShell Core 7+ (automation engine)",
   },
   {
     name: "yt-dlp",
     cmd: "yt-dlp",
     versionArg: "--version",
     whichCmd: (isWin: boolean) => (isWin ? "where.exe yt-dlp" : "which yt-dlp"),
+    fallbackPaths: [
+      "C:\\yt-dlp\\yt-dlp.exe",
+    ],
     installCmd: "winget install yt-dlp.yt-dlp",
     uninstallCmd: "winget uninstall yt-dlp.yt-dlp",
     hint: "Media downloader binary for YTD feature",
@@ -66,6 +77,10 @@ export const DEP_DEFINITIONS = [
     cmd: "ffmpeg",
     versionArg: "-version",
     whichCmd: (isWin: boolean) => (isWin ? "where.exe ffmpeg" : "which ffmpeg"),
+    fallbackPaths: [
+      "C:\\ffmpeg\\bin\\ffmpeg.exe",
+      "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+    ],
     installCmd: "winget install Gyan.FFmpeg",
     uninstallCmd: "winget uninstall Gyan.FFmpeg",
     hint: "Required for media conversion by yt-dlp",
@@ -75,6 +90,12 @@ export const DEP_DEFINITIONS = [
     cmd: "python",
     versionArg: "--version",
     whichCmd: (isWin: boolean) => (isWin ? "where.exe python" : "which python3"),
+    fallbackPaths: [
+      "C:\\Python313\\python.exe",
+      "C:\\Python312\\python.exe",
+      "C:\\Python311\\python.exe",
+      "C:\\Python310\\python.exe",
+    ],
     installCmd: "winget install Python.Python.3",
     uninstallCmd: "winget uninstall Python.Python.3",
     hint: "Required for Antigravity CLI",
@@ -102,6 +123,10 @@ export const DEP_DEFINITIONS = [
     cmd: "git",
     versionArg: "--version",
     whichCmd: (isWin: boolean) => (isWin ? "where.exe git" : "which git"),
+    fallbackPaths: [
+      "C:\\Program Files\\Git\\cmd\\git.exe",
+      "C:\\Program Files (x86)\\Git\\cmd\\git.exe",
+    ],
     installCmd: "winget install Git.Git",
     uninstallCmd: "winget uninstall Git.Git",
     hint: "Version control — used by some plugin features",
@@ -147,8 +172,124 @@ function execAsync(cp: any, command: string, timeoutMs = 5000): Promise<string> 
   });
 }
 
+/**
+ * Multi-source checker for PowerShell:
+ * Checks pwsh (Core 7+) -> powershell (Windows PowerShell 5.1+) -> direct filesystem paths.
+ */
+async function checkPowerShellDep(
+  cp: any,
+  def: DepDefinition,
+  isWin: boolean,
+  checkedAt: string,
+  t0: number
+): Promise<DepResult> {
+  const fs = getNodeFs();
+
+  // 1. Try pwsh in PATH (PowerShell Core 7+)
+  try {
+    const whichOut = await execAsync(cp, isWin ? "where.exe pwsh" : "which pwsh", 3000);
+    const pwshPath = whichOut.split(/\r?\n/).filter(Boolean)[0]?.trim();
+    if (pwshPath) {
+      const verOut = await execAsync(cp, `pwsh -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"`, 4000);
+      const ver = verOut.split(/\r?\n/)[0]?.trim();
+      return {
+        name: def.name,
+        status: "ok",
+        version: `${ver || "Core 7+"} (PowerShell Core)`,
+        installDir: pwshPath,
+        checkedAt,
+        durationMs: Date.now() - t0,
+        installCmd: def.installCmd,
+        uninstallCmd: "winget uninstall Microsoft.PowerShell",
+        hint: def.hint,
+      };
+    }
+  } catch {
+    // Continue to next check
+  }
+
+  // 2. Try powershell in PATH (Windows PowerShell 5.1+)
+  try {
+    const whichOut = await execAsync(cp, isWin ? "where.exe powershell" : "which powershell", 3000);
+    const winPsPath = whichOut.split(/\r?\n/).filter(Boolean)[0]?.trim();
+    if (winPsPath) {
+      const verOut = await execAsync(cp, `powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"`, 4000);
+      const ver = verOut.split(/\r?\n/)[0]?.trim();
+      return {
+        name: def.name,
+        status: "ok",
+        version: `${ver || "5.1"} (Windows PowerShell)`,
+        installDir: winPsPath,
+        checkedAt,
+        durationMs: Date.now() - t0,
+        installCmd: def.installCmd,
+        uninstallCmd: "# Built-in — cannot uninstall",
+        hint: def.hint,
+      };
+    }
+  } catch {
+    // Continue to direct filesystem fallbacks
+  }
+
+  // 3. Fallback direct filesystem checks on Windows
+  if (isWin && fs) {
+    const candidatePaths = [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Program Files (x86)\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ];
+
+    try {
+      const localApp = typeof process !== "undefined" ? process.env?.LOCALAPPDATA : undefined;
+      if (localApp) {
+        candidatePaths.push(`${localApp}\\Programs\\PowerShell\\7\\pwsh.exe`);
+        candidatePaths.push(`${localApp}\\Microsoft\\WindowsApps\\pwsh.exe`);
+      }
+    } catch {
+      // Ignore env lookup failure
+    }
+
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const isPwsh = p.toLowerCase().includes("pwsh");
+          const verOut = await execAsync(cp, `"${p}" -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"`, 4000);
+          const ver = verOut.split(/\r?\n/)[0]?.trim();
+          return {
+            name: def.name,
+            status: "ok",
+            version: `${ver || (isPwsh ? "Core 7+" : "5.1")} (${isPwsh ? "PowerShell Core" : "Windows PowerShell"})`,
+            installDir: p,
+            checkedAt,
+            durationMs: Date.now() - t0,
+            installCmd: def.installCmd,
+            uninstallCmd: isPwsh ? "winget uninstall Microsoft.PowerShell" : "# Built-in — cannot uninstall",
+            hint: def.hint,
+          };
+        }
+      } catch {
+        // Try next candidate
+      }
+    }
+  }
+
+  // Not found in any source
+  return {
+    name: def.name,
+    status: "error",
+    version: "not found",
+    installDir: "not installed",
+    checkedAt,
+    durationMs: Date.now() - t0,
+    installCmd: def.installCmd,
+    uninstallCmd: def.uninstallCmd,
+    hint: def.hint,
+  };
+}
+
 export async function checkSingleDep(
-  def: (typeof DEP_DEFINITIONS)[number],
+  def: DepDefinition,
   isWin: boolean
 ): Promise<DepResult> {
   const cp = getNodeChildProcess();
@@ -169,26 +310,52 @@ export async function checkSingleDep(
     };
   }
 
+  // Special multi-source handler for PowerShell
+  if (def.name.toLowerCase().includes("powershell")) {
+    return checkPowerShellDep(cp, def, isWin, checkedAt, t0);
+  }
+
+  const fs = getNodeFs();
+
   try {
     // 1. Resolve install dir via which/where
     let installDir = "—";
+    let binCmd = def.cmd;
     try {
       const whichOut = await execAsync(cp, def.whichCmd(isWin), 3000);
       const lines = whichOut.split(/\r?\n/).filter(Boolean);
       installDir = lines[0]?.trim() || "—";
+      if (installDir !== "—") {
+        binCmd = installDir.includes(" ") ? `"${installDir}"` : installDir;
+      }
     } catch {
       installDir = "not found in PATH";
     }
 
-    // 2. Get version
-    const versionOut = await execAsync(cp, `${def.cmd} ${def.versionArg}`, 4000);
+    // 2. Fallback filesystem check on Windows if not found in PATH
+    if (installDir === "not found in PATH" && isWin && fs && def.fallbackPaths) {
+      for (const fb of def.fallbackPaths) {
+        try {
+          if (fs.existsSync(fb)) {
+            installDir = fb;
+            binCmd = fb.includes(" ") ? `"${fb}"` : fb;
+            break;
+          }
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    // 3. Get version
+    const versionOut = await execAsync(cp, `${binCmd} ${def.versionArg}`, 4000);
     const versionLine = versionOut.split(/\r?\n/)[0];
 
     return {
       name: def.name,
       status: "ok",
       version: versionLine || "unknown",
-      installDir,
+      installDir: installDir === "not found in PATH" ? "PATH / custom" : installDir,
       checkedAt,
       durationMs: Date.now() - t0,
       installCmd: def.installCmd,
@@ -250,8 +417,7 @@ export function exportDepsTable(deps: DepResult[], format: "md" | "json" | "csv"
   const sep = "|------|--------|---------|------------|------------|----------|";
   const rows = deps.map((d) => {
     const icon = d.status === "ok" ? "✅" : d.status === "warning" ? "⚠️" : "❌";
-    const time = d.checkedAt ? new Date(d.checkedAt).toLocaleTimeString() : "—";
-    return `| ${d.name} | ${icon} ${d.status} | ${d.version} | \`${d.installDir}\` | ${time} | ${d.durationMs}ms |`;
+    return `| ${icon} ${d.name} | ${d.status} | ${d.version} | ${d.installDir} | ${d.checkedAt} | ${d.durationMs}ms |`;
   });
   return [header, sep, ...rows].join("\n");
 }
@@ -260,13 +426,17 @@ export function exportDepsTable(deps: DepResult[], format: "md" | "json" | "csv"
 
 export function renderOsBadge(
   container: HTMLElement,
-  vaultPath: string,
-  pluginDir: string
+  vaultPath?: string,
+  pluginDir?: string
 ): void {
   const os = detectOs();
-  const now = new Date().toLocaleString();
-
   const badge = container.createDiv({ cls: "pakcli-os-badge" });
+
+  const now = new Date().toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 
   const rows: Array<{ icon: string; label: string; value: string }> = [
     { icon: "🖥️", label: "OS", value: os.label },
@@ -339,42 +509,42 @@ export function renderDepsTable(
     headRow.createEl("th", { text: h });
   });
 
-  // Body
   const tbody = table.createEl("tbody");
+  const nodeOs = getNodeOs();
+  const isWin = (nodeOs?.platform?.() || "unknown") === "win32";
 
-  if (deps.length === 0) {
-    const tr = tbody.createEl("tr");
-    const td = tr.createEl("td", { attr: { colspan: "4" } });
-    td.textContent = "No results yet — click Re-check All to scan.";
-    td.style.textAlign = "center";
-    td.style.color = "var(--text-muted)";
-    td.style.padding = "18px";
-    return;
-  }
-
-  const isWin = (getNodeOs()?.platform?.() || "") === "win32";
+  const iconMap: Record<string, string> = {
+    ok: "✅",
+    warning: "⚠️",
+    error: "❌",
+    checking: "⏳",
+  };
 
   deps.forEach((dep, idx) => {
     const tr = tbody.createEl("tr", { cls: `pakcli-deps-row status-${dep.status}` });
 
-    // ── Col 1: Name + Status badge ──
+    // ── Col 1: Dependency (Name + Hint) ──
     const tdName = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-name-cell" });
-    const iconMap: Record<string, string> = { ok: "✅", warning: "⚠️", error: "❌", checking: "⏳" };
-    const badge = tdName.createSpan({ cls: `pakcli-deps-status-dot status-${dep.status}` });
-    badge.textContent = iconMap[dep.status] || "❓";
-    badge.title = dep.status;
-    tdName.createSpan({ cls: "pakcli-deps-name-text", text: dep.name });
+    const nameWrap = tdName.createDiv({ cls: "pakcli-deps-name-wrap" });
+    const badge = nameWrap.createSpan({
+      cls: `pakcli-deps-status-dot status-${dep.status}`,
+      text: iconMap[dep.status] || "❓",
+    });
+    badge.title = `Status: ${dep.status}`;
+    const nameText = nameWrap.createSpan({ cls: "pakcli-deps-name-text", text: dep.name });
+
     if (dep.hint) {
-      tdName.createDiv({ cls: "pakcli-deps-hint", text: dep.hint });
+      tdName.createDiv({ cls: "pakcli-deps-hint-sub", text: dep.hint });
     }
 
     // ── Col 2: Version ──
-    const tdVer = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-mono" });
-    tdVer.textContent = dep.version || "—";
+    const tdVer = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-ver-cell" });
+    tdVer.textContent = dep.status === "checking" ? "…" : dep.version || "—";
 
-    // ── Col 3: Install location + inline copy ──
+    // ── Col 3: Install location (with inline copy button) ──
     const tdLoc = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-loc-cell" });
     const hasPath = dep.installDir && dep.installDir !== "—" && !dep.installDir.includes("not");
+
     if (hasPath) {
       const locWrap = tdLoc.createDiv({ cls: "pakcli-deps-loc-wrap" });
       locWrap.createSpan({ cls: "pakcli-deps-dir-text", text: dep.installDir, attr: { title: dep.installDir } });
@@ -404,13 +574,13 @@ export function renderDepsTable(
     rescanBtn.onclick = async () => {
       rescanBtn.disabled = true;
       rescanBtn.textContent = "⏳";
-      // update the row status to "checking"
       badge.textContent = "⏳";
       badge.className = `pakcli-deps-status-dot status-checking`;
       tr.className = "pakcli-deps-row status-checking";
       tdVer.textContent = "…";
 
-      const def = DEP_DEFINITIONS.find(d => d.name === dep.name);
+      const def = DEP_DEFINITIONS.find(d => d.name === dep.name) ||
+                  DEP_DEFINITIONS.find(d => dep.name.toLowerCase().includes("powershell") && d.name.toLowerCase().includes("powershell"));
       const fresh = def
         ? await checkSingleDep(def, isWin)
         : { ...dep, status: "error" as const, version: "—", installDir: "—", checkedAt: new Date().toISOString(), durationMs: 0 };
@@ -418,6 +588,7 @@ export function renderDepsTable(
       deps[idx] = fresh;
 
       // Update row in-place
+      nameText.textContent = fresh.name;
       badge.textContent = iconMap[fresh.status] || "❓";
       badge.className = `pakcli-deps-status-dot status-${fresh.status}`;
       tr.className = `pakcli-deps-row status-${fresh.status}`;
@@ -446,10 +617,12 @@ export function renderDepsTable(
     };
 
     // — Install —
+    const isWindowsPs = dep.name.toLowerCase().includes("powershell") && dep.version.toLowerCase().includes("windows");
+    const installLabel = isWindowsPs ? "⬆️ Install PS7" : "⬇️ Install";
     const installBtn = actWrap.createEl("button", {
       cls: "pakcli-deps-action-btn pakcli-deps-install-btn",
-      text: "⬇️ Install",
-      attr: { title: dep.installCmd },
+      text: installLabel,
+      attr: { title: isWindowsPs ? "Upgrade to PowerShell Core 7+: winget install Microsoft.PowerShell" : dep.installCmd },
     });
     installBtn.onclick = async () => {
       if (ctx) {
@@ -469,12 +642,12 @@ export function renderDepsTable(
         if (result.success) {
           installBtn.textContent = "✅ Done!";
           new Notice(`✅ Installed ${dep.name} successfully!\n\nClick 🔍 to rescan this row.`, 6000);
-          setTimeout(() => { installBtn.disabled = false; installBtn.textContent = "⬇️ Install"; }, 4000);
+          setTimeout(() => { installBtn.disabled = false; installBtn.textContent = installLabel; }, 4000);
         } else {
           installBtn.disabled = false;
           installBtn.textContent = "❌ Failed";
           new Notice(`❌ Install failed for ${dep.name}:\n\n${result.stderr || "Unknown error"}`, 8000);
-          setTimeout(() => { installBtn.textContent = "⬇️ Install"; }, 3000);
+          setTimeout(() => { installBtn.textContent = installLabel; }, 3000);
         }
       } else {
         navigator.clipboard.writeText(dep.installCmd).then(() => {
@@ -484,41 +657,49 @@ export function renderDepsTable(
     };
 
     // — Uninstall —
+    const isBuiltIn = dep.uninstallCmd.startsWith("#");
     const uninstallBtn = actWrap.createEl("button", {
       cls: "pakcli-deps-action-btn pakcli-deps-uninstall-btn",
       text: "🗑️",
-      attr: { title: `Remove ${dep.name} — ${dep.uninstallCmd}` },
+      attr: { title: isBuiltIn ? "Built-in system component (cannot uninstall)" : `Remove ${dep.name} — ${dep.uninstallCmd}` },
     });
-    uninstallBtn.onclick = async () => {
-      if (ctx) {
-        const psExe = detectPsExe();
-        if (!psExe) {
-          new Notice("❌ PowerShell not found. Cannot run uninstall.", 5000);
-          return;
-        }
-        if (!ctx.bypassConsentGiven) {
-          const consent = await ConsentModal.ask(ctx.app, psExe, dep.uninstallCmd);
-          if (!consent.confirmed) return;
-          if (consent.neverAskAgain) ctx.onConsentGiven();
-        }
-        uninstallBtn.disabled = true;
-        uninstallBtn.textContent = "⏳";
-        const result = await runPsCommand(dep.uninstallCmd, psExe);
-        if (result.success) {
-          uninstallBtn.textContent = "✅";
-          new Notice(`✅ Removed ${dep.name}.\n\nClick 🔍 to rescan this row.`, 5000);
-          setTimeout(() => { uninstallBtn.disabled = false; uninstallBtn.textContent = "🗑️"; }, 4000);
+
+    if (isBuiltIn) {
+      uninstallBtn.disabled = true;
+      uninstallBtn.style.opacity = "0.35";
+      uninstallBtn.style.cursor = "not-allowed";
+    } else {
+      uninstallBtn.onclick = async () => {
+        if (ctx) {
+          const psExe = detectPsExe();
+          if (!psExe) {
+            new Notice("❌ PowerShell not found. Cannot run uninstall.", 5000);
+            return;
+          }
+          if (!ctx.bypassConsentGiven) {
+            const consent = await ConsentModal.ask(ctx.app, psExe, dep.uninstallCmd);
+            if (!consent.confirmed) return;
+            if (consent.neverAskAgain) ctx.onConsentGiven();
+          }
+          uninstallBtn.disabled = true;
+          uninstallBtn.textContent = "⏳";
+          const result = await runPsCommand(dep.uninstallCmd, psExe);
+          if (result.success) {
+            uninstallBtn.textContent = "✅";
+            new Notice(`✅ Removed ${dep.name}.\n\nClick 🔍 to rescan this row.`, 5000);
+            setTimeout(() => { uninstallBtn.disabled = false; uninstallBtn.textContent = "🗑️"; }, 4000);
+          } else {
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = "❌";
+            new Notice(`❌ Uninstall failed:\n\n${result.stderr || "Unknown error"}`, 7000);
+            setTimeout(() => { uninstallBtn.textContent = "🗑️"; }, 3000);
+          }
         } else {
-          uninstallBtn.disabled = false;
-          uninstallBtn.textContent = "❌";
-          new Notice(`❌ Uninstall failed:\n\n${result.stderr || "Unknown error"}`, 7000);
-          setTimeout(() => { uninstallBtn.textContent = "🗑️"; }, 3000);
+          navigator.clipboard.writeText(dep.uninstallCmd).then(() => {
+            new Notice(`📋 Copied uninstall command:\n${dep.uninstallCmd}`);
+          });
         }
-      } else {
-        navigator.clipboard.writeText(dep.uninstallCmd).then(() => {
-          new Notice(`📋 Copied uninstall command:\n${dep.uninstallCmd}`);
-        });
-      }
-    };
+      };
+    }
   });
 }

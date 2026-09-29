@@ -103,7 +103,7 @@ Each feature tab renders a focused deps panel using the **same shared `renderDep
 ```ts
 // Example: Git Manager settings tab — only shows relevant deps
 const GIT_DEPS = DEP_DEFINITIONS.filter(d =>
-  ["PowerShell (pwsh)", "Windows PowerShell", "git"].includes(d.name)
+  ["PowerShell", "git"].includes(d.name)
 );
 
 const doCheck = async () => {
@@ -117,7 +117,7 @@ const doCheck = async () => {
 ```ts
 // Example: YTD settings tab — shows yt-dlp + ffmpeg + PowerShell only
 const YTD_DEPS = DEP_DEFINITIONS.filter(d =>
-  ["PowerShell (pwsh)", "Windows PowerShell", "yt-dlp", "ffmpeg"].includes(d.name)
+  ["PowerShell", "yt-dlp", "ffmpeg"].includes(d.name)
 );
 ```
 

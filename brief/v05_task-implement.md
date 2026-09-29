@@ -287,17 +287,17 @@ Use the same `renderDepsTable` with a filtered `DEP_DEFINITIONS` subset:
 ```ts
 // YTD tab — only these 3
 const YTD_DEPS = DEP_DEFINITIONS.filter(d =>
-  ["PowerShell (pwsh)", "Windows PowerShell", "yt-dlp", "ffmpeg"].includes(d.name)
+  ["PowerShell", "yt-dlp", "ffmpeg"].includes(d.name)
 );
 
-// Git Manager tab — only these 3
+// Git Manager tab — only these 2
 const GIT_DEPS = DEP_DEFINITIONS.filter(d =>
-  ["PowerShell (pwsh)", "Windows PowerShell", "git"].includes(d.name)
+  ["PowerShell", "git"].includes(d.name)
 );
 
 // Symlink tab — only PowerShell (Dev Mode status is checked separately)
 const SYMLINK_DEPS = DEP_DEFINITIONS.filter(d =>
-  ["PowerShell (pwsh)", "Windows PowerShell"].includes(d.name)
+  ["PowerShell"].includes(d.name)
 );
 ```
 
