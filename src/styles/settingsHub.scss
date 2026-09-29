@@ -823,3 +823,181 @@
     }
   }
 }
+
+/* ========================================================================= */
+/* Consent Modal — PowerShell Execution Bypass Confirmation                  */
+/* ========================================================================= */
+
+.pakcli-consent-modal {
+  padding: 6px 4px;
+
+  h2 { font-size: 16px; margin-bottom: 10px; }
+}
+
+.pakcli-consent-desc {
+  color: var(--text-normal);
+  font-size: 13px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.pakcli-consent-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.pakcli-consent-code {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 11.5px;
+  font-family: var(--font-monospace);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 14px;
+  color: var(--text-accent);
+
+  code { background: transparent; padding: 0; font-size: inherit; }
+}
+
+.pakcli-consent-warning {
+  color: var(--color-orange, #f97316);
+  font-size: 12px;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.pakcli-consent-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+
+  input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+  label { cursor: pointer; }
+}
+
+.pakcli-consent-reset-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.pakcli-consent-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.pakcli-consent-btn-run {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  padding: 8px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+
+  &:hover  { filter: brightness(1.12); }
+  &:active { filter: brightness(0.95); }
+}
+
+.pakcli-consent-btn-cancel {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+
+  &:hover { background: var(--background-secondary); }
+}
+
+/* ── Deps table: 4-column redesign ──────────────────────────────────────── */
+
+.pakcli-deps-name-cell { min-width: 140px; }
+
+.pakcli-deps-status-dot {
+  font-size: 14px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.pakcli-deps-name-text { font-weight: 500; }
+
+.pakcli-deps-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.pakcli-deps-loc-cell {
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.pakcli-deps-loc-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.pakcli-deps-dir-text {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  max-width: 220px;
+  display: inline-block;
+}
+
+.pakcli-deps-copy-inline {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  font-size: 13px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+
+  &:hover { opacity: 1; background: var(--background-secondary); }
+}
+
+.pakcli-deps-actions-cell {
+  white-space: nowrap;
+  min-width: 140px;
+}
+
+.pakcli-deps-actions-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pakcli-deps-rescan-btn {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: background 0.12s, color 0.12s;
+
+  &:hover   { background: var(--background-secondary); color: var(--text-normal); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}

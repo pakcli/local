@@ -203,72 +203,56 @@ export class ConsentModal extends Modal {
 
 ## A.5 Modify: `depsTable.ts`
 
-### A.5a — Add `DepsRenderContext` interface + update `renderDepsTable` signature
+### A.5a — Interfaces added
 
 ```ts
-import { App } from "obsidian";
-import { detectPsExe, runPsCommand } from "./psRunner";
-import { ConsentModal } from "./consentModal";
-
 export interface DepsRenderContext {
-  app: App;
-  bypassConsentGiven: boolean;
-  onConsentGiven: () => void;
+  app: App;                    // for ConsentModal
+  bypassConsentGiven: boolean; // skip modal when true
+  onConsentGiven: () => void;  // called on "never ask again"
 }
+```
 
-// Update signature:
+Updated `renderDepsTable` signature:
+```ts
 export function renderDepsTable(
   container: HTMLElement,
   deps: DepResult[],
   onRefresh: () => void,
-  ctx: DepsRenderContext   // ← ADD
+  ctx?: DepsRenderContext   // optional — falls back to clipboard copy
 ): void
 ```
 
-### A.5b — Replace install button onclick (line ~419–423)
+### A.5b — 4-column table layout ✅ IMPLEMENTED
 
+**Columns:** `Dependency` | `Version` | `Install location` | `Actions`
+
+```
+┌─ Export bar ──────────────────────────────────────────────── [🔄 Re-check All] ┐
+├───────────────────┬─────────────┬──────────────────────────┬────────────────────┤
+│ Dependency        │ Version     │ Install location          │ Actions            │
+├───────────────────┼─────────────┼──────────────────────────┼────────────────────┤
+│ ✅ PowerShell     │ 7.4.2       │ C:\...\pwsh.exe  [📋]    │ [🔍] [⬇️ Install] [🗑️] │
+│ ❌ yt-dlp         │ —           │ not installed             │ [🔍] [⬇️ Install] [🗑️] │
+│ ⚠️ ffmpeg         │ 6.1         │ C:\...\ffmpeg.exe [📋]   │ [🔍] [⬇️ Install] [🗑️] │
+└───────────────────┴─────────────┴──────────────────────────┴────────────────────┘
+```
+
+**Actions per row:**
+- `[🔍]` — Rescan **this row only** — updates badge, version, location in-place without full table re-render
+- `[⬇️ Install]` — ConsentModal → PS execution → success/fail feedback
+- `[🗑️]` — ConsentModal → PS uninstall → success/fail feedback
+
+**Per-row rescan implementation:**
 ```ts
-// BEFORE (clipboard only)
-installBtn.onclick = () => {
-  navigator.clipboard.writeText(dep.installCmd).then(() => {
-    new Notice(`📋 Copied install command:\n${dep.installCmd}`);
-  });
-};
-
-// AFTER (real PowerShell execution)
-installBtn.onclick = async () => {
-  const psExe = detectPsExe();
-
-  if (!psExe) {
-    new Notice("❌ PowerShell not found. Install it first (see Dependencies tab).", 6000);
-    return;
-  }
-
-  if (!ctx.bypassConsentGiven) {
-    const consent = await ConsentModal.ask(ctx.app, psExe, dep.installCmd);
-    if (!consent.confirmed) return;
-    if (consent.neverAskAgain) ctx.onConsentGiven();
-  }
-
-  installBtn.disabled = true;
-  installBtn.textContent = "⏳ Installing…";
-
-  const result = await runPsCommand(dep.installCmd, psExe);
-
-  if (result.success) {
-    installBtn.textContent = "✅ Done!";
-    new Notice(`✅ Installed ${dep.name} successfully!\n\nRe-check to update status.`, 6000);
-    setTimeout(() => { installBtn.disabled = false; installBtn.textContent = "⬇️ Install"; }, 4000);
-  } else {
-    installBtn.disabled = false;
-    installBtn.textContent = "❌ Failed";
-    new Notice(`❌ Install failed for ${dep.name}:\n\n${result.stderr || "Unknown error"}`, 8000);
-    setTimeout(() => { installBtn.textContent = "⬇️ Install"; }, 3000);
-  }
-};
+const def = DEP_DEFINITIONS.find(d => d.name === dep.name);
+const fresh = def ? await checkSingleDep(def, isWin) : { ...dep, status: "error" };
+deps[idx] = fresh;
+// update badge, tr.className, tdVer, tdLoc in-place
 ```
 
 ---
+
 
 ## A.6 Modify: `settingsHub.ts`
 

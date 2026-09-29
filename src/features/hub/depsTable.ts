@@ -1,5 +1,7 @@
-import { Notice } from "obsidian";
+import { App, Notice } from "obsidian";
 import { getNodeChildProcess, getNodeOs } from "../../utils/nodeHelpers";
+import { detectPsExe, runPsCommand } from "./psRunner";
+import { ConsentModal } from "./consentModal";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -13,6 +15,12 @@ export interface DepResult {
   installCmd: string;
   uninstallCmd: string;
   hint: string;
+}
+
+export interface DepsRenderContext {
+  app: App;                    // needed for ConsentModal
+  bypassConsentGiven: boolean; // if true, skip the consent modal
+  onConsentGiven: () => void;  // callback when user checks "never ask again"
 }
 
 export interface OsInfo {
@@ -292,16 +300,17 @@ export function renderOsBadge(
 export function renderDepsTable(
   container: HTMLElement,
   deps: DepResult[],
-  onRefresh: () => void
+  onRefresh: () => void,
+  ctx?: DepsRenderContext
 ): void {
   container.empty();
 
-  // ── Export bar ──
-  const exportBar = container.createDiv({ cls: "pakcli-deps-export-bar" });
-  exportBar.createSpan({ cls: "pakcli-deps-export-label", text: "Export:" });
+  // ── Top bar: export + re-check all ──
+  const topBar = container.createDiv({ cls: "pakcli-deps-export-bar" });
+  topBar.createSpan({ cls: "pakcli-deps-export-label", text: "Export:" });
 
   const mkExportBtn = (label: string, fmt: "md" | "json" | "csv") => {
-    const btn = exportBar.createEl("button", { cls: "pakcli-deps-export-btn", text: label });
+    const btn = topBar.createEl("button", { cls: "pakcli-deps-export-btn", text: label });
     btn.onclick = () => {
       const text = exportDepsTable(deps, fmt);
       navigator.clipboard.writeText(text).then(() => {
@@ -309,39 +318,25 @@ export function renderDepsTable(
       });
     };
   };
-
   mkExportBtn("📝 Markdown", "md");
   mkExportBtn("{ } JSON", "json");
   mkExportBtn("⊞ CSV", "csv");
 
-  // ── Refresh button ──
-  const refreshBtn = exportBar.createEl("button", {
+  const reCheckAllBtn = topBar.createEl("button", {
     cls: "pakcli-deps-export-btn pakcli-deps-refresh-btn",
-    text: "🔄 Re-check",
+    text: "🔄 Re-check All",
   });
-  refreshBtn.onclick = onRefresh;
+  reCheckAllBtn.onclick = onRefresh;
 
   // ── Table ──
   const tableWrap = container.createDiv({ cls: "pakcli-deps-table-wrap" });
   const table = tableWrap.createEl("table", { cls: "pakcli-deps-table" });
 
-  // Head
+  // Head — 4 columns
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  const headers = [
-    "Dependency",
-    "Status",
-    "Version",
-    "Checked at",
-    "Duration",
-    "Install dir",
-    "📋 Path",
-    "⬇️ Install",
-    "🗑️ Uninstall",
-  ];
-  headers.forEach((h) => {
-    const th = headRow.createEl("th");
-    th.textContent = h;
+  ["Dependency", "Version", "Install location", "Actions"].forEach((h) => {
+    headRow.createEl("th", { text: h });
   });
 
   // Body
@@ -349,90 +344,181 @@ export function renderDepsTable(
 
   if (deps.length === 0) {
     const tr = tbody.createEl("tr");
-    const td = tr.createEl("td", { attr: { colspan: "9" } });
-    td.textContent = "No results yet — click Re-check to scan.";
+    const td = tr.createEl("td", { attr: { colspan: "4" } });
+    td.textContent = "No results yet — click Re-check All to scan.";
     td.style.textAlign = "center";
     td.style.color = "var(--text-muted)";
     td.style.padding = "18px";
     return;
   }
 
-  deps.forEach((dep) => {
+  const isWin = (getNodeOs()?.platform?.() || "") === "win32";
+
+  deps.forEach((dep, idx) => {
     const tr = tbody.createEl("tr", { cls: `pakcli-deps-row status-${dep.status}` });
 
-    // 1. Name
+    // ── Col 1: Name + Status badge ──
     const tdName = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-name-cell" });
-    tdName.textContent = dep.name;
+    const iconMap: Record<string, string> = { ok: "✅", warning: "⚠️", error: "❌", checking: "⏳" };
+    const badge = tdName.createSpan({ cls: `pakcli-deps-status-dot status-${dep.status}` });
+    badge.textContent = iconMap[dep.status] || "❓";
+    badge.title = dep.status;
+    tdName.createSpan({ cls: "pakcli-deps-name-text", text: dep.name });
+    if (dep.hint) {
+      tdName.createDiv({ cls: "pakcli-deps-hint", text: dep.hint });
+    }
 
-    // 2. Status icon
-    const tdStatus = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-status-cell" });
-    const iconMap = { ok: "✅", warning: "⚠️", error: "❌", checking: "⏳" };
-    const statusSpan = tdStatus.createSpan({ cls: `pakcli-deps-status-badge status-${dep.status}` });
-    statusSpan.textContent = (iconMap[dep.status] || "❓") + " " + dep.status;
-
-    // 3. Version
+    // ── Col 2: Version ──
     const tdVer = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-mono" });
     tdVer.textContent = dep.version || "—";
 
-    // 4. Checked at
-    const tdTime = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-mono pakcli-deps-time" });
-    tdTime.textContent = dep.checkedAt
-      ? new Date(dep.checkedAt).toLocaleTimeString()
-      : "—";
-    tdTime.title = dep.checkedAt || "";
-
-    // 5. Duration
-    const tdDur = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-mono pakcli-deps-dur" });
-    tdDur.textContent = dep.durationMs > 0 ? `${dep.durationMs}ms` : "—";
-
-    // 6. Install dir
-    const tdDir = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-dir-cell" });
-    const dirSpan = tdDir.createSpan({ cls: "pakcli-deps-dir-text" });
-    dirSpan.textContent = dep.installDir || "—";
-    dirSpan.title = dep.installDir || "";
-
-    // 7. Copy path button
-    const tdCopy = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-action-cell" });
-    if (dep.installDir && dep.installDir !== "—" && !dep.installDir.includes("not")) {
-      const copyBtn = tdCopy.createEl("button", {
-        cls: "pakcli-deps-action-btn pakcli-deps-copy-btn",
-        text: "📋 Copy",
-      });
+    // ── Col 3: Install location + inline copy ──
+    const tdLoc = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-loc-cell" });
+    const hasPath = dep.installDir && dep.installDir !== "—" && !dep.installDir.includes("not");
+    if (hasPath) {
+      const locWrap = tdLoc.createDiv({ cls: "pakcli-deps-loc-wrap" });
+      locWrap.createSpan({ cls: "pakcli-deps-dir-text", text: dep.installDir, attr: { title: dep.installDir } });
+      const copyBtn = locWrap.createEl("button", { cls: "pakcli-deps-copy-inline", text: "📋" });
+      copyBtn.title = "Copy path";
       copyBtn.onclick = () => {
         navigator.clipboard.writeText(dep.installDir).then(() => {
+          copyBtn.textContent = "✅";
           new Notice(`📋 Copied: ${dep.installDir}`);
-          copyBtn.textContent = "✅ Copied!";
-          setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1800);
+          setTimeout(() => { copyBtn.textContent = "📋"; }, 1800);
         });
       };
     } else {
-      tdCopy.createSpan({ cls: "pakcli-deps-na", text: "—" });
+      tdLoc.createSpan({ cls: "pakcli-deps-na", text: dep.status === "checking" ? "checking…" : "not installed" });
     }
 
-    // 8. Install button
-    const tdInstall = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-action-cell" });
-    const installBtn = tdInstall.createEl("button", {
-      cls: "pakcli-deps-action-btn pakcli-deps-install-btn",
-      text: "⬇️ Install",
+    // ── Col 4: Actions (Rescan | Install | Uninstall) ──
+    const tdActions = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-actions-cell" });
+    const actWrap = tdActions.createDiv({ cls: "pakcli-deps-actions-wrap" });
+
+    // — Rescan (this row only) —
+    const rescanBtn = actWrap.createEl("button", {
+      cls: "pakcli-deps-action-btn pakcli-deps-rescan-btn",
+      text: "🔍",
+      attr: { title: `Re-check ${dep.name}` },
     });
-    installBtn.title = dep.installCmd;
-    installBtn.onclick = () => {
-      navigator.clipboard.writeText(dep.installCmd).then(() => {
-        new Notice(`📋 Copied install command:\n${dep.installCmd}`);
-      });
+    rescanBtn.onclick = async () => {
+      rescanBtn.disabled = true;
+      rescanBtn.textContent = "⏳";
+      // update the row status to "checking"
+      badge.textContent = "⏳";
+      badge.className = `pakcli-deps-status-dot status-checking`;
+      tr.className = "pakcli-deps-row status-checking";
+      tdVer.textContent = "…";
+
+      const def = DEP_DEFINITIONS.find(d => d.name === dep.name);
+      const fresh = def
+        ? await checkSingleDep(def, isWin)
+        : { ...dep, status: "error" as const, version: "—", installDir: "—", checkedAt: new Date().toISOString(), durationMs: 0 };
+
+      deps[idx] = fresh;
+
+      // Update row in-place
+      badge.textContent = iconMap[fresh.status] || "❓";
+      badge.className = `pakcli-deps-status-dot status-${fresh.status}`;
+      tr.className = `pakcli-deps-row status-${fresh.status}`;
+      tdVer.textContent = fresh.version || "—";
+
+      // Update location cell
+      tdLoc.empty();
+      const freshHasPath = fresh.installDir && fresh.installDir !== "—" && !fresh.installDir.includes("not");
+      if (freshHasPath) {
+        const locWrap2 = tdLoc.createDiv({ cls: "pakcli-deps-loc-wrap" });
+        locWrap2.createSpan({ cls: "pakcli-deps-dir-text", text: fresh.installDir, attr: { title: fresh.installDir } });
+        const copyBtn2 = locWrap2.createEl("button", { cls: "pakcli-deps-copy-inline", text: "📋" });
+        copyBtn2.title = "Copy path";
+        copyBtn2.onclick = () => {
+          navigator.clipboard.writeText(fresh.installDir).then(() => {
+            copyBtn2.textContent = "✅";
+            setTimeout(() => { copyBtn2.textContent = "📋"; }, 1800);
+          });
+        };
+      } else {
+        tdLoc.createSpan({ cls: "pakcli-deps-na", text: "not installed" });
+      }
+
+      rescanBtn.disabled = false;
+      rescanBtn.textContent = "🔍";
     };
 
-    // 9. Uninstall button
-    const tdUninstall = tr.createEl("td", { cls: "pakcli-deps-td pakcli-deps-action-cell" });
-    const uninstallBtn = tdUninstall.createEl("button", {
-      cls: "pakcli-deps-action-btn pakcli-deps-uninstall-btn",
-      text: "🗑️ Remove",
+    // — Install —
+    const installBtn = actWrap.createEl("button", {
+      cls: "pakcli-deps-action-btn pakcli-deps-install-btn",
+      text: "⬇️ Install",
+      attr: { title: dep.installCmd },
     });
-    uninstallBtn.title = dep.uninstallCmd;
-    uninstallBtn.onclick = () => {
-      navigator.clipboard.writeText(dep.uninstallCmd).then(() => {
-        new Notice(`📋 Copied uninstall command:\n${dep.uninstallCmd}`);
-      });
+    installBtn.onclick = async () => {
+      if (ctx) {
+        const psExe = detectPsExe();
+        if (!psExe) {
+          new Notice("❌ PowerShell not found.\nInstall it first via the Dependencies tab (MS Store or manual download).", 6000);
+          return;
+        }
+        if (!ctx.bypassConsentGiven) {
+          const consent = await ConsentModal.ask(ctx.app, psExe, dep.installCmd);
+          if (!consent.confirmed) return;
+          if (consent.neverAskAgain) ctx.onConsentGiven();
+        }
+        installBtn.disabled = true;
+        installBtn.textContent = "⏳ Installing…";
+        const result = await runPsCommand(dep.installCmd, psExe);
+        if (result.success) {
+          installBtn.textContent = "✅ Done!";
+          new Notice(`✅ Installed ${dep.name} successfully!\n\nClick 🔍 to rescan this row.`, 6000);
+          setTimeout(() => { installBtn.disabled = false; installBtn.textContent = "⬇️ Install"; }, 4000);
+        } else {
+          installBtn.disabled = false;
+          installBtn.textContent = "❌ Failed";
+          new Notice(`❌ Install failed for ${dep.name}:\n\n${result.stderr || "Unknown error"}`, 8000);
+          setTimeout(() => { installBtn.textContent = "⬇️ Install"; }, 3000);
+        }
+      } else {
+        navigator.clipboard.writeText(dep.installCmd).then(() => {
+          new Notice(`📋 Copied install command:\n${dep.installCmd}`);
+        });
+      }
+    };
+
+    // — Uninstall —
+    const uninstallBtn = actWrap.createEl("button", {
+      cls: "pakcli-deps-action-btn pakcli-deps-uninstall-btn",
+      text: "🗑️",
+      attr: { title: `Remove ${dep.name} — ${dep.uninstallCmd}` },
+    });
+    uninstallBtn.onclick = async () => {
+      if (ctx) {
+        const psExe = detectPsExe();
+        if (!psExe) {
+          new Notice("❌ PowerShell not found. Cannot run uninstall.", 5000);
+          return;
+        }
+        if (!ctx.bypassConsentGiven) {
+          const consent = await ConsentModal.ask(ctx.app, psExe, dep.uninstallCmd);
+          if (!consent.confirmed) return;
+          if (consent.neverAskAgain) ctx.onConsentGiven();
+        }
+        uninstallBtn.disabled = true;
+        uninstallBtn.textContent = "⏳";
+        const result = await runPsCommand(dep.uninstallCmd, psExe);
+        if (result.success) {
+          uninstallBtn.textContent = "✅";
+          new Notice(`✅ Removed ${dep.name}.\n\nClick 🔍 to rescan this row.`, 5000);
+          setTimeout(() => { uninstallBtn.disabled = false; uninstallBtn.textContent = "🗑️"; }, 4000);
+        } else {
+          uninstallBtn.disabled = false;
+          uninstallBtn.textContent = "❌";
+          new Notice(`❌ Uninstall failed:\n\n${result.stderr || "Unknown error"}`, 7000);
+          setTimeout(() => { uninstallBtn.textContent = "🗑️"; }, 3000);
+        }
+      } else {
+        navigator.clipboard.writeText(dep.uninstallCmd).then(() => {
+          new Notice(`📋 Copied uninstall command:\n${dep.uninstallCmd}`);
+        });
+      }
     };
   });
 }

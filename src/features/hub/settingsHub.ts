@@ -3,7 +3,7 @@ import { runSystemDiagnostics, SystemHealthStatus } from "./wizard";
 import { ECOSYSTEM_MODULES, BlueprintSection } from "./previewSchemas";
 import { saveVaultConfig, loadVaultConfig, listVaultSnapshots, SnapshotItem } from "./vaultConfig";
 import { eventBus } from "./eventBus";
-import { checkAllDeps, renderDepsTable, renderOsBadge, DepResult } from "./depsTable";
+import { checkAllDeps, renderDepsTable, renderOsBadge, DepResult, DepsRenderContext } from "./depsTable";
 
 export interface SettingsSectionHandler {
   id: string;
@@ -130,6 +130,7 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
   healthStatus: SystemHealthStatus | null = null;
   depsResults: DepResult[] = [];
   depsChecking: boolean = false;
+  private bypassConsentGiven: boolean = false;
   localHandlers: Map<string, SettingsSectionHandler> = new Map();
   private simulatedState: Record<string, Record<string, any>> = {};
   private unsubscribeBus: (() => void) | null = null;
@@ -666,11 +667,11 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
       tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "🔍 Checking dependencies…" });
       this.depsResults = await checkAllDeps();
       this.depsChecking = false;
-      renderDepsTable(tableContainer, this.depsResults, doCheck);
+      renderDepsTable(tableContainer, this.depsResults, doCheck, this.makeCtx());
     };
 
     if (this.depsResults.length > 0) {
-      renderDepsTable(tableContainer, this.depsResults, doCheck);
+      renderDepsTable(tableContainer, this.depsResults, doCheck, this.makeCtx());
     } else if (isLocalActive) {
       // Show initial run button
       const runWrap = tableContainer.createDiv({ cls: "pakcli-deps-run-wrap" });
@@ -800,15 +801,27 @@ export class MasterDetailSettingsTab extends PluginSettingTab {
       tableContainer.empty();
       tableContainer.createDiv({ cls: "pakcli-deps-loading", text: "🔍 Checking dependencies…" });
       this.depsResults = await checkAllDeps();
-      renderDepsTable(tableContainer, this.depsResults, doCheck);
+      renderDepsTable(tableContainer, this.depsResults, doCheck, this.makeCtx());
     };
 
     if (this.depsResults.length > 0) {
-      renderDepsTable(tableContainer, this.depsResults, doCheck);
+      renderDepsTable(tableContainer, this.depsResults, doCheck, this.makeCtx());
     } else {
       const runWrap = tableContainer.createDiv({ cls: "pakcli-deps-run-wrap" });
       const runBtn = runWrap.createEl("button", { text: "🔍 Run Dependency Check", cls: "pakcli-btn-primary" });
       runBtn.onclick = () => doCheck();
     }
+  }
+
+  /** Build a DepsRenderContext for the current settings tab instance. */
+  private makeCtx(): DepsRenderContext {
+    return {
+      app: this.app,
+      bypassConsentGiven: this.bypassConsentGiven,
+      onConsentGiven: () => {
+        this.bypassConsentGiven = true;
+        // TODO: persist via plugin.saveData() once settings schema is extended
+      },
+    };
   }
 }
