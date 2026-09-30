@@ -26,3 +26,4 @@ data.json
 # Build output directory
 dist/
 dist/**
+styles.css

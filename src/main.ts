@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon, MarkdownView } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -32,11 +32,15 @@ import { renderCopyPasteSettings } from './features/copypaste/settings';
 // Git Sentinel Manager Imports
 import { GitManager, registerGitManager, renderGitManagerSettings } from './features/gitManager';
 
+// Raw File Opener Imports
+import { RawOpenerManager, renderRawOpenerSettings, FormatSwitchModal } from './features/rawOpener';
+
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
 	gitManager!: GitManager;
+	rawOpenerManager!: RawOpenerManager;
 	badgeRenderer!: BadgeRenderer;
 	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
@@ -84,6 +88,18 @@ export default class PakCLILocalPlugin extends Plugin {
 								}).open();
 							});
 					});
+				} else if (file instanceof TFile) {
+					const ext = file.extension?.toLowerCase();
+					if (ext && ext !== 'md') {
+						menu.addItem((item) => {
+							item
+								.setTitle(`PakCLI: Configure Raw Format (.${ext.toUpperCase()})...`)
+								.setIcon('file-code')
+								.onClick(() => {
+									new FormatSwitchModal(this.app, this.rawOpenerManager, file).open();
+								});
+						});
+					}
 				}
 			})
 		);
@@ -168,7 +184,16 @@ export default class PakCLILocalPlugin extends Plugin {
 		// 10. Initialize Git Sentinel & Local Snapshot Manager
 		this.gitManager = registerGitManager(this);
 
-		// 11. Status Bar Item for ScriptSync
+		// 11. Initialize Raw File Opener (Custom File Formats & Live/Source/Reading Modes)
+		this.rawOpenerManager = new RawOpenerManager(
+			this.app,
+			this,
+			() => this.settings,
+			() => this.saveSettings()
+		);
+		this.rawOpenerManager.init();
+
+		// 12. Status Bar Item for ScriptSync
 		this.scriptSyncStatusBarItem = this.addStatusBarItem();
 		this.updateScriptSyncStatusBar();
 
@@ -181,13 +206,13 @@ export default class PakCLILocalPlugin extends Plugin {
 			})
 		);
 
-		// 11. Register Commands
+		// 13. Register Commands
 		this.registerPluginCommands();
 
-		// 12. Register Master-Detail Settings Tab
+		// 14. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
-		// 10. Background Health Check
+		// 15. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
@@ -201,6 +226,9 @@ export default class PakCLILocalPlugin extends Plugin {
 		console.log('[PakCLI Local] Unloading plugin...');
 		if (this.syncManager) {
 			this.syncManager.destroy();
+		}
+		if (this.rawOpenerManager) {
+			this.rawOpenerManager.destroy();
 		}
 		eventBus.emit('pl:unloaded', { version: this.manifest.version });
 	}
@@ -449,6 +477,79 @@ export default class PakCLILocalPlugin extends Plugin {
 				}
 			},
 		});
+
+		// Command: Raw Opener Quick Configuration Modal
+		this.addCommand({
+			id: 'pl-raw-format-modal',
+			name: 'Raw Opener: Configure Mode & Read-Only for Active File...',
+			callback: () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				new FormatSwitchModal(this.app, this.rawOpenerManager, activeFile).open();
+			}
+		});
+
+		// Command: Raw Opener Toggle Read-Only Lock
+		this.addCommand({
+			id: 'pl-raw-toggle-readonly',
+			name: 'Raw Opener: Toggle Read-Only Lock on Active File',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) {
+					new Notice('⚠️ No active file open to toggle read-only.');
+					return;
+				}
+				await this.rawOpenerManager.toggleExtensionReadOnly(activeFile.extension);
+				const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+				if (activeLeaf) {
+					void this.rawOpenerManager.handleFileLeafChange(activeLeaf, activeFile);
+				}
+			}
+		});
+
+		// Command: Raw Opener Set Active File to Live Preview
+		this.addCommand({
+			id: 'pl-raw-set-live',
+			name: 'Raw Opener: Switch Active File to Live Preview',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+				if (activeFile && activeLeaf) {
+					await this.rawOpenerManager.setExtensionMode(activeFile.extension, 'live');
+					await this.rawOpenerManager.applyModeToLeaf(activeLeaf, 'live');
+					new Notice(`✨ [RawOpener] .${activeFile.extension} set to Live Preview.`);
+				}
+			}
+		});
+
+		// Command: Raw Opener Set Active File to Source Mode
+		this.addCommand({
+			id: 'pl-raw-set-source',
+			name: 'Raw Opener: Switch Active File to Source Mode',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+				if (activeFile && activeLeaf) {
+					await this.rawOpenerManager.setExtensionMode(activeFile.extension, 'source');
+					await this.rawOpenerManager.applyModeToLeaf(activeLeaf, 'source');
+					new Notice(`📝 [RawOpener] .${activeFile.extension} set to Source Mode.`);
+				}
+			}
+		});
+
+		// Command: Raw Opener Set Active File to Reading View
+		this.addCommand({
+			id: 'pl-raw-set-reading',
+			name: 'Raw Opener: Switch Active File to Reading View',
+			callback: async () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+				if (activeFile && activeLeaf) {
+					await this.rawOpenerManager.setExtensionMode(activeFile.extension, 'reading');
+					await this.rawOpenerManager.applyModeToLeaf(activeLeaf, 'reading');
+					new Notice(`📖 [RawOpener] .${activeFile.extension} set to Reading View.`);
+				}
+			}
+		});
 	}
 
 	private registerSettingsHub() {
@@ -532,6 +633,25 @@ export default class PakCLILocalPlugin extends Plugin {
 			isInstalled: true,
 			render: (containerEl) => {
 				renderGitManagerSettings(this.app, this, containerEl);
+			}
+		});
+
+		// 6. Raw File Opener Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-raw-opener',
+			category: 'local',
+			title: 'Raw File Opener (Custom Formats)',
+			icon: 'file-code',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderRawOpenerSettings(
+					this.app,
+					this,
+					this.rawOpenerManager,
+					() => this.settings,
+					() => this.saveSettings(),
+					containerEl
+				);
 			}
 		});
 
