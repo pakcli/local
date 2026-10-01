@@ -35,6 +35,9 @@ import { GitManager, registerGitManager, renderGitManagerSettings } from './feat
 // Raw File Opener Imports
 import { RawOpenerManager, renderRawOpenerSettings, FormatSwitchModal } from './features/rawOpener';
 
+// Native OS File Clipboard Helpers
+import { copyFilesToNativeOsClipboard, getAbsoluteFileSystemPath } from './utils/nativeCopy';
+
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
@@ -71,10 +74,23 @@ export default class PakCLILocalPlugin extends Plugin {
 			this.applyBadgeSetting();
 		}
 
-		// Register Folder Context Menu for Symlinks
+		// Register Folder Context Menu for Symlinks & Native OS Copy
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu: Menu, file) => {
 				if (file instanceof TFolder) {
+					if (!(menu as any).__pakcli_native_folder_copy_added) {
+						(menu as any).__pakcli_native_folder_copy_added = true;
+						menu.addItem((item) => {
+							item
+								.setTitle('Copy folder (Native OS)')
+								.setIcon('copy')
+								.onClick(async () => {
+									const absPath = getAbsoluteFileSystemPath(this.app, file);
+									await copyFilesToNativeOsClipboard([absPath], `folder "${file.name}"`);
+								});
+						});
+					}
+
 					menu.addItem((item) => {
 						item
 							.setTitle('PakCLI: Link External Folder (Symlink)...')
@@ -89,12 +105,54 @@ export default class PakCLILocalPlugin extends Plugin {
 							});
 					});
 				} else if (file instanceof TFile) {
-					const ext = file.extension?.toLowerCase();
-					if (ext && ext !== 'md') {
+					if (!(menu as any).__pakcli_native_file_copy_added) {
+						(menu as any).__pakcli_native_file_copy_added = true;
 						menu.addItem((item) => {
 							item
-								.setTitle(`PakCLI: Configure Raw Format (.${ext.toUpperCase()})...`)
-								.setIcon('file-code')
+								.setTitle('Copy as a file (Native OS)')
+								.setIcon('copy')
+								.onClick(async () => {
+									const absPath = getAbsoluteFileSystemPath(this.app, file);
+									await copyFilesToNativeOsClipboard([absPath], `"${file.name}"`);
+								});
+						});
+					}
+
+					const ext = file.extension?.toLowerCase();
+					if (ext && ext !== 'md') {
+						menu.addSeparator();
+
+						menu.addItem((item) => {
+							item
+								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Live Preview`)
+								.setIcon('sparkles')
+								.onClick(async () => {
+									await this.rawOpenerManager.openFileInMode(file, 'live');
+								});
+						});
+
+						menu.addItem((item) => {
+							item
+								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Source Mode`)
+								.setIcon('code')
+								.onClick(async () => {
+									await this.rawOpenerManager.openFileInMode(file, 'source');
+								});
+						});
+
+						menu.addItem((item) => {
+							item
+								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Reading View`)
+								.setIcon('book-open')
+								.onClick(async () => {
+									await this.rawOpenerManager.openFileInMode(file, 'reading');
+								});
+						});
+
+						menu.addItem((item) => {
+							item
+								.setTitle(`Configure Raw Format (.${ext.toUpperCase()})...`)
+								.setIcon('sliders')
 								.onClick(() => {
 									new FormatSwitchModal(this.app, this.rawOpenerManager, file).open();
 								});
@@ -548,6 +606,23 @@ export default class PakCLILocalPlugin extends Plugin {
 					await this.rawOpenerManager.applyModeToLeaf(activeLeaf, 'reading');
 					new Notice(`📖 [RawOpener] .${activeFile.extension} set to Reading View.`);
 				}
+			}
+		});
+
+		// Command: Copy Active File as Native OS File
+		this.addCommand({
+			id: 'pl-copy-active-file-native-os',
+			name: 'Copy Active File as Native OS File',
+			checkCallback: (checking: boolean) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile) {
+					if (!checking) {
+						const absPath = getAbsoluteFileSystemPath(this.app, activeFile);
+						void copyFilesToNativeOsClipboard([absPath], `"${activeFile.name}"`);
+					}
+					return true;
+				}
+				return false;
 			}
 		});
 	}

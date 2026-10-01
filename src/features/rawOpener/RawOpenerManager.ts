@@ -44,7 +44,7 @@ export class RawOpenerManager {
                 if (file instanceof TFile) {
                     const leaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
                     if (leaf) {
-                        void this.handleFileLeafChange(leaf, file);
+                        void this.handleFileLeafChange(leaf, file, true);
                     }
                 }
             })
@@ -53,7 +53,7 @@ export class RawOpenerManager {
         this.plugin.registerEvent(
             this.app.workspace.on('active-leaf-change', (leaf) => {
                 if (leaf && leaf.view instanceof MarkdownView && leaf.view.file) {
-                    void this.handleFileLeafChange(leaf, leaf.view.file);
+                    void this.handleFileLeafChange(leaf, leaf.view.file, false);
                 }
             })
         );
@@ -204,13 +204,108 @@ export class RawOpenerManager {
     public isManagedFile(file: TFile | null): boolean {
         if (!file || !file.extension) return false;
         const cleanExt = file.extension.toLowerCase().trim();
+        if (cleanExt === 'md') return false;
         const settings = this.getSettings();
         if (!settings.rawOpenerEnabled) return false;
         const rule = this.getRule(cleanExt);
-        return Boolean(rule && rule.enabled);
+        if (rule) return rule.enabled;
+        return this.registeredExtensions.has(cleanExt);
     }
 
-    public async handleFileLeafChange(leaf: WorkspaceLeaf, file: TFile) {
+    public getLeafMode(leaf: WorkspaceLeaf): RawFileMode {
+        const view = leaf.view;
+        if (!(view instanceof MarkdownView)) return 'live';
+        const state = leaf.getViewState().state;
+        if (state?.mode === 'preview') return 'reading';
+        if (state?.source === true) return 'source';
+        return 'live';
+    }
+
+    public ensureExtensionRegistered(extension: string) {
+        const cleanExt = extension.toLowerCase().replace(/^\./, '').trim();
+        if (!cleanExt || cleanExt === 'md') return;
+        if (!this.registeredExtensions.has(cleanExt)) {
+            this.registeredExtensions.add(cleanExt);
+            const viewRegistry = (this.app as any).viewRegistry;
+            if (viewRegistry && typeof viewRegistry.registerExtensions === 'function') {
+                try {
+                    viewRegistry.registerExtensions([cleanExt], 'markdown');
+                } catch (e) {
+                    console.warn('[RawOpener] dynamic registerExtensions error:', e);
+                }
+            }
+        }
+    }
+
+    public async openFileInMode(file: TFile, mode: RawFileMode, newTab: boolean = false): Promise<WorkspaceLeaf | null> {
+        const cleanExt = file.extension.toLowerCase().replace(/^\./, '').trim();
+        this.ensureExtensionRegistered(cleanExt);
+
+        let rule = this.getRule(cleanExt);
+        if (!rule) {
+            await this.addRule(cleanExt, mode, false);
+            rule = this.getRule(cleanExt);
+        }
+
+        // Find existing leaf displaying this file if already open
+        let targetLeaf: WorkspaceLeaf | null = null;
+        const leaves = this.app.workspace.getLeavesOfType('markdown');
+        for (const l of leaves) {
+            if (l.view instanceof MarkdownView && l.view.file?.path === file.path) {
+                targetLeaf = l;
+                break;
+            }
+        }
+
+        if (!targetLeaf) {
+            targetLeaf = this.app.workspace.getLeaf(newTab ? 'tab' : false);
+        }
+
+        this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+
+        const stateMode = mode === 'reading' ? 'preview' : 'source';
+        const stateSource = mode === 'source';
+
+        this.isApplyingState = true;
+        try {
+            await targetLeaf.openFile(file, {
+                active: true,
+                state: {
+                    mode: stateMode,
+                    source: stateSource
+                }
+            });
+
+            await this.applyModeToLeaf(targetLeaf, mode);
+            const isReadOnly = rule ? rule.readOnly : this.getSettings().rawDefaultReadOnly;
+            this.renderHeaderBanner(targetLeaf, file, rule, mode, isReadOnly);
+
+            new Notice(`📄 [RawOpener] Opened ${file.name} in ${mode === 'live' ? 'Live Preview' : mode === 'source' ? 'Source Mode' : 'Reading View'}`);
+            return targetLeaf;
+        } catch (err) {
+            console.error('[RawOpener] openFile error, attempting setViewState fallback:', err);
+            try {
+                await targetLeaf.setViewState({
+                    type: 'markdown',
+                    active: true,
+                    state: {
+                        file: file.path,
+                        mode: stateMode,
+                        source: stateSource
+                    }
+                });
+                return targetLeaf;
+            } catch (fallbackErr) {
+                console.error('[RawOpener] Fallback setViewState failed:', fallbackErr);
+                new Notice(`⚠️ Could not open ${file.name} as Raw Markdown.`);
+                return null;
+            }
+        } finally {
+            this.isApplyingState = false;
+        }
+    }
+
+    public async handleFileLeafChange(leaf: WorkspaceLeaf, file: TFile, isInitialOpen: boolean = false) {
         if (this.isApplyingState) return;
         if (!this.isManagedFile(file)) {
             this.removeHeaderBanner(leaf);
@@ -221,11 +316,16 @@ export class RawOpenerManager {
         const rule = this.getRule(ext);
         const settings = this.getSettings();
 
-        const targetMode = rule?.mode || settings.rawDefaultMode || 'live';
         const isReadOnly = rule ? rule.readOnly : settings.rawDefaultReadOnly;
 
-        await this.applyModeToLeaf(leaf, targetMode);
-        this.renderHeaderBanner(leaf, file, rule, targetMode, isReadOnly);
+        if (isInitialOpen) {
+            const targetMode = rule?.mode || settings.rawDefaultMode || 'live';
+            await this.applyModeToLeaf(leaf, targetMode);
+            this.renderHeaderBanner(leaf, file, rule, targetMode, isReadOnly);
+        } else {
+            const currentMode = this.getLeafMode(leaf);
+            this.renderHeaderBanner(leaf, file, rule, currentMode, isReadOnly);
+        }
     }
 
     public async applyModeToLeaf(leaf: WorkspaceLeaf, mode: RawFileMode) {

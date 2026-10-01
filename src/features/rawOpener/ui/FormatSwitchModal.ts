@@ -68,11 +68,7 @@ export class FormatSwitchModal extends Modal {
                 } else {
                     await this.manager.addRule(ext, m.id, false);
                 }
-                const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf || this.app.workspace.getLeaf();
-                if (activeLeaf) {
-                    await this.manager.applyModeToLeaf(activeLeaf, m.id);
-                }
-                new Notice(`✅ [RawOpener] .${ext} mode switched to ${m.label}!`);
+                await this.manager.openFileInMode(file, m.id);
                 this.close();
             };
         });
