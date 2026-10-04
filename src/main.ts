@@ -10,6 +10,9 @@ import { saveVaultConfig, loadVaultConfig } from './features/hub/vaultConfig';
 import { SymlinkManagerSettingTab } from './features/symlink/settings';
 import { SymlinkModal } from './features/symlink/modal';
 import { BadgeRenderer } from './features/symlink/badges';
+import { detectLink } from './features/symlink/detect';
+import { reindexVaultFolder } from './features/symlink/reindex';
+import { PathUtils } from './utils/nodeHelpers';
 
 // ScriptSync Imports
 import { SyncManager } from './features/scriptSync/SyncManager';
@@ -104,6 +107,16 @@ export default class PakCLILocalPlugin extends Plugin {
 								}).open();
 							});
 					});
+
+					menu.addItem((item) => {
+						item
+							.setTitle('PakCLI: Re-index / Scan Folder Files')
+							.setIcon('refresh-cw')
+							.onClick(async () => {
+								await reindexVaultFolder(this.app, file.path);
+								new Notice(`🔄 Re-indexed folder "${file.name}"`);
+							});
+					});
 				} else if (file instanceof TFile) {
 					if (!(menu as any).__pakcli_native_file_copy_added) {
 						(menu as any).__pakcli_native_file_copy_added = true;
@@ -124,28 +137,10 @@ export default class PakCLILocalPlugin extends Plugin {
 
 						menu.addItem((item) => {
 							item
-								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Live Preview`)
-								.setIcon('sparkles')
-								.onClick(async () => {
-									await this.rawOpenerManager.openFileInMode(file, 'live');
-								});
-						});
-
-						menu.addItem((item) => {
-							item
-								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Source Mode`)
+								.setTitle(`Open as Raw (.${ext.toUpperCase()})`)
 								.setIcon('code')
 								.onClick(async () => {
 									await this.rawOpenerManager.openFileInMode(file, 'source');
-								});
-						});
-
-						menu.addItem((item) => {
-							item
-								.setTitle(`Open as Raw (.${ext.toUpperCase()}) - Reading View`)
-								.setIcon('book-open')
-								.onClick(async () => {
-									await this.rawOpenerManager.openFileInMode(file, 'reading');
 								});
 						});
 
@@ -199,9 +194,10 @@ export default class PakCLILocalPlugin extends Plugin {
 			() => this.settings,
 			() => this.saveSettings()
 		);
-		this.app.workspace.onLayoutReady(() => {
+		this.app.workspace.onLayoutReady(async () => {
 			this.copyPasteManager.runAwakeScan();
 			void this.initDockLeaf();
+			await this.reindexAllSymlinkFolders();
 		});
 
 		// 7. Register YTD Downloader View & Ribbon Icon
@@ -306,6 +302,23 @@ export default class PakCLILocalPlugin extends Plugin {
 	applyBadgeSetting() {
 		if (this.badgeRenderer) {
 			this.badgeRenderer.refresh();
+		}
+	}
+
+	async reindexAllSymlinkFolders() {
+		try {
+			const allFiles = this.app.vault.getAllLoadedFiles();
+			for (const af of allFiles) {
+				if (af instanceof TFolder) {
+					const absPath = PathUtils.join(this.vaultRoot, af.path);
+					const state = detectLink(absPath);
+					if (state.kind === 'active') {
+						await reindexVaultFolder(this.app, af.path);
+					}
+				}
+			}
+		} catch (err) {
+			console.warn('[PakCLI Local] Error scanning symlink folders at startup:', err);
 		}
 	}
 

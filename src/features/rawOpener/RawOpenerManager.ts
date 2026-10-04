@@ -1,5 +1,6 @@
 import { App, Plugin, TFile, WorkspaceLeaf, MarkdownView, Notice, setIcon } from 'obsidian';
 import { RawOpenerSettings, RawFormatRule, RawFileMode, DEFAULT_RAW_RULES } from './types';
+import { getAbsoluteFileSystemPath, copyFilesToNativeOsClipboard } from '../../utils/nativeCopy';
 
 export class RawOpenerManager {
     private app: App;
@@ -22,19 +23,48 @@ export class RawOpenerManager {
         this.saveSettings = saveSettings;
     }
 
+    public ensureDetectAllExtensionsEnabled() {
+        try {
+            const vault = this.app.vault as any;
+            if (typeof vault.getConfig === 'function') {
+                if (!vault.getConfig('showUnsupportedFiles')) {
+                    if (typeof vault.setConfig === 'function') {
+                        vault.setConfig('showUnsupportedFiles', true);
+                        console.log('[RawOpener] Auto-enabled showUnsupportedFiles (Detect all file extensions)');
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[RawOpener] Could not set showUnsupportedFiles:', e);
+        }
+    }
+
     public init() {
+        // Ensure Obsidian's native "Detect all file extensions" is ON so scripts appear in File Explorer
+        this.ensureDetectAllExtensionsEnabled();
+
         const settings = this.getSettings();
         if (!settings.rawOpenerEnabled) return;
 
-        // 1. Initial extension registration
+        // 1. Initial extension registration (per-extension so conflicts don't block other formats)
         const enabledExts = this.getEnabledExtensions();
-        if (enabledExts.length > 0) {
+        const viewRegistry = (this.app as any).viewRegistry;
+
+        for (const ext of enabledExts) {
+            const cleanExt = ext.toLowerCase().trim();
+            if (!cleanExt || cleanExt === 'md') continue;
             try {
-                this.plugin.registerExtensions(enabledExts, 'markdown');
-                enabledExts.forEach(ext => this.registeredExtensions.add(ext.toLowerCase()));
+                this.plugin.registerExtensions([cleanExt], 'markdown');
+                this.registeredExtensions.add(cleanExt);
             } catch (err) {
-                console.warn('[RawOpener] Initial registerExtensions fallback:', err);
-                this.syncViewRegistry([], enabledExts);
+                try {
+                    if (viewRegistry && typeof viewRegistry.registerExtensions === 'function') {
+                        viewRegistry.registerExtensions([cleanExt], 'markdown');
+                        this.registeredExtensions.add(cleanExt);
+                    }
+                } catch {
+                    // Already registered or claimed
+                }
             }
         }
 
@@ -72,15 +102,43 @@ export class RawOpenerManager {
 
     public getEnabledExtensions(): string[] {
         const settings = this.getSettings();
-        return (settings.rawRules || DEFAULT_RAW_RULES)
-            .filter(r => r.enabled && r.extension.trim().length > 0)
-            .map(r => r.extension.trim().toLowerCase().replace(/^\./, ''));
+        const userRules = (settings.rawRules && Array.isArray(settings.rawRules)) ? settings.rawRules : [];
+        const userMap = new Map<string, RawFormatRule>();
+        userRules.forEach(r => {
+            if (r?.extension) {
+                userMap.set(r.extension.toLowerCase().replace(/^\./, '').trim(), r);
+            }
+        });
+
+        const allExts = new Set<string>();
+        // 1. Check all default formats
+        DEFAULT_RAW_RULES.forEach(def => {
+            const ext = def.extension.toLowerCase();
+            const userRule = userMap.get(ext);
+            if (userRule !== undefined) {
+                if (userRule.enabled) allExts.add(ext);
+            } else {
+                if (def.enabled) allExts.add(ext);
+            }
+        });
+
+        // 2. Add any custom rules defined by user
+        userRules.forEach(r => {
+            if (r && r.enabled && r.extension) {
+                const clean = r.extension.toLowerCase().replace(/^\./, '').trim();
+                if (clean) allExts.add(clean);
+            }
+        });
+
+        return Array.from(allExts);
     }
 
     public getRule(extension: string): RawFormatRule | undefined {
         const cleanExt = extension.toLowerCase().replace(/^\./, '').trim();
         const settings = this.getSettings();
-        return settings.rawRules.find(r => r.extension.toLowerCase() === cleanExt);
+        const userRule = settings.rawRules?.find(r => r.extension.toLowerCase() === cleanExt);
+        if (userRule) return userRule;
+        return DEFAULT_RAW_RULES.find(r => r.extension.toLowerCase() === cleanExt);
     }
 
     public async updateRule(rule: RawFormatRule): Promise<void> {
@@ -276,6 +334,11 @@ export class RawOpenerManager {
                 }
             });
 
+            if (targetLeaf.view instanceof MarkdownView) {
+                targetLeaf.view.containerEl.classList.add('is-raw-code-file');
+                targetLeaf.view.containerEl.dataset.rawExt = cleanExt;
+            }
+
             await this.applyModeToLeaf(targetLeaf, mode);
             const isReadOnly = rule ? rule.readOnly : this.getSettings().rawDefaultReadOnly;
             this.renderHeaderBanner(targetLeaf, file, rule, mode, isReadOnly);
@@ -294,6 +357,10 @@ export class RawOpenerManager {
                         source: stateSource
                     }
                 });
+                if (targetLeaf.view instanceof MarkdownView) {
+                    targetLeaf.view.containerEl.classList.add('is-raw-code-file');
+                    targetLeaf.view.containerEl.dataset.rawExt = cleanExt;
+                }
                 return targetLeaf;
             } catch (fallbackErr) {
                 console.error('[RawOpener] Fallback setViewState failed:', fallbackErr);
@@ -317,6 +384,11 @@ export class RawOpenerManager {
         const settings = this.getSettings();
 
         const isReadOnly = rule ? rule.readOnly : settings.rawDefaultReadOnly;
+
+        if (leaf.view instanceof MarkdownView) {
+            leaf.view.containerEl.classList.add('is-raw-code-file');
+            leaf.view.containerEl.dataset.rawExt = ext;
+        }
 
         if (isInitialOpen) {
             const targetMode = rule?.mode || settings.rawDefaultMode || 'live';
@@ -409,44 +481,60 @@ export class RawOpenerManager {
 
         // 1. Extension / Format Info Tag
         const infoBadge = bannerEl.createDiv({ cls: 'raw-opener-badge info' });
-        const iconSpan = infoBadge.createSpan({ cls: 'raw-opener-badge-icon' });
-        setIcon(iconSpan, 'file-code');
-        infoBadge.createSpan({ text: `.${file.extension.toUpperCase()}` });
+        infoBadge.createSpan({ text: `.${file.extension.toLowerCase()}` });
         if (rule?.description) {
             infoBadge.setAttribute('aria-label', rule.description);
         }
 
-        // 2. Mode Selector Group
-        const modeGroup = bannerEl.createDiv({ cls: 'raw-opener-mode-group' });
-        modeGroup.createSpan({ cls: 'raw-opener-label', text: 'View:' });
+        // 2. Actions Group: Copy Text & Copy File (OS)
+        const actionsGroup = bannerEl.createDiv({ cls: 'raw-opener-actions-group' });
 
-        const modes: Array<{ id: RawFileMode; label: string; icon: string }> = [
-            { id: 'live', label: 'Live Preview', icon: 'sparkles' },
-            { id: 'source', label: 'Source Mode', icon: 'code' },
-            { id: 'reading', label: 'Reading View', icon: 'book-open' }
-        ];
-
-        modes.forEach(m => {
-            const btn = modeGroup.createEl('button', {
-                cls: `raw-opener-mode-btn ${currentMode === m.id ? 'is-active' : ''}`,
-                text: m.label
-            });
-            const mIcon = document.createElement('span');
-            mIcon.className = 'raw-opener-btn-icon';
-            setIcon(mIcon, m.icon);
-            btn.prepend(mIcon);
-
-            btn.onclick = async (e) => {
-                e.stopPropagation();
-                if (rule) {
-                    await this.setExtensionMode(file.extension, m.id);
-                }
-                await this.applyModeToLeaf(leaf, m.id);
-                this.renderHeaderBanner(leaf, file, rule, m.id, isReadOnly);
-            };
+        // Copy Text Button
+        const copyTextBtn = actionsGroup.createEl('button', {
+            cls: 'raw-opener-action-btn',
+            text: 'Copy Text'
         });
+        const textIcon = document.createElement('span');
+        textIcon.className = 'raw-opener-btn-icon';
+        setIcon(textIcon, 'copy');
+        copyTextBtn.prepend(textIcon);
+        copyTextBtn.setAttribute('aria-label', 'Copy file text to clipboard');
 
-        // 3. Read-Only Lock Status & Toggle
+        copyTextBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+                let content = '';
+                if (view.editor) {
+                    content = view.editor.getValue();
+                } else {
+                    content = await this.app.vault.read(file);
+                }
+                await navigator.clipboard.writeText(content);
+                new Notice(`📋 Copied text of "${file.name}" to clipboard`);
+            } catch (err) {
+                console.error('[RawOpener] Copy text failed:', err);
+                new Notice(`⚠️ Failed to copy text: ${String(err)}`);
+            }
+        };
+
+        // Copy Native OS File Button
+        const copyFileBtn = actionsGroup.createEl('button', {
+            cls: 'raw-opener-action-btn',
+            text: 'Copy File (OS)'
+        });
+        const fileIcon = document.createElement('span');
+        fileIcon.className = 'raw-opener-btn-icon';
+        setIcon(fileIcon, 'file-down');
+        copyFileBtn.prepend(fileIcon);
+        copyFileBtn.setAttribute('aria-label', 'Copy file to Native OS clipboard (can paste in Explorer/Desktop/apps)');
+
+        copyFileBtn.onclick = async (e) => {
+            e.stopPropagation();
+            const absPath = getAbsoluteFileSystemPath(this.app, file);
+            await copyFilesToNativeOsClipboard([absPath], `"${file.name}"`);
+        };
+
+        // 4. Read-Only Lock Status & Toggle
         const lockContainer = bannerEl.createDiv({ cls: 'raw-opener-lock-wrapper' });
         const lockBtn = lockContainer.createEl('button', {
             cls: `raw-opener-lock-btn ${isReadOnly ? 'is-locked' : 'is-unlocked'}`
@@ -476,6 +564,8 @@ export class RawOpenerManager {
     private removeHeaderBanner(leaf: WorkspaceLeaf) {
         const view = leaf.view;
         if (view instanceof MarkdownView) {
+            view.containerEl.classList.remove('is-raw-code-file');
+            delete view.containerEl.dataset.rawExt;
             const banner = this.activeBannerMap.get(view.containerEl);
             if (banner && banner.parentNode) {
                 banner.parentNode.removeChild(banner);
