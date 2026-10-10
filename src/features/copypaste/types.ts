@@ -3,7 +3,7 @@ export type FilterMatchMode = 'all' | 'contains' | 'exact' | 'exact_case';
 export interface TargetFilterRule {
     id: string;
     name?: string;
-    targetPath: string; // Source directory path on local disk
+    targetPath: string; // Source directory path (active vault folder or local disk)
     targetVaultDir?: string; // Destination directory inside Obsidian vault
     pathIncludeMode: FilterMatchMode;
     pathIncludePattern: string;

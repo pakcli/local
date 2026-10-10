@@ -6,8 +6,11 @@
  */
 import { AbstractInputSuggest, App, FuzzySuggestModal, TFolder } from 'obsidian';
 
-export function getAllVaultFolders(app: App): string[] {
+export function getAllVaultFolders(app: App, includeRoot: boolean = true): string[] {
     const folderSet = new Set<string>();
+    if (includeRoot) {
+        folderSet.add('/');
+    }
     try {
         const loaded = app.vault.getAllLoadedFiles();
         for (const file of loaded) {
@@ -22,7 +25,11 @@ export function getAllVaultFolders(app: App): string[] {
     }
 
     const list = Array.from(folderSet);
-    list.sort();
+    list.sort((a, b) => {
+        if (a === '/') return -1;
+        if (b === '/') return 1;
+        return a.localeCompare(b);
+    });
     return list;
 }
 
@@ -35,22 +42,22 @@ export class VaultFolderSuggest extends AbstractInputSuggest<string> {
     }
 
     getSuggestions(inputStr: string): string[] {
-        const allFolders = getAllVaultFolders(this.app);
+        const allFolders = getAllVaultFolders(this.app, true);
         if (!inputStr || !inputStr.trim()) {
             return allFolders;
         }
 
         const query = inputStr.trim().toLowerCase();
         return allFolders.filter(folder => 
-            folder.toLowerCase().includes(query)
+            folder.toLowerCase().includes(query) || (folder === '/' && (query === '/' || 'vault root'.includes(query)))
         );
     }
 
     renderSuggestion(folderPath: string, el: HTMLElement): void {
         el.empty();
         const container = el.createDiv({ cls: 'pakcli-folder-suggest-item' });
-        container.createSpan({ cls: 'pakcli-folder-icon', text: '📁 ' });
-        container.createSpan({ cls: 'pakcli-folder-name', text: folderPath });
+        container.createSpan({ cls: 'pakcli-folder-icon', text: folderPath === '/' ? '🏠 ' : '📁 ' });
+        container.createSpan({ cls: 'pakcli-folder-name', text: folderPath === '/' ? '/ (Vault Root)' : folderPath });
     }
 
     selectSuggestion(folderPath: string): void {
@@ -71,11 +78,11 @@ export class FolderPickerModal extends FuzzySuggestModal<string> {
     }
 
     getItems(): string[] {
-        return getAllVaultFolders(this.app);
+        return getAllVaultFolders(this.app, true);
     }
 
     getItemText(item: string): string {
-        return item;
+        return item === '/' ? '/ (Vault Root)' : item;
     }
 
     onChooseItem(item: string): void {

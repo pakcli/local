@@ -4,13 +4,15 @@ import { FolderSyncSettings, DEFAULT_FOLDER_SYNC_SETTINGS } from './features/scr
 import { CopyPasteSettings, DEFAULT_COPYPASTE_SETTINGS } from './features/copypaste/types';
 import { GitManagerSettings, DEFAULT_GIT_MANAGER_SETTINGS } from './features/gitManager/types';
 import { RawOpenerSettings, DEFAULT_RAW_OPENER_SETTINGS } from './features/rawOpener/types';
+import { GitHubFetcherSettings, DEFAULT_GITHUB_FETCHER_SETTINGS } from './features/githubFetcher/types';
 
 export interface PakCLILocalSettings extends 
     SymlinkManagerSettings, 
     YTCaptureSettings, 
     FolderSyncSettings,
     CopyPasteSettings,
-    RawOpenerSettings 
+    RawOpenerSettings,
+    GitHubFetcherSettings
 {
     autoCheckDependencies?: boolean;
     gitManager?: GitManagerSettings;
@@ -22,6 +24,8 @@ export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
     ...DEFAULT_FOLDER_SYNC_SETTINGS,
     ...DEFAULT_COPYPASTE_SETTINGS,
     ...DEFAULT_RAW_OPENER_SETTINGS,
+    ...DEFAULT_GITHUB_FETCHER_SETTINGS,
     autoCheckDependencies: true,
     gitManager: { ...DEFAULT_GIT_MANAGER_SETTINGS },
 };
+

@@ -2,7 +2,7 @@
 id: github-repo-fetcher-library
 title: GitHub Repository Batch Fetcher & Asset Inspector
 plugin: local
-status: -1
+status: 1
 tags:
   - pakcli
   - local

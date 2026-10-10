@@ -14,10 +14,11 @@
 import { App, Notice, normalizePath, setIcon } from 'obsidian';
 import { CopyPasteManager } from '../CopyPasteManager';
 import { FilterMatchMode, CopyPasteSettings, TargetFilterRule } from '../types';
-import { DEFAULT_FORMAT_OPTIONS, scanDirectoryForRule } from '../ruleMatcher';
+import { DEFAULT_FORMAT_OPTIONS, scanDirectoryForRule, resolveRuleSourcePath } from '../ruleMatcher';
 import { browseFolder } from '../../symlink/dialog';
 import { VaultFolderSuggest, FolderPickerModal } from '../../scriptSync/ui/FolderPicker';
 import { getNodeFs, PathUtils } from '../../../utils/nodeHelpers';
+import { reindexVaultFolder } from '../../symlink/reindex';
 import { CopyPasteDiffModal } from './CopyPasteDiffModal';
 
 export class TargetRulesView {
@@ -66,7 +67,7 @@ export class TargetRulesView {
         infoText.createEl('h3', { text: '🎯 Target Vault Rules' });
         infoText.createEl('p', {
             cls: 'setting-item-description',
-            text: 'Define granular directory scanning rules with local source, vault destination, and multi-condition filters.'
+            text: 'Define granular directory scanning rules with active vault or local disk source, vault destination, and multi-condition filters.'
         });
 
         // View Mode Switcher (Card View vs Table View)
@@ -160,7 +161,7 @@ export class TargetRulesView {
         const pathRow = card.createDiv({ cls: 'target-rule-path-row' });
 
         const pathHeader = pathRow.createDiv({ cls: 'target-rule-field-header' });
-        pathHeader.createSpan({ cls: 'target-rule-field-label', text: `Rule #${index + 1} Target Path:` });
+        pathHeader.createSpan({ cls: 'target-rule-field-label', text: `Rule #${index + 1} Source Target Path (Vault or Local Disk):` });
 
         const pathInputWrapper = pathRow.createDiv({ cls: 'target-rule-path-input-wrapper' });
 
@@ -168,19 +169,35 @@ export class TargetRulesView {
             type: 'text',
             cls: 'target-rule-text-input',
             value: rule.targetPath || '',
-            attr: { placeholder: 'e.g. D:/projects/my-source-folder or /path/to/directory' }
+            attr: { placeholder: 'e.g. Vault folder (Briefs, Notes/CLI, /) or OS path (D:/projects/...)' }
         });
+        new VaultFolderSuggest(this.app, pathInput);
         pathInput.addEventListener('change', async () => {
             rule.targetPath = pathInput.value.trim();
             await this.saveSettings();
             this.render();
         });
 
+        const vaultPickBtn = pathInputWrapper.createEl('button', {
+            cls: 'target-rule-browse-btn',
+            text: 'Vault Folder'
+        });
+        setIcon(vaultPickBtn, 'folder-symlink');
+        vaultPickBtn.setAttribute('title', 'Pick folder from active vault');
+        vaultPickBtn.addEventListener('click', () => {
+            new FolderPickerModal(this.app, async (selectedFolder) => {
+                rule.targetPath = selectedFolder;
+                await this.saveSettings();
+                this.render();
+            }).open();
+        });
+
         const browseBtn = pathInputWrapper.createEl('button', {
             cls: 'target-rule-browse-btn',
-            text: 'Browse'
+            text: 'Browse OS'
         });
         setIcon(browseBtn, 'folder');
+        browseBtn.setAttribute('title', 'Browse local disk folder');
         browseBtn.addEventListener('click', async () => {
             const picked = await browseFolder(rule.targetPath || '');
             if (picked) {
@@ -580,16 +597,31 @@ export class TargetRulesView {
             type: 'text',
             cls: 'target-rule-table-input',
             value: rule.targetPath || '',
-            attr: { placeholder: 'Source folder path...' }
+            attr: { placeholder: 'Vault folder (e.g. Briefs, /) or OS path...' }
         });
+        new VaultFolderSuggest(this.app, sourceInput);
         sourceInput.addEventListener('change', async () => {
             rule.targetPath = sourceInput.value.trim();
             await this.saveSettings();
             this.render();
         });
+
+        const vaultPickBtn = sourceWrapper.createEl('button', {
+            cls: 'target-rule-mini-btn',
+            attr: { title: 'Pick folder from active Vault' }
+        });
+        setIcon(vaultPickBtn, 'folder-symlink');
+        vaultPickBtn.addEventListener('click', () => {
+            new FolderPickerModal(this.app, async (selectedFolder) => {
+                rule.targetPath = selectedFolder;
+                await this.saveSettings();
+                this.render();
+            }).open();
+        });
+
         const browseBtn = sourceWrapper.createEl('button', {
             cls: 'target-rule-mini-btn',
-            attr: { title: 'Browse folder' }
+            attr: { title: 'Browse local OS folder' }
         });
         setIcon(browseBtn, 'folder');
         browseBtn.addEventListener('click', async () => {
@@ -1149,7 +1181,7 @@ export class TargetRulesView {
     }
 
     private async copyMatchedFilesToVault(rule: TargetFilterRule): Promise<void> {
-        if (!rule.targetVaultDir) {
+        if (!rule.targetVaultDir && rule.targetVaultDir !== '/') {
             new Notice('Please specify a Target in Vault Directory first.');
             return;
         }
@@ -1170,8 +1202,16 @@ export class TargetRulesView {
             return;
         }
 
-        const normVaultTarget = normalizePath(rule.targetVaultDir.trim());
-        const targetDiskDir = PathUtils.join(vaultRoot, normVaultTarget);
+        const sourceRoot = resolveRuleSourcePath(rule.targetPath, vaultRoot);
+        const normVaultTarget = normalizePath((rule.targetVaultDir || '').trim());
+        const targetDiskDir = (normVaultTarget && normVaultTarget !== '/')
+            ? PathUtils.join(vaultRoot, normVaultTarget)
+            : vaultRoot;
+
+        if (sourceRoot && PathUtils.join(sourceRoot).toLowerCase() === PathUtils.join(targetDiskDir).toLowerCase()) {
+            new Notice('Source and Vault Destination are the exact same directory.');
+            return;
+        }
 
         try {
             if (!fs.existsSync(targetDiskDir)) {
@@ -1179,14 +1219,15 @@ export class TargetRulesView {
             }
 
             let copiedCount = 0;
+            const normSourceRoot = (sourceRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+
             for (const srcPath of rule.lastMatchedFiles) {
                 if (fs.existsSync(srcPath)) {
                     let rel = '';
                     try {
                         const normSrc = srcPath.replace(/\\/g, '/');
-                        const normTarget = (rule.targetPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
-                        if (normSrc.startsWith(normTarget + '/')) {
-                            rel = normSrc.substring(normTarget.length + 1);
+                        if (normSourceRoot && normSrc.startsWith(normSourceRoot + '/')) {
+                            rel = normSrc.substring(normSourceRoot.length + 1);
                         }
                     } catch {
                         // ignore
@@ -1196,6 +1237,10 @@ export class TargetRulesView {
                         ? PathUtils.join(targetDiskDir, rel)
                         : PathUtils.join(targetDiskDir, PathUtils.basename(srcPath));
 
+                    if (PathUtils.join(srcPath).toLowerCase() === PathUtils.join(destPath).toLowerCase()) {
+                        continue;
+                    }
+
                     const destDir = PathUtils.dirname(destPath);
                     if (!fs.existsSync(destDir)) {
                         fs.mkdirSync(destDir, { recursive: true });
@@ -1204,6 +1249,10 @@ export class TargetRulesView {
                     fs.copyFileSync(srcPath, destPath);
                     copiedCount++;
                 }
+            }
+
+            if (normVaultTarget && normVaultTarget !== '/') {
+                await reindexVaultFolder(this.app, normVaultTarget);
             }
 
             new Notice(`✓ Copied ${copiedCount} file(s) into vault: "${rule.targetVaultDir}"`);
@@ -1217,7 +1266,7 @@ export class TargetRulesView {
             new Notice('Please specify a Source Target Path first.');
             return;
         }
-        if (!rule.targetVaultDir) {
+        if (!rule.targetVaultDir && rule.targetVaultDir !== '/') {
             new Notice('Please specify a Target in Vault Directory first.');
             return;
         }
@@ -1226,7 +1275,7 @@ export class TargetRulesView {
             new Notice(`⏳ Pulling vault files into "${rule.targetPath}"...`);
             const res = await this.manager.copyVaultToSource(rule);
             if (res.success) {
-                new Notice(`✓ Pulled ${res.copied} file(s) into source disk: "${rule.targetPath}"`);
+                new Notice(`✓ Pulled ${res.copied} file(s) into source: "${rule.targetPath}"`);
                 await this.rescanSingleRule(rule);
             } else {
                 new Notice(`Pull failed: ${res.error}`);
@@ -1259,7 +1308,8 @@ export class TargetRulesView {
         this.render();
 
         try {
-            const matches = await scanDirectoryForRule(rule);
+            const vaultRoot = this.manager.getVaultRoot();
+            const matches = await scanDirectoryForRule(rule, vaultRoot);
             rule.lastMatchedCount = matches.length;
             rule.lastMatchedFiles = matches;
             await this.saveSettings();
@@ -1286,9 +1336,10 @@ export class TargetRulesView {
         this.render();
 
         try {
+            const vaultRoot = this.manager.getVaultRoot();
             for (const rule of rules) {
                 if (rule.targetPath) {
-                    const matches = await scanDirectoryForRule(rule);
+                    const matches = await scanDirectoryForRule(rule, vaultRoot);
                     rule.lastMatchedCount = matches.length;
                     rule.lastMatchedFiles = matches;
                 }

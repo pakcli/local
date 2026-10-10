@@ -100,13 +100,62 @@ export function matchesRule(filePath: string, rule: TargetFilterRule): boolean {
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.obsidian', '.trash', 'dist']);
 
 /**
- * Recursively scans rule.targetPath on the local filesystem and filters files matching the rule.
+ * Resolves a rule source target path which can be:
+ * 1. An absolute directory path on local disk (inside or outside the active vault).
+ * 2. An active vault-relative directory path (e.g. "Briefs", "Notes/CLI", "/").
+ * 3. A vault-scoped alias or prefix (e.g. "<vault>/Briefs", "vault://Briefs", "/", ".").
  */
-export async function scanDirectoryForRule(rule: TargetFilterRule): Promise<string[]> {
+export function resolveRuleSourcePath(targetPath: string, vaultRoot?: string): string {
+    const raw = (targetPath || '').trim();
+    if (!raw) return '';
+    const fs = getNodeFs();
+
+    // 1. Vault root keywords & special prefixes
+    if (vaultRoot) {
+        const lower = raw.toLowerCase();
+        if (raw === '/' || raw === '.' || lower === '<vault>' || lower === 'vault') {
+            return vaultRoot;
+        }
+        if (lower.startsWith('<vault>/') || lower.startsWith('<vault>\\')) {
+            const rel = raw.substring(8).replace(/^[/\\]+/, '');
+            return PathUtils.join(vaultRoot, rel);
+        }
+        if (lower.startsWith('vault://')) {
+            const rel = raw.substring(8).replace(/^[/\\]+/, '');
+            return PathUtils.join(vaultRoot, rel);
+        }
+    }
+
+    // 2. If it's an existing absolute path on disk (e.g. Windows drive letter C:\... or D:/...)
+    if (fs && fs.existsSync(raw)) {
+        return raw;
+    }
+
+    // 3. Vault-relative path check
+    if (vaultRoot) {
+        const cleanRel = raw.replace(/^[/\\]+/, '');
+        const vaultCandidate = PathUtils.join(vaultRoot, cleanRel);
+        if (fs && fs.existsSync(vaultCandidate)) {
+            return vaultCandidate;
+        }
+
+        // Default relative or slash-leading path to vault directory
+        if (!PathUtils.isAbsolute(raw) || raw.startsWith('/') || raw.startsWith('\\')) {
+            return vaultCandidate;
+        }
+    }
+
+    return raw;
+}
+
+/**
+ * Recursively scans rule.targetPath on the local filesystem or active vault and filters files matching the rule.
+ */
+export async function scanDirectoryForRule(rule: TargetFilterRule, vaultRoot?: string): Promise<string[]> {
     const fs = getNodeFs();
     if (!fs) return [];
 
-    const root = (rule.targetPath || '').trim();
+    const root = resolveRuleSourcePath(rule.targetPath, vaultRoot);
     if (!root || !fs.existsSync(root)) return [];
 
     const stat = await fs.promises.stat(root).catch(() => null);

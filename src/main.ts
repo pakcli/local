@@ -41,12 +41,16 @@ import { RawOpenerManager, renderRawOpenerSettings, FormatSwitchModal } from './
 // Native OS File Clipboard Helpers
 import { copyFilesToNativeOsClipboard, getAbsoluteFileSystemPath } from './utils/nativeCopy';
 
+// GitHub Repository Batch Fetcher & Library Imports
+import { GitHubFetcherManager, GitHubBatchFetcherModal, renderGitHubFetcherSettings } from './features/githubFetcher';
+
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
 	gitManager!: GitManager;
 	rawOpenerManager!: RawOpenerManager;
+	githubFetcherManager!: GitHubFetcherManager;
 	badgeRenderer!: BadgeRenderer;
 	scriptSyncStatusBarItem!: HTMLElement;
 	vaultRoot: string = '';
@@ -247,7 +251,10 @@ export default class PakCLILocalPlugin extends Plugin {
 		);
 		this.rawOpenerManager.init();
 
-		// 12. Status Bar Item for ScriptSync
+		// 12. Initialize GitHub Repository Batch Fetcher & Library Manager
+		this.githubFetcherManager = new GitHubFetcherManager(this.app, this.settings);
+
+		// 13. Status Bar Item for ScriptSync
 		this.scriptSyncStatusBarItem = this.addStatusBarItem();
 		this.updateScriptSyncStatusBar();
 
@@ -638,6 +645,20 @@ export default class PakCLILocalPlugin extends Plugin {
 				return false;
 			}
 		});
+
+		// Command: GitHub Library: Batch Fetch Repositories
+		this.addCommand({
+			id: 'pl-github-batch-fetch',
+			name: 'GitHub Library: Batch Fetch Repositories...',
+			callback: () => {
+				new GitHubBatchFetcherModal(
+					this.app,
+					this.githubFetcherManager,
+					this.settings,
+					() => this.saveSettings()
+				).open();
+			}
+		});
 	}
 
 	private registerSettingsHub() {
@@ -739,6 +760,22 @@ export default class PakCLILocalPlugin extends Plugin {
 					() => this.settings,
 					() => this.saveSettings(),
 					containerEl
+				);
+			}
+		});
+
+		// 7. GitHub Fetcher & Digital Library Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-github-fetcher',
+			category: 'local',
+			title: 'GitHub Library & Batch Fetcher',
+			icon: 'github',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderGitHubFetcherSettings(
+					containerEl,
+					this.settings,
+					() => this.saveSettings()
 				);
 			}
 		});

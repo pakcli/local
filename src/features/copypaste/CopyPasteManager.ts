@@ -1,6 +1,6 @@
 import { App, Notice, Plugin, normalizePath } from 'obsidian';
 import { CopyPastePipelineItem, CopyPasteSettings, TargetFilterRule, DiffPairItem } from './types';
-import { scanDirectoryForRule } from './ruleMatcher';
+import { scanDirectoryForRule, resolveRuleSourcePath } from './ruleMatcher';
 import { getNodeFs, PathUtils } from '../../utils/nodeHelpers';
 import { reindexVaultFolder } from '../symlink/reindex';
 
@@ -318,20 +318,20 @@ export class CopyPasteManager {
         const fs = getNodeFs();
         if (!fs) return [];
 
-        const sourceRoot = (rule.targetPath || '').trim();
-        if (!sourceRoot || !fs.existsSync(sourceRoot)) return [];
-
         const vaultRoot = this.getVaultRoot();
         if (!vaultRoot) return [];
 
+        const sourceRoot = resolveRuleSourcePath(rule.targetPath, vaultRoot);
+        if (!sourceRoot || !fs.existsSync(sourceRoot)) return [];
+
         const vaultRelDir = normalizePath((rule.targetVaultDir || '').trim());
-        const vaultDestDir = vaultRelDir ? PathUtils.join(vaultRoot, vaultRelDir) : vaultRoot;
+        const vaultDestDir = (vaultRelDir && vaultRelDir !== '/') ? PathUtils.join(vaultRoot, vaultRelDir) : vaultRoot;
 
         // 1. Scan source matching rule
         const sourceFiles = await scanDirectoryForRule({
             ...rule,
             targetPath: sourceRoot
-        });
+        }, vaultRoot);
 
         // Map by relative path from sourceRoot
         const pairMap = new Map<string, DiffPairItem>();
@@ -353,14 +353,19 @@ export class CopyPasteManager {
             }
 
             if (vaultExists) {
-                try {
-                    vaultContent = fs.readFileSync(vaultAbs, 'utf-8');
-                    const cleanSrc = (srcContent || '').replace(/\r\n/g, '\n');
-                    const cleanVault = (vaultContent || '').replace(/\r\n/g, '\n');
-                    status = cleanSrc === cleanVault ? 'identical' : 'modified';
-                } catch {
-                    vaultContent = '';
-                    status = 'modified';
+                if (PathUtils.join(srcAbs).toLowerCase() === PathUtils.join(vaultAbs).toLowerCase()) {
+                    vaultContent = srcContent;
+                    status = 'identical';
+                } else {
+                    try {
+                        vaultContent = fs.readFileSync(vaultAbs, 'utf-8');
+                        const cleanSrc = (srcContent || '').replace(/\r\n/g, '\n');
+                        const cleanVault = (vaultContent || '').replace(/\r\n/g, '\n');
+                        status = cleanSrc === cleanVault ? 'identical' : 'modified';
+                    } catch {
+                        vaultContent = '';
+                        status = 'modified';
+                    }
                 }
             }
 
@@ -377,13 +382,14 @@ export class CopyPasteManager {
             });
         }
 
-        // 2. Also check if there are files in vaultDestDir matching rule
-        if (fs.existsSync(vaultDestDir)) {
+        // 2. Also check if there are files in vaultDestDir matching rule (if distinct directory)
+        const isSameDirectory = PathUtils.join(sourceRoot).toLowerCase() === PathUtils.join(vaultDestDir).toLowerCase();
+        if (!isSameDirectory && fs.existsSync(vaultDestDir)) {
             const vaultRule: TargetFilterRule = {
                 ...rule,
                 targetPath: vaultDestDir
             };
-            const vaultFiles = await scanDirectoryForRule(vaultRule);
+            const vaultFiles = await scanDirectoryForRule(vaultRule, vaultRoot);
 
             for (const vltAbs of vaultFiles) {
                 let rel = PathUtils.relative(vaultDestDir, vltAbs).replace(/\\/g, '/');
@@ -430,11 +436,15 @@ export class CopyPasteManager {
         const vaultRoot = this.getVaultRoot();
         if (!vaultRoot) return { success: false, copied: 0, error: 'Vault root path unavailable' };
 
-        const sourceRoot = (rule.targetPath || '').trim();
+        const sourceRoot = resolveRuleSourcePath(rule.targetPath, vaultRoot);
         if (!sourceRoot) return { success: false, copied: 0, error: 'Source directory path not configured' };
 
         const vaultRelDir = normalizePath((rule.targetVaultDir || '').trim());
-        const vaultDestDir = vaultRelDir ? PathUtils.join(vaultRoot, vaultRelDir) : vaultRoot;
+        const vaultDestDir = (vaultRelDir && vaultRelDir !== '/') ? PathUtils.join(vaultRoot, vaultRelDir) : vaultRoot;
+
+        if (PathUtils.join(sourceRoot).toLowerCase() === PathUtils.join(vaultDestDir).toLowerCase()) {
+            return { success: false, copied: 0, error: 'Source and Vault Destination are the exact same directory.' };
+        }
 
         if (!fs.existsSync(vaultDestDir)) {
             return { success: false, copied: 0, error: `Vault folder "${vaultRelDir}" does not exist` };
@@ -445,7 +455,7 @@ export class CopyPasteManager {
                 ...rule,
                 targetPath: vaultDestDir
             };
-            const matchedVaultFiles = await scanDirectoryForRule(vaultRule);
+            const matchedVaultFiles = await scanDirectoryForRule(vaultRule, vaultRoot);
 
             if (matchedVaultFiles.length === 0) {
                 return { success: true, copied: 0 };
@@ -456,14 +466,25 @@ export class CopyPasteManager {
                 let rel = PathUtils.relative(vaultDestDir, vFile).replace(/\\/g, '/');
                 if (rel.startsWith('/')) rel = rel.substring(1);
                 const destPath = PathUtils.join(sourceRoot, rel);
-                const destDir = PathUtils.dirname(destPath);
 
+                if (PathUtils.join(vFile).toLowerCase() === PathUtils.join(destPath).toLowerCase()) {
+                    continue;
+                }
+
+                const destDir = PathUtils.dirname(destPath);
                 if (!fs.existsSync(destDir)) {
                     fs.mkdirSync(destDir, { recursive: true });
                 }
 
                 fs.copyFileSync(vFile, destPath);
                 copiedCount++;
+            }
+
+            // If sourceRoot is inside active vault, reindex sourceRoot in Obsidian
+            if (vaultRoot && sourceRoot.startsWith(vaultRoot)) {
+                let rel = sourceRoot.substring(vaultRoot.length).replace(/\\/g, '/');
+                if (rel.startsWith('/')) rel = rel.substring(1);
+                await reindexVaultFolder(this.app, rel);
             }
 
             return { success: true, copied: copiedCount };
@@ -487,13 +508,11 @@ export class CopyPasteManager {
 
         fs.writeFileSync(targetAbsPath, newContent, 'utf-8');
 
-        if (isVaultFile) {
-            const vaultRoot = this.getVaultRoot();
-            if (vaultRoot && targetAbsPath.startsWith(vaultRoot)) {
-                let rel = targetAbsPath.substring(vaultRoot.length).replace(/\\/g, '/');
-                if (rel.startsWith('/')) rel = rel.substring(1);
-                await reindexVaultFolder(this.app, rel);
-            }
+        const vaultRoot = this.getVaultRoot();
+        if (vaultRoot && targetAbsPath.startsWith(vaultRoot)) {
+            let rel = targetAbsPath.substring(vaultRoot.length).replace(/\\/g, '/');
+            if (rel.startsWith('/')) rel = rel.substring(1);
+            await reindexVaultFolder(this.app, rel);
         }
     }
 }
