@@ -75,13 +75,15 @@ export class GitHubBatchFetcherModal extends Modal {
 			.setName('Repository URLs')
 			.setDesc('Paste one or more URLs, e.g. https://github.com/studiowebux/obsidian-findoc');
 		textareaSetting.settingEl.style.flexDirection = 'column';
-		textareaSetting.settingEl.style.alignItems = 'flex-start';
+		textareaSetting.settingEl.style.alignItems = 'stretch';
+		textareaSetting.controlEl.style.width = '100%';
+		textareaSetting.controlEl.style.maxWidth = '100%';
 
 		const textarea = textareaSetting.controlEl.createEl('textarea', {
 			cls: 'pakcli-github-textarea'
 		});
 		textarea.style.cssText =
-			'width: 100%; min-height: 120px; font-family: var(--font-monospace); font-size: 12px; padding: 8px; margin-top: 8px; border-radius: var(--radius-s); box-sizing: border-box;';
+			'width: 100% !important; min-width: 100% !important; max-width: 100% !important; min-height: 140px; font-family: var(--font-monospace); font-size: 13px; padding: 10px; margin-top: 8px; border-radius: var(--radius-s); box-sizing: border-box; resize: vertical; display: block;';
 		textarea.placeholder =
 			'https://github.com/studiowebux/obsidian-findoc\nhttps://github.com/obsidianmd/obsidian-sample-plugin\nowner/repo';
 
