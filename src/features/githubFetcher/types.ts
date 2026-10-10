@@ -49,4 +49,24 @@ export interface FetchResult {
 	filePath?: string;
 	error?: string;
 	repoName?: string;
+	skipped?: boolean;
+	hasDiff?: boolean;
+}
+
+export type DiffChoice = 'old' | 'new';
+
+export interface DiffField {
+	key: string;
+	label: string;
+	oldValue: any;
+	newValue: any;
+	oldDisplay: string;
+	newDisplay: string;
+	choice: DiffChoice;
+}
+
+export interface DiffResolution {
+	action: 'apply' | 'cancel' | 'skip';
+	resolvedFields: Record<string, any>;
+	useOldBody?: boolean;
 }

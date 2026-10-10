@@ -37,12 +37,17 @@ export class GitHubFetcherManager {
 	}
 
 	/**
-	 * Fetches a single repository and writes it to the library folder
+	 * Fetches a single repository, skips identical data, and triggers diff modal if frontmatter differs
 	 */
 	public async fetchSingleRepo(
 		owner: string,
 		repo: string,
-		destFolder?: string
+		destFolder?: string,
+		onConflictPrompt?: (
+			repoName: string,
+			diffFields: any[],
+			hasBodyDiff: boolean
+		) => Promise<any>
 	): Promise<FetchResult> {
 		const targetFolder = destFolder || this.settings.githubLibraryFolder || 'Digital Library/Github Repository';
 		const targetFileName = `${repo}.md`;
@@ -53,19 +58,64 @@ export class GitHubFetcherManager {
 
 			const meta = await GitHubCliService.fetchRepo(owner, repo, this.settings.githubUseCli);
 
-			// Check if file already exists to preserve manual overview notes
-			let existingOverview = '';
 			const existingFile = this.app.vault.getAbstractFileByPath(targetPath);
 			if (existingFile instanceof TFile) {
 				const existingContent = await this.app.vault.read(existingFile);
-				existingOverview = GitHubRepoParser.extractExistingOverview(existingContent);
-			}
+				const { isIdentical, diffFields } = GitHubRepoParser.compareMetadata(existingContent, meta);
 
-			const markdownContent = GitHubRepoParser.serializeToMarkdown(meta, existingOverview);
+				// 1. Skip completely if identical data
+				if (isIdentical) {
+					return {
+						url: `https://github.com/${owner}/${repo}`,
+						success: true,
+						filePath: targetPath,
+						repoName: repo,
+						skipped: true
+					};
+				}
 
-			if (existingFile instanceof TFile) {
+				// 2. If frontmatter or data differs, check if interactive prompt callback is provided
+				if (diffFields.length > 0 && onConflictPrompt) {
+					const hasBodyDiff = (existingContent.replace(/\r/g, '').trim() !== (meta.readme || '').replace(/\r/g, '').trim());
+					const resolution = await onConflictPrompt(repo, diffFields, hasBodyDiff);
+
+					if (resolution.action === 'cancel' || resolution.action === 'skip') {
+						return {
+							url: `https://github.com/${owner}/${repo}`,
+							success: true,
+							filePath: targetPath,
+							repoName: repo,
+							skipped: true,
+							hasDiff: true
+						};
+					}
+
+					// Serialize with user selected fields
+					const { body: oldBody } = GitHubRepoParser.parseFrontmatterAndBody(existingContent);
+					const mergedContent = GitHubRepoParser.serializeWithResolved(
+						meta,
+						resolution.resolvedFields,
+						oldBody,
+						resolution.useOldBody
+					);
+					await this.app.vault.modify(existingFile, mergedContent);
+
+					return {
+						url: `https://github.com/${owner}/${repo}`,
+						success: true,
+						filePath: targetPath,
+						repoName: repo,
+						hasDiff: true
+					};
+				}
+
+				// Fallback if no prompt: update preserving overview
+				let existingOverview = GitHubRepoParser.extractExistingOverview(existingContent);
+				const markdownContent = GitHubRepoParser.serializeToMarkdown(meta, existingOverview);
 				await this.app.vault.modify(existingFile, markdownContent);
 			} else {
+				// Brand new file
+				const markdownContent = GitHubRepoParser.serializeToMarkdown(meta);
 				await this.app.vault.create(targetPath, markdownContent);
 			}
 
@@ -87,12 +137,18 @@ export class GitHubFetcherManager {
 	}
 
 	/**
-	 * Fetches multiple repositories in sequence with live progress reporting
+	 * Fetches multiple repositories in sequence with live progress, skip identical, and cancellation support
 	 */
 	public async fetchBatchRepos(
 		rawInput: string,
 		destFolder?: string,
-		onProgress?: (current: number, total: number, repoName: string) => void
+		onProgress?: (current: number, total: number, repoName: string) => void,
+		onConflictPrompt?: (
+			repoName: string,
+			diffFields: any[],
+			hasBodyDiff: boolean
+		) => Promise<any>,
+		isCancelled?: () => boolean
 	): Promise<FetchResult[]> {
 		const parsedList = GitHubRepoParser.parseMultipleUrls(rawInput);
 		if (parsedList.length === 0) {
@@ -104,12 +160,17 @@ export class GitHubFetcherManager {
 		const total = parsedList.length;
 
 		for (let i = 0; i < total; i++) {
+			if (isCancelled && isCancelled()) {
+				new Notice('🛑 Batch fetch cancelled by user.');
+				break;
+			}
+
 			const item = parsedList[i];
 			if (onProgress) {
 				onProgress(i + 1, total, `${item.owner}/${item.repo}`);
 			}
 
-			const res = await this.fetchSingleRepo(item.owner, item.repo, destFolder);
+			const res = await this.fetchSingleRepo(item.owner, item.repo, destFolder, onConflictPrompt);
 			results.push(res);
 		}
 

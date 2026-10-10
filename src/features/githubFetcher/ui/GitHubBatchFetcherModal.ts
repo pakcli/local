@@ -1,6 +1,7 @@
 import { App, Modal, Setting, Notice, setIcon, TFile } from 'obsidian';
 import { GitHubFetcherManager } from '../GitHubFetcherManager';
 import { GitHubCliService } from '../services/GitHubCliService';
+import { GitHubDiffModal } from './GitHubDiffModal';
 import { PakCLILocalSettings } from '../../../settings';
 import { FetchResult } from '../types';
 
@@ -103,7 +104,6 @@ export class GitHubBatchFetcherModal extends Modal {
 			'display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;';
 
 		const cancelBtn = actionsRow.createEl('button', { text: 'Close' });
-		cancelBtn.onclick = () => this.close();
 
 		const fetchBtn = actionsRow.createEl('button', {
 			text: '🚀 Fetch Repositories',
@@ -111,6 +111,18 @@ export class GitHubBatchFetcherModal extends Modal {
 		});
 		fetchBtn.style.cssText =
 			'min-width: 160px; text-align: center; justify-content: center; display: inline-flex; align-items: center; box-sizing: border-box;';
+
+		let isCancelled = false;
+
+		cancelBtn.onclick = () => {
+			if (this.isProcessing) {
+				isCancelled = true;
+				cancelBtn.setText('Stopping...');
+				cancelBtn.disabled = true;
+			} else {
+				this.close();
+			}
+		};
 
 		fetchBtn.onclick = async () => {
 			if (this.isProcessing) return;
@@ -122,8 +134,11 @@ export class GitHubBatchFetcherModal extends Modal {
 			}
 
 			this.isProcessing = true;
+			isCancelled = false;
 			fetchBtn.disabled = true;
 			fetchBtn.setText('⏳ Fetching...');
+			cancelBtn.setText('🛑 Cancel Batch');
+			cancelBtn.disabled = false;
 			progressEl.setText('Starting fetch process...');
 			resultsEl.empty();
 
@@ -133,7 +148,20 @@ export class GitHubBatchFetcherModal extends Modal {
 					targetFolder,
 					(cur, tot, slug) => {
 						progressEl.setText(`Fetching (${cur}/${tot}): ${slug}...`);
-					}
+					},
+					async (repoName, diffFields, hasBodyDiff) => {
+						return new Promise((resolve) => {
+							const diffModal = new GitHubDiffModal(
+								this.app,
+								repoName,
+								diffFields,
+								hasBodyDiff,
+								(resolution) => resolve(resolution)
+							);
+							diffModal.open();
+						});
+					},
+					() => isCancelled
 				);
 
 				progressEl.setText(`Finished processing ${results.length} repositories.`);
@@ -148,7 +176,14 @@ export class GitHubBatchFetcherModal extends Modal {
 					left.style.cssText = 'display: flex; align-items: center; gap: 6px;';
 
 					const statusIcon = left.createSpan();
-					statusIcon.setText(res.success ? '✅' : '❌');
+					if (res.skipped) {
+						statusIcon.setText('⏭️');
+						statusIcon.title = res.hasDiff ? 'Skipped by user' : 'Identical data, skipped';
+					} else if (res.success) {
+						statusIcon.setText('✅');
+					} else {
+						statusIcon.setText('❌');
+					}
 
 					if (res.success && res.filePath) {
 						const link = left.createEl('a', {
@@ -164,6 +199,11 @@ export class GitHubBatchFetcherModal extends Modal {
 								this.close();
 							}
 						};
+
+						if (res.skipped) {
+							const skipTag = left.createSpan({ text: res.hasDiff ? '(diff skipped)' : '(identical, skipped)' });
+							skipTag.style.cssText = 'font-size: 11px; color: var(--text-muted); font-style: italic;';
+						}
 					} else {
 						const errText = left.createSpan({ text: res.repoName || res.url });
 						errText.style.color = 'var(--text-muted)';
@@ -180,6 +220,8 @@ export class GitHubBatchFetcherModal extends Modal {
 				this.isProcessing = false;
 				fetchBtn.disabled = false;
 				fetchBtn.setText('🚀 Fetch Repositories');
+				cancelBtn.setText('Close');
+				cancelBtn.disabled = false;
 			}
 		};
 	}
