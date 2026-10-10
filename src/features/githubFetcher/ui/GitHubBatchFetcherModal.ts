@@ -1,6 +1,7 @@
 import { App, Modal, Setting, Notice, setIcon, TFile } from 'obsidian';
 import { GitHubFetcherManager } from '../GitHubFetcherManager';
 import { GitHubCliService } from '../services/GitHubCliService';
+import { GitHubRepoParser } from '../services/GitHubRepoParser';
 import { GitHubDiffModal } from './GitHubDiffModal';
 import { PakCLILocalSettings } from '../../../settings';
 import { FetchResult } from '../types';
@@ -209,9 +210,71 @@ export class GitHubBatchFetcherModal extends Modal {
 						errText.style.color = 'var(--text-muted)';
 					}
 
+					const right = row.createDiv();
+					right.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+					// If file already exists or has diff/conflict, add action buttons (Replace, Diff, Cancel)
+					if (res.fileExists && res.newMeta && res.existingContent) {
+						// 1. Advance Diff per thing button
+						const diffBtn = right.createEl('button', { text: '⚡ Diff' });
+						diffBtn.style.cssText = 'font-size: 11px; padding: 2px 6px;';
+						diffBtn.title = 'Open interactive Frontmatter & Body Diff Resolver';
+						diffBtn.onclick = () => {
+							const { diffFields } = GitHubRepoParser.compareMetadata(res.existingContent!, res.newMeta!);
+							const hasBodyDiff = (res.existingContent!.replace(/\r/g, '').trim() !== (res.newMeta!.readme || '').replace(/\r/g, '').trim());
+							new GitHubDiffModal(
+								this.app,
+								res.repoName || 'repository',
+								diffFields,
+								hasBodyDiff,
+								async (resolution) => {
+									if (resolution.action === 'cancel') return;
+									const file = this.app.vault.getAbstractFileByPath(res.filePath!);
+									if (file instanceof TFile) {
+										if ((resolution as any).action === 'replace') {
+											const md = GitHubRepoParser.serializeToMarkdown(res.newMeta!);
+											await this.app.vault.modify(file, md);
+										} else {
+											const { body: oldBody } = GitHubRepoParser.parseFrontmatterAndBody(res.existingContent!);
+											const md = GitHubRepoParser.serializeWithResolved(
+												res.newMeta!,
+												resolution.resolvedFields,
+												oldBody,
+												resolution.useOldBody
+											);
+											await this.app.vault.modify(file, md);
+										}
+										new Notice(`✅ Applied updates to "${res.repoName}".`);
+										res.success = true;
+										res.error = undefined;
+										statusIcon.setText('✅');
+										right.empty();
+									}
+								}
+							).open();
+						};
+
+						// 2. Direct Replace Button
+						const replaceBtn = right.createEl('button', { text: 'Replace' });
+						replaceBtn.style.cssText = 'font-size: 11px; padding: 2px 6px;';
+						replaceBtn.title = 'Overwrite file entirely with fresh GitHub metadata';
+						replaceBtn.onclick = async () => {
+							const file = this.app.vault.getAbstractFileByPath(res.filePath!);
+							if (file instanceof TFile) {
+								const md = GitHubRepoParser.serializeToMarkdown(res.newMeta!);
+								await this.app.vault.modify(file, md);
+								new Notice(`✅ Overwrote "${res.repoName}" with fresh data.`);
+								res.success = true;
+								res.error = undefined;
+								statusIcon.setText('✅');
+								right.empty();
+							}
+						};
+					}
+
 					if (res.error) {
-						const rightErr = row.createSpan({ text: res.error });
-						rightErr.style.cssText = 'color: #ef4444; font-size: 11px; max-width: 250px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;';
+						const errSpan = right.createSpan({ text: res.error });
+						errSpan.style.cssText = 'color: #ef4444; font-size: 11px; max-width: 200px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;';
 					}
 				}
 			} catch (err: any) {

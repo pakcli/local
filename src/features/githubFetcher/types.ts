@@ -51,6 +51,10 @@ export interface FetchResult {
 	repoName?: string;
 	skipped?: boolean;
 	hasDiff?: boolean;
+	fileExists?: boolean;
+	existingContent?: string;
+	diffFields?: DiffField[];
+	newMeta?: GitHubRepoMetadata;
 }
 
 export type DiffChoice = 'old' | 'new';

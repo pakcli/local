@@ -37,6 +37,22 @@ export class GitHubFetcherManager {
 	}
 
 	/**
+	 * Find file in folder ignoring case (e.g. Powershell.md vs powershell.md)
+	 */
+	public findExistingRepoFile(folderPath: string, repoName: string): TFile | null {
+		const normFolder = normalizePath(folderPath).toLowerCase();
+		const targetName = `${repoName.toLowerCase()}.md`;
+		const allFiles = this.app.vault.getMarkdownFiles();
+		for (const f of allFiles) {
+			const parentPath = f.parent ? f.parent.path.toLowerCase() : '';
+			if ((parentPath === normFolder || parentPath === normFolder.replace(/^\/+/, '')) && f.name.toLowerCase() === targetName) {
+				return f;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Fetches a single repository, skips identical data, and triggers diff modal if frontmatter differs
 	 */
 	public async fetchSingleRepo(
@@ -46,7 +62,9 @@ export class GitHubFetcherManager {
 		onConflictPrompt?: (
 			repoName: string,
 			diffFields: any[],
-			hasBodyDiff: boolean
+			hasBodyDiff: boolean,
+			existingContent: string,
+			newMeta: any
 		) => Promise<any>
 	): Promise<FetchResult> {
 		const targetFolder = destFolder || this.settings.githubLibraryFolder || 'Digital Library/Github Repository';
@@ -58,7 +76,8 @@ export class GitHubFetcherManager {
 
 			const meta = await GitHubCliService.fetchRepo(owner, repo, this.settings.githubUseCli);
 
-			const existingFile = this.app.vault.getAbstractFileByPath(targetPath);
+			// Case-insensitive file finder (finds Powershell.md or powershell.md)
+			const existingFile = this.findExistingRepoFile(targetFolder, repo) || this.app.vault.getAbstractFileByPath(targetPath);
 			if (existingFile instanceof TFile) {
 				const existingContent = await this.app.vault.read(existingFile);
 				const { isIdentical, diffFields } = GitHubRepoParser.compareMetadata(existingContent, meta);
@@ -68,29 +87,51 @@ export class GitHubFetcherManager {
 					return {
 						url: `https://github.com/${owner}/${repo}`,
 						success: true,
-						filePath: targetPath,
+						filePath: existingFile.path,
 						repoName: repo,
-						skipped: true
+						skipped: true,
+						fileExists: true,
+						existingContent,
+						newMeta: meta
 					};
 				}
 
 				// 2. If frontmatter or data differs, check if interactive prompt callback is provided
-				if (diffFields.length > 0 && onConflictPrompt) {
+				if (onConflictPrompt) {
 					const hasBodyDiff = (existingContent.replace(/\r/g, '').trim() !== (meta.readme || '').replace(/\r/g, '').trim());
-					const resolution = await onConflictPrompt(repo, diffFields, hasBodyDiff);
+					const resolution = await onConflictPrompt(repo, diffFields, hasBodyDiff, existingContent, meta);
 
-					if (resolution.action === 'cancel' || resolution.action === 'skip') {
+					if (resolution.action === 'cancel') {
 						return {
 							url: `https://github.com/${owner}/${repo}`,
-							success: true,
-							filePath: targetPath,
+							success: false,
+							filePath: existingFile.path,
 							repoName: repo,
 							skipped: true,
-							hasDiff: true
+							hasDiff: true,
+							fileExists: true,
+							error: 'Cancelled by user',
+							existingContent,
+							diffFields,
+							newMeta: meta
 						};
 					}
 
-					// Serialize with user selected fields
+					if (resolution.action === 'replace') {
+						// Overwrite entirely with new metadata
+						const markdownContent = GitHubRepoParser.serializeToMarkdown(meta);
+						await this.app.vault.modify(existingFile, markdownContent);
+						return {
+							url: `https://github.com/${owner}/${repo}`,
+							success: true,
+							filePath: existingFile.path,
+							repoName: repo,
+							hasDiff: true,
+							fileExists: true
+						};
+					}
+
+					// resolution.action === 'apply' (merged diff)
 					const { body: oldBody } = GitHubRepoParser.parseFrontmatterAndBody(existingContent);
 					const mergedContent = GitHubRepoParser.serializeWithResolved(
 						meta,
@@ -103,16 +144,25 @@ export class GitHubFetcherManager {
 					return {
 						url: `https://github.com/${owner}/${repo}`,
 						success: true,
-						filePath: targetPath,
+						filePath: existingFile.path,
 						repoName: repo,
-						hasDiff: true
+						hasDiff: true,
+						fileExists: true
 					};
 				}
 
-				// Fallback if no prompt: update preserving overview
-				let existingOverview = GitHubRepoParser.extractExistingOverview(existingContent);
-				const markdownContent = GitHubRepoParser.serializeToMarkdown(meta, existingOverview);
-				await this.app.vault.modify(existingFile, markdownContent);
+				return {
+					url: `https://github.com/${owner}/${repo}`,
+					success: false,
+					filePath: existingFile.path,
+					repoName: repo,
+					hasDiff: true,
+					fileExists: true,
+					error: 'File already exists with different content.',
+					existingContent,
+					diffFields,
+					newMeta: meta
+				};
 			} else {
 				// Brand new file
 				const markdownContent = GitHubRepoParser.serializeToMarkdown(meta);
@@ -146,7 +196,9 @@ export class GitHubFetcherManager {
 		onConflictPrompt?: (
 			repoName: string,
 			diffFields: any[],
-			hasBodyDiff: boolean
+			hasBodyDiff: boolean,
+			existingContent: string,
+			newMeta: any
 		) => Promise<any>,
 		isCancelled?: () => boolean
 	): Promise<FetchResult[]> {

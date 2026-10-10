@@ -189,8 +189,19 @@ export class GitHubDiffModal extends Modal {
 			this.close();
 		};
 
+		const replaceBtn = rightActions.createEl('button', { text: '⚡ Replace Entirely (New)' });
+		replaceBtn.title = 'Overwrite file entirely with fresh GitHub metadata';
+		replaceBtn.onclick = () => {
+			this.isResolved = true;
+			this.onResolve({
+				action: 'replace' as any,
+				resolvedFields: {}
+			});
+			this.close();
+		};
+
 		const applyBtn = rightActions.createEl('button', {
-			text: 'Apply Selected',
+			text: 'Apply Selected Diff',
 			cls: 'mod-cta'
 		});
 		applyBtn.onclick = () => {
