@@ -1,4 +1,4 @@
-import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon, MarkdownView } from 'obsidian';
+import { App, Plugin, Platform, Notice, TFolder, TFile, Menu, addIcon, MarkdownView, Setting } from 'obsidian';
 import { PakCLILocalSettings, DEFAULT_LOCAL_SETTINGS } from './settings';
 
 // Hub Imports
@@ -72,7 +72,10 @@ export default class PakCLILocalPlugin extends Plugin {
 		// 2. Load Settings (with Vault Config fallback)
 		await this.loadSettings();
 
-		// 3. Initialize Hub & EventBus
+		// 3. Initialize Native Asset Drag & Drop
+		this.updateAssetDragClass();
+
+		// 4. Initialize Hub & EventBus
 		eventBus.emit('pl:loaded', { version: this.manifest.version });
 
 		// 4. Initialize Symlink Explorer Badges
@@ -290,6 +293,9 @@ export default class PakCLILocalPlugin extends Plugin {
 	}
 
 	async onunload() {
+		// 1. Cleanup Asset Draggable DOM Class
+		document.body.classList.remove('pakcli-asset-drag-enabled');
+
 		// 2. Persistent Snapshot on App Close / Unload
 		try { await saveVaultConfig(this.app, 'pakcli-local', this.settings, 'session-close'); } catch {}
 		console.log('[PakCLI Local] Unloading plugin...');
@@ -300,6 +306,14 @@ export default class PakCLILocalPlugin extends Plugin {
 			this.rawOpenerManager.destroy();
 		}
 		eventBus.emit('pl:unloaded', { version: this.manifest.version });
+	}
+
+	updateAssetDragClass() {
+		if (this.settings.enableAssetDrag !== false) {
+			document.body.classList.add('pakcli-asset-drag-enabled');
+		} else {
+			document.body.classList.remove('pakcli-asset-drag-enabled');
+		}
 	}
 
 	async loadSettings() {
@@ -726,10 +740,22 @@ export default class PakCLILocalPlugin extends Plugin {
 		settingsTab.registerLocalSection({
 			id: 'local-copypaste',
 			category: 'local',
-			title: 'CopyPaste Manager',
+			title: 'CopyPaste Manager & Asset Draggable',
 			icon: 'folder-input',
 			isInstalled: true,
 			render: (containerEl) => {
+				new Setting(containerEl)
+					.setName('Enable Native Asset Drag & Drop')
+					.setDesc('Allow dragging images, PDFs, and media directly out of notes into the local desktop or external filesystem.')
+					.addToggle((t) => {
+						t.setValue(this.settings.enableAssetDrag !== false)
+							.onChange(async (v) => {
+								this.settings.enableAssetDrag = v;
+								this.updateAssetDragClass();
+								await this.saveSettings();
+							});
+					});
+
 				renderCopyPasteSettings(
 					this.app,
 					this,

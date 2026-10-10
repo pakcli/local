@@ -16,6 +16,7 @@ export interface PakCLILocalSettings extends
 {
     autoCheckDependencies?: boolean;
     gitManager?: GitManagerSettings;
+    enableAssetDrag?: boolean;
 }
 
 export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
@@ -27,5 +28,6 @@ export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
     ...DEFAULT_GITHUB_FETCHER_SETTINGS,
     autoCheckDependencies: true,
     gitManager: { ...DEFAULT_GIT_MANAGER_SETTINGS },
+    enableAssetDrag: true,
 };
 
