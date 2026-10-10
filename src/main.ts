@@ -253,6 +253,14 @@ export default class PakCLILocalPlugin extends Plugin {
 
 		// 12. Initialize GitHub Repository Batch Fetcher & Library Manager
 		this.githubFetcherManager = new GitHubFetcherManager(this.app, this.settings);
+		this.addRibbonIcon('github', 'GitHub Library: Batch Fetch Repositories', () => {
+			new GitHubBatchFetcherModal(
+				this.app,
+				this.githubFetcherManager,
+				this.settings,
+				() => this.saveSettings()
+			).open();
+		});
 
 		// 13. Status Bar Item for ScriptSync
 		this.scriptSyncStatusBarItem = this.addStatusBarItem();
