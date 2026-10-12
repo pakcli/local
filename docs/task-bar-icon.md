@@ -1,6 +1,6 @@
 # 📌 Master Brief: Strict Artifacts-Only Icon Storage (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `pakcli-local`  
 > **Platform**: Windows Desktop (`Platform.isDesktopApp && process.platform === 'win32'`)  
 > **Date**: 2026-10-12  
@@ -23,7 +23,7 @@ Hal ini tidak sesuai dengan arsitektur yang diinginkan:
    - Jika folder `artifacts/` belum ada di root vault, otomatis dibuat dengan `mkdirSync({ recursive: true })`.
 2. **Hapus Seluruh Referensi Penulisan ke Folder Plugin**:
    - `ensureIcoFile()` dan fungsi konversi manapun **tidak boleh lagi** menulis ke `.obsidian/plugins/pakcli-local/`.
-   - Menghapus file sampah `vault-taskbar.ico` di folder plugin jika masih ada.
+   - Semua pencarian dan penyimpanan file icon sekarang 100% dipusatkan di `<vault>/artifacts/`.
 
 ---
 
@@ -42,19 +42,19 @@ export function resolveVaultArtifactsIcoPath(plugin: PakCLILocalPlugin): string 
 
 ---
 
-## 3. Planned Files & Changes
+## 3. Implemented Files
 
 | File | Status | Keterangan |
 | :--- | :---: | :--- |
-| `src/features/taskbar/taskbar.ts` | ⏳ Pending | Ganti `resolveVaultCacheIcoPath` menjadi penyimpanan eksklusif di `<vault>/artifacts/icon.ico` |
-| `docs/task-bar-icon.md` | ⏳ Pending | Brief status tracking |
+| `src/features/taskbar/taskbar.ts` | ✅ Done | Seluruh pembuatan dan pembacaan icon murni dialihkan ke `<vault>/artifacts/icon.ico` |
+| `docs/task-bar-icon.md` | ✅ Done | Brief tracking status 1 |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
 
-- [ ] Status 0 brief dibuat dan di-commit ke Git repo.
-- [ ] Penulisan file `.ico` murni dan eksklusif ke `<vaultRoot>/artifacts/icon.ico`.
-- [ ] Folder internal plugin tidak lagi menjadi target penulisan file icon.
-- [ ] Build clean dan auto-deployed ke vault.
-- [ ] Status diupdate ke `1` (Completed) dan di-commit.
+- [x] Status 0 brief dibuat dan di-commit ke Git repo (`3dd0c4b`).
+- [x] Penulisan file `.ico` murni dan eksklusif ke `<vaultRoot>/artifacts/icon.ico`.
+- [x] Folder internal plugin tidak lagi menjadi target penulisan file icon.
+- [x] Build clean dan auto-deployed ke vault.
+- [x] Status diupdate ke `1` (Completed) dan di-commit.
