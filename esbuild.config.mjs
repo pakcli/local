@@ -175,36 +175,45 @@ async function postBuild() {
 		}
 	}
 
-	// Automatic copy to target Obsidian Vault folder
+	// Automatic copy to target Obsidian Vault folders (deploy to both vaults)
 	try {
-		let vaultPath = null;
+		const targetVaultPaths = new Set();
 		if (existsSync("ps_publish.json")) {
 			try {
 				const cfg = JSON.parse(readFileSync("ps_publish.json", "utf8"));
-				if (cfg && cfg.latestCopyDir) vaultPath = cfg.latestCopyDir.trim();
+				if (cfg && cfg.latestCopyDir) targetVaultPaths.add(cfg.latestCopyDir.trim());
 			} catch {}
 		}
-		if (!vaultPath && existsSync(".publish-config.json")) {
+		if (existsSync(".publish-config.json")) {
 			try {
 				const cfg = JSON.parse(readFileSync(".publish-config.json", "utf8"));
-				if (cfg && cfg.latestCopyDir) vaultPath = cfg.latestCopyDir.trim();
+				if (cfg && cfg.latestCopyDir) targetVaultPaths.add(cfg.latestCopyDir.trim());
 			} catch {}
 		}
-		if (!vaultPath && existsSync(".vaultpath")) {
+		if (existsSync(".vaultpath")) {
 			try {
-				vaultPath = readFileSync(".vaultpath", "utf8").trim().split(/\r?\n/)[0];
+				const vp = readFileSync(".vaultpath", "utf8").trim().split(/\r?\n/)[0];
+				if (vp) targetVaultPaths.add(vp);
 			} catch {}
 		}
 
-		if (vaultPath) {
-			if (!existsSync(vaultPath)) {
-				mkdirSync(vaultPath, { recursive: true });
+		// Ensure primary and secondary demo vaults are always updated
+		targetVaultPaths.add("D:\\1sot\\MAIN-DIGITAL-LIBRARY\\MAIN-DIGITAL-LIBRARY\\.obsidian\\plugins\\pakcli-local");
+		targetVaultPaths.add("D:\\1sot\\MAIN-DIGITAL-LIBRARY\\SAMPLE-DEMO-THEME-PLUGIN\\.obsidian\\plugins\\pakcli-local");
+
+		for (const vaultPath of targetVaultPaths) {
+			try {
+				if (!existsSync(vaultPath)) {
+					mkdirSync(vaultPath, { recursive: true });
+				}
+				if (existsSync("main.js")) copyFileSync("main.js", join(vaultPath, "main.js"));
+				if (existsSync("manifest.json")) copyFileSync("manifest.json", join(vaultPath, "manifest.json"));
+				const cssSource = existsSync("dist/styles.css") ? "dist/styles.css" : (existsSync("styles.css") ? "styles.css" : null);
+				if (cssSource) copyFileSync(cssSource, join(vaultPath, "styles.css"));
+				console.log(`[postBuild] Automatically deployed plugin artifacts to: ${vaultPath}`);
+			} catch (vErr) {
+				console.error(`[postBuild] Failed deploying to ${vaultPath}:`, vErr);
 			}
-			if (existsSync("main.js")) copyFileSync("main.js", join(vaultPath, "main.js"));
-			if (existsSync("manifest.json")) copyFileSync("manifest.json", join(vaultPath, "manifest.json"));
-			const cssSource = existsSync("dist/styles.css") ? "dist/styles.css" : (existsSync("styles.css") ? "styles.css" : null);
-			if (cssSource) copyFileSync(cssSource, join(vaultPath, "styles.css"));
-			console.log(`[postBuild] Automatically deployed plugin artifacts to: ${vaultPath}`);
 		}
 	} catch (err) {
 		console.error('[postBuild] Failed to copy artifacts to target vault:', err);

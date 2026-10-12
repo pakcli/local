@@ -242,10 +242,28 @@ export function resolveEffectiveIconSource(plugin: PakCLILocalPlugin): { sourceP
     return { sourcePath: customPath, origin: 'custom setting path' };
   }
 
-  // 3. Sync with Obsidian Appearance Icon
+  // 3. Sync with Obsidian Appearance Icon -> Auto-replicates to <vault>/artifacts/
   if (plugin.settings.taskbarSyncAppearance !== false) {
     const appIcon = getObsidianAppearanceIconPath();
-    if (appIcon) {
+    if (appIcon && fs.existsSync(appIcon)) {
+      try {
+        const artifactsIco = resolveVaultArtifactsIcoPath(plugin);
+        if (artifactsIco) {
+          const artifactsPng = artifactsIco.replace(/\.ico$/i, '.png');
+          const nodeFs = nodeRequire('fs') as { readFileSync(p: string): Buffer; writeFileSync(p: string, b: Buffer): void; existsSync(p: string): boolean };
+          const pngBuf = nodeFs.readFileSync(appIcon);
+          if (!nodeFs.existsSync(artifactsPng)) {
+            nodeFs.writeFileSync(artifactsPng, pngBuf);
+          }
+          if (!nodeFs.existsSync(artifactsIco)) {
+            const icoBuf = convertPngBufferToIco(pngBuf);
+            nodeFs.writeFileSync(artifactsIco, icoBuf);
+          }
+          return { sourcePath: artifactsIco, origin: 'vault artifacts (auto-synced from Appearance)' };
+        }
+      } catch (copyErr) {
+        console.warn('[PakCLI Local] Failed to auto-replicate appearance icon to artifacts:', copyErr);
+      }
       return { sourcePath: appIcon, origin: 'Obsidian Appearance setting' };
     }
   }
@@ -414,21 +432,32 @@ export async function applyTaskbarIcon(
       relaunchDisplayName,
     });
 
-    // Also update window window-icon directly if supported (Electron nativeImage / setIcon)
-    try {
-      if (typeof (currentWin as any).setIcon === 'function') {
-        const electronModule = nodeRequire('electron') as { nativeImage?: { createFromPath(p: string): unknown } };
-        const nativeImage = electronModule?.nativeImage || (remote as any)?.nativeImage;
+    // Helper to set window icon directly on BrowserWindow (nativeImage)
+    const updateWindowIconDirectly = (targetWin: any) => {
+      try {
+        if (!targetWin || typeof targetWin.setIcon !== 'function') return;
+        const electronModule = nodeRequire('electron') as { nativeImage?: { createFromPath(p: string): any } };
+        const nativeImage = (remote as any)?.nativeImage || electronModule?.nativeImage;
         if (nativeImage && typeof nativeImage.createFromPath === 'function') {
-          const img = nativeImage.createFromPath(finalIcoPath);
-          if (img && !(img as any).isEmpty?.()) {
-            (currentWin as any).setIcon(img);
+          const nodeFs = nodeRequire('fs') as { existsSync(p: string): boolean };
+          let img: any = null;
+          const pngPath = finalIcoPath.replace(/\.ico$/i, '.png');
+          if (nodeFs.existsSync(pngPath)) {
+            img = nativeImage.createFromPath(pngPath);
+          }
+          if (!img || img.isEmpty?.()) {
+            img = nativeImage.createFromPath(finalIcoPath);
+          }
+          if (img && !img.isEmpty?.()) {
+            targetWin.setIcon(img);
           }
         }
+      } catch (iconErr) {
+        console.warn('[PakCLI Local] Non-fatal: could not set window icon directly:', iconErr);
       }
-    } catch (iconErr) {
-      console.warn('[PakCLI Local] Non-fatal: could not set window icon directly:', iconErr);
-    }
+    };
+
+    updateWindowIconDirectly(currentWin);
 
     // 8. Handle Sub-windows (Settings, popouts) strictly belonging to THIS vault
     const subwindowMode = plugin.settings.taskbarSubwindowMode || 'subwindows-collapse';
@@ -456,22 +485,24 @@ export async function applyTaskbarIcon(
             });
           }
 
-          // Also set window icon directly on subwindow
-          if (typeof (win as any).setIcon === 'function') {
-            const electronModule = nodeRequire('electron') as { nativeImage?: { createFromPath(p: string): unknown } };
-            const nativeImage = electronModule?.nativeImage || (remote as any)?.nativeImage;
-            if (nativeImage && typeof nativeImage.createFromPath === 'function') {
-              const img = nativeImage.createFromPath(finalIcoPath);
-              if (img && !(img as any).isEmpty?.()) {
-                (win as any).setIcon(img);
-              }
-            }
-          }
+          updateWindowIconDirectly(win);
         } catch (subErr) {
           console.warn('[PakCLI Local] Failed to update subwindow app details:', subErr);
         }
       }
     }
+
+    // Clean up any legacy icon in plugin folder if present
+    try {
+      const vaultBase = getVaultRootPath(plugin);
+      const configDir = plugin.app.vault.configDir || '.obsidian';
+      const nodePath = nodeRequire('path') as { join(...paths: string[]): string };
+      const nodeFs = nodeRequire('fs') as { existsSync(p: string): boolean; unlinkSync(p: string): void };
+      const legacyPluginIco = nodePath.join(vaultBase, configDir, 'plugins', 'pakcli-local', 'vault-taskbar.ico');
+      if (nodeFs.existsSync(legacyPluginIco)) {
+        nodeFs.unlinkSync(legacyPluginIco);
+      }
+    } catch {}
 
     const successMsg = `Taskbar identity updated for vault "${vaultName}" from ${origin} (AppId: ${baseAppId}, Subwindows: ${subwindowMode})`;
     console.log(`[PakCLI Local] ${successMsg}`);
