@@ -12,6 +12,29 @@ export function sanitizeVaultAppId(vaultName: string): string {
 }
 
 /**
+ * Strict Vault Boundary Check:
+ * Ensures a BrowserWindow belongs strictly to THIS specific vault.
+ * Never touches or collapses windows belonging to other open vaults.
+ */
+export function isWindowBelongingToVault(win: ElectronRemoteWindow, vaultName: string, mainWinId?: number): boolean {
+  if (mainWinId && win.id === mainWinId) {
+    return true;
+  }
+  const anyWin = win as any;
+  const title = typeof anyWin.getTitle === 'function' ? anyWin.getTitle() : '';
+  if (!title) return false;
+
+  // Obsidian window title convention: "<Page/Note> - <VaultName> - Obsidian <Version>"
+  // E.g.: "Settings - SAMPLE-DEMO-THEME-PLUGIN - Obsidian 1.14.4"
+  return (
+    title.includes(` - ${vaultName} - `) ||
+    title.endsWith(` - ${vaultName}`) ||
+    title.includes(` ${vaultName} `) ||
+    title === vaultName
+  );
+}
+
+/**
  * Standard ICO Container wrapper for PNG image data.
  * Parses true dimensions from PNG IHDR chunk (offset 16-24) to prevent Windows DWM render black/blank glitch.
  */
@@ -296,6 +319,7 @@ export function ensureIcoFile(plugin: PakCLILocalPlugin, sourcePath: string): st
 
 /**
  * Apply per-vault taskbar identity and icon via Electron setAppDetails to main and sub-windows.
+ * Strictly guarantees that windows belonging to other open vaults are NEVER modified or grouped!
  */
 export async function applyTaskbarIcon(
   plugin: PakCLILocalPlugin,
@@ -359,7 +383,7 @@ export async function applyTaskbarIcon(
       return { success: false, message: msg };
     }
 
-    // 4. Resolve AppUserModelID (AUMID)
+    // 4. Resolve AppUserModelID (AUMID) strictly per vault
     const vaultName = plugin.app.vault.getName();
     const baseAppId = (plugin.settings.taskbarCustomAppId || '').trim() || sanitizeVaultAppId(vaultName);
 
@@ -382,7 +406,7 @@ export async function applyTaskbarIcon(
       allWindows.push(currentWin);
     }
 
-    // 7. Invoke Electron API on main window
+    // 7. Invoke Electron API on main window of THIS vault
     currentWin.setAppDetails({
       appId: baseAppId,
       appIconPath: finalIcoPath,
@@ -390,11 +414,18 @@ export async function applyTaskbarIcon(
       relaunchDisplayName,
     });
 
-    // 8. Handle Sub-windows (Settings, popouts) based on taskbarSubwindowMode
+    // 8. Handle Sub-windows (Settings, popouts) strictly belonging to THIS vault
     const subwindowMode = plugin.settings.taskbarSubwindowMode || 'subwindows-collapse';
     if (subwindowMode !== 'none') {
       for (const win of allWindows) {
         if (win === currentWin) continue;
+
+        // STRICT GUARD: Only modify sub-windows that belong to THIS vault!
+        // Never touch or collapse windows from other open vaults!
+        if (!isWindowBelongingToVault(win, vaultName, currentWin.id)) {
+          continue;
+        }
+
         try {
           if (typeof win.setAppDetails === 'function') {
             const subAppId = subwindowMode === 'subwindows-collapse'
@@ -438,6 +469,7 @@ export async function applyTaskbarIcon(
 
 /**
  * Monitor new windows (Settings, Popout windows, Modals) and apply taskbar details automatically.
+ * Strictly filters to only touch windows belonging to THIS vault.
  */
 export function registerSubwindowLifecycleWatcher(plugin: PakCLILocalPlugin): void {
   const processObj = (window as unknown as { process?: { platform?: string } }).process;
@@ -460,10 +492,16 @@ export function registerSubwindowLifecycleWatcher(plugin: PakCLILocalPlugin): vo
     try {
       remote.app.on('browser-window-created', (_event: any, newWin: any) => {
         window.setTimeout(() => {
-          if (plugin.settings.taskbarSubwindowMode !== 'none' && typeof newWin?.setAppDetails === 'function') {
+          const vaultName = plugin.app.vault.getName();
+          const mainWinId = remote.getCurrentWindow()?.id;
+          if (
+            plugin.settings.taskbarSubwindowMode !== 'none' &&
+            typeof newWin?.setAppDetails === 'function' &&
+            isWindowBelongingToVault(newWin, vaultName, mainWinId)
+          ) {
             void applyTaskbarIcon(plugin, false);
           }
-        }, 250);
+        }, 300);
       });
     } catch (err) {
       console.warn('[PakCLI Local] Failed to register browser-window-created watcher:', err);

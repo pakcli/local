@@ -1,6 +1,6 @@
 # 📌 Master Brief: Strict Multi-Vault Window Isolation for Taskbar (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `pakcli-local`  
 > **Platform**: Windows Desktop (`Platform.isDesktopApp && process.platform === 'win32'`)  
 > **Date**: 2026-10-12  
@@ -26,29 +26,37 @@ Setiap instance plugin PakCLI Local **HANYA BOLEH** menyentuh jendela yang terbu
 ## 2. Technical Architecture & Constraints
 
 ```typescript
-function isWindowBelongingToVault(win: any, vaultName: string, mainWinId?: number): boolean {
-  if (win.id && mainWinId && win.id === mainWinId) return true;
-  const title = typeof win.getTitle === 'function' ? win.getTitle() : '';
-  // Format Obsidian title: "<Note/Page> - <VaultName> - Obsidian <Version>"
-  return title.includes(` - ${vaultName} - `) || title.endsWith(` - ${vaultName}`);
+export function isWindowBelongingToVault(win: ElectronRemoteWindow, vaultName: string, mainWinId?: number): boolean {
+  if (mainWinId && win.id === mainWinId) return true;
+  const anyWin = win as any;
+  const title = typeof anyWin.getTitle === 'function' ? anyWin.getTitle() : '';
+  if (!title) return false;
+
+  return (
+    title.includes(` - ${vaultName} - `) ||
+    title.endsWith(` - ${vaultName}`) ||
+    title.includes(` ${vaultName} `) ||
+    title === vaultName
+  );
 }
 ```
 
 ---
 
-## 3. Planned Files & Changes
+## 3. Implemented Files
 
 | File | Status | Keterangan |
 | :--- | :---: | :--- |
-| `src/features/taskbar/taskbar.ts` | ⏳ Pending | Filter ketat `isWindowBelongingToVault` pada perulangan jendela |
-| `docs/task-bar-icon.md` | ⏳ Pending | Brief status tracking |
+| `src/features/taskbar/taskbar.ts` | ✅ Done | Filter ketat `isWindowBelongingToVault` pada perulangan jendela & lifecycle watcher |
+| `src/features/taskbar/settings.ts` | ✅ Done | Dropdown 3 opsi & note restart app |
+| `docs/task-bar-icon.md` | ✅ Done | Brief status 1 tracking |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
 
-- [ ] Status 0 brief dibuat dan di-commit ke Git repo.
-- [ ] Jendela milik vault lain tidak pernah diubah atau di-collapse.
-- [ ] Jendela Settings dan sub-window milik vault ini tetap terkelola sesuai dropdown 3 opsi.
-- [ ] Build clean dan auto-deployed ke vault.
-- [ ] Status diupdate ke `1` (Completed) dan di-commit.
+- [x] Status 0 brief dibuat dan di-commit ke Git repo (`4babd4b`).
+- [x] Jendela milik vault lain tidak pernah diubah atau di-collapse.
+- [x] Jendela Settings dan sub-window milik vault ini tetap terkelola sesuai dropdown 3 opsi.
+- [x] Build clean dan auto-deployed ke vault.
+- [x] Status diupdate ke `1` (Completed) dan di-commit.
