@@ -35,14 +35,53 @@ export function isWindowBelongingToVault(win: ElectronRemoteWindow, vaultName: s
 }
 
 /**
+ * Computes a short content hash from an icon file to bust stale Windows Shell taskbar icon caches.
+ */
+export function getIconFileHash(filePath: string): string {
+  try {
+    const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+    if (!nodeRequire) return '';
+    const fs = nodeRequire('fs') as { readFileSync(p: string): Buffer; existsSync(p: string): boolean };
+    if (!fs.existsSync(filePath)) return '';
+    const buf = fs.readFileSync(filePath);
+    let hash = 0;
+    for (let i = 0; i < buf.length; i++) {
+      hash = ((hash << 5) - hash) + buf[i];
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36).slice(0, 6);
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Standard ICO Container wrapper for PNG image data.
- * Parses true dimensions from PNG IHDR chunk (offset 16-24) to prevent Windows DWM render black/blank glitch.
+ * Resizes to standard 256x256 via nativeImage if available, ensuring crisp, high-DPI Windows Taskbar rendering.
  */
 export function convertPngBufferToIco(pngBuffer: Buffer): Buffer {
+  let targetPng = pngBuffer;
+  try {
+    const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+    if (nodeRequire) {
+      const electron = nodeRequire('electron') as { nativeImage?: { createFromBuffer(b: Buffer): any } };
+      let remote: any = null;
+      try { remote = nodeRequire('@electron/remote'); } catch {}
+      const nativeImage = (remote as any)?.nativeImage || electron?.nativeImage;
+      if (nativeImage && typeof nativeImage.createFromBuffer === 'function') {
+        const img = nativeImage.createFromBuffer(pngBuffer);
+        if (img && !img.isEmpty?.()) {
+          const resized = img.resize({ width: 256, height: 256, quality: 'best' });
+          targetPng = resized.toPNG();
+        }
+      }
+    }
+  } catch {}
+
   const icoHeaderSize = 6;
   const dirEntrySize = 16;
   const totalHeaderSize = icoHeaderSize + dirEntrySize;
-  const icoBuffer = Buffer.alloc(totalHeaderSize + pngBuffer.length);
+  const icoBuffer = Buffer.alloc(totalHeaderSize + targetPng.length);
 
   // 1. ICONDIR (6 bytes)
   icoBuffer.writeUInt16LE(0, 0); // Reserved (0)
@@ -52,9 +91,9 @@ export function convertPngBufferToIco(pngBuffer: Buffer): Buffer {
   // Extract true width & height from PNG IHDR chunk
   let widthByte = 0; // 0 represents 256 in ICO spec
   let heightByte = 0;
-  if (pngBuffer.length >= 24 && pngBuffer.readUInt32BE(0) === 0x89504E47) {
-    const trueWidth = pngBuffer.readUInt32BE(16);
-    const trueHeight = pngBuffer.readUInt32BE(20);
+  if (targetPng.length >= 24 && targetPng.readUInt32BE(0) === 0x89504E47) {
+    const trueWidth = targetPng.readUInt32BE(16);
+    const trueHeight = targetPng.readUInt32BE(20);
     widthByte = trueWidth >= 256 ? 0 : trueWidth;
     heightByte = trueHeight >= 256 ? 0 : trueHeight;
   }
@@ -66,11 +105,11 @@ export function convertPngBufferToIco(pngBuffer: Buffer): Buffer {
   icoBuffer.writeUInt8(0, 9); // Reserved (0)
   icoBuffer.writeUInt16LE(1, 10); // Color planes: 1
   icoBuffer.writeUInt16LE(32, 12); // Bits per pixel: 32 (RGBA)
-  icoBuffer.writeUInt32LE(pngBuffer.length, 14); // PNG Image Size
+  icoBuffer.writeUInt32LE(targetPng.length, 14); // PNG Image Size
   icoBuffer.writeUInt32LE(totalHeaderSize, 18); // Offset to PNG payload (22)
 
   // 3. Raw PNG Payload
-  pngBuffer.copy(icoBuffer, totalHeaderSize);
+  targetPng.copy(icoBuffer, totalHeaderSize);
 
   return icoBuffer;
 }
@@ -119,8 +158,10 @@ export function resolveVaultArtifactsIcon(plugin: PakCLILocalPlugin): { path: st
   if (!vaultBase) return null;
 
   const candidates = [
+    { p: path.join(vaultBase, 'artifacts', 'icon_clean.ico'), isIco: true },
     { p: path.join(vaultBase, 'artifacts', 'icon.ico'), isIco: true },
     { p: path.join(vaultBase, 'artifacts', 'icon.png'), isIco: false },
+    { p: path.join(vaultBase, 'artifact', 'icon_clean.ico'), isIco: true },
     { p: path.join(vaultBase, 'artifact', 'icon.ico'), isIco: true },
     { p: path.join(vaultBase, 'artifact', 'icon.png'), isIco: false },
   ];
@@ -321,7 +362,15 @@ export function ensureIcoFile(plugin: PakCLILocalPlugin, sourcePath: string): st
       if (needsRebuild) {
         const pngBuf = fs.readFileSync(sourcePath);
         const icoBuf = convertPngBufferToIco(pngBuf);
-        fs.writeFileSync(targetIcoPath, icoBuf);
+        try {
+          fs.writeFileSync(targetIcoPath, icoBuf);
+        } catch {
+          // If locked by Windows DWM memory-mapping, write to icon_clean.ico
+          const cleanIcoPath = targetIcoPath.replace(/\.ico$/i, '_clean.ico');
+          fs.writeFileSync(cleanIcoPath, icoBuf);
+          console.log(`[PakCLI Local] Saved taskbar .ico fallback strictly to vault artifacts: ${cleanIcoPath}`);
+          return cleanIcoPath;
+        }
         console.log(`[PakCLI Local] Saved taskbar .ico strictly to vault artifacts: ${targetIcoPath}`);
       }
 
@@ -401,9 +450,11 @@ export async function applyTaskbarIcon(
       return { success: false, message: msg };
     }
 
-    // 4. Resolve AppUserModelID (AUMID) strictly per vault
+    // 4. Resolve AppUserModelID (AUMID) strictly per vault with cache-busting icon hash
     const vaultName = plugin.app.vault.getName();
-    const baseAppId = (plugin.settings.taskbarCustomAppId || '').trim() || sanitizeVaultAppId(vaultName);
+    const iconHash = getIconFileHash(finalIcoPath);
+    const baseAppId = (plugin.settings.taskbarCustomAppId || '').trim() ||
+      (iconHash ? `${sanitizeVaultAppId(vaultName)}.${iconHash}` : sanitizeVaultAppId(vaultName));
 
     // 5. Configure Relaunch Target
     const execPath = processObj?.execPath || 'obsidian';
