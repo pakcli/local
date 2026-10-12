@@ -12,8 +12,8 @@ export function sanitizeVaultAppId(vaultName: string): string {
 }
 
 /**
- * Standard ICO Container wrapper for PNG image data (Windows Vista/7/10/11 native support).
- * Enables seamless taskbar rendering without needing external image conversion binaries.
+ * Standard ICO Container wrapper for PNG image data.
+ * Parses true dimensions from PNG IHDR chunk (offset 16-24) to prevent Windows DWM render black/blank glitch.
  */
 export function convertPngBufferToIco(pngBuffer: Buffer): Buffer {
   const icoHeaderSize = 6;
@@ -26,9 +26,19 @@ export function convertPngBufferToIco(pngBuffer: Buffer): Buffer {
   icoBuffer.writeUInt16LE(1, 2); // Type 1 = Icon (.ICO)
   icoBuffer.writeUInt16LE(1, 4); // Number of images = 1
 
+  // Extract true width & height from PNG IHDR chunk
+  let widthByte = 0; // 0 represents 256 in ICO spec
+  let heightByte = 0;
+  if (pngBuffer.length >= 24 && pngBuffer.readUInt32BE(0) === 0x89504E47) {
+    const trueWidth = pngBuffer.readUInt32BE(16);
+    const trueHeight = pngBuffer.readUInt32BE(20);
+    widthByte = trueWidth >= 256 ? 0 : trueWidth;
+    heightByte = trueHeight >= 256 ? 0 : trueHeight;
+  }
+
   // 2. ICONDIRENTRY (16 bytes)
-  icoBuffer.writeUInt8(0, 6); // Width: 0 specifies 256px
-  icoBuffer.writeUInt8(0, 7); // Height: 0 specifies 256px
+  icoBuffer.writeUInt8(widthByte, 6); // Width
+  icoBuffer.writeUInt8(heightByte, 7); // Height
   icoBuffer.writeUInt8(0, 8); // Color count: 0 (no palette)
   icoBuffer.writeUInt8(0, 9); // Reserved (0)
   icoBuffer.writeUInt16LE(1, 10); // Color planes: 1
@@ -64,18 +74,55 @@ export function getObsidianAppearanceIconPath(): string {
 }
 
 /**
+ * Returns the vault root path safely
+ */
+export function getVaultRootPath(plugin: PakCLILocalPlugin): string {
+  const adapter = plugin.app.vault.adapter;
+  return plugin.vaultRoot || (adapter instanceof FileSystemAdapter ? adapter.getBasePath() : '');
+}
+
+/**
+ * Checks for vault artifacts icon:
+ * <vaultBase>/artifacts/icon.ico or <vaultBase>/artifacts/icon.png
+ * (also checks singular <vaultBase>/artifact/)
+ */
+export function resolveVaultArtifactsIcon(plugin: PakCLILocalPlugin): { path: string; isIco: boolean } | null {
+  const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+  if (!nodeRequire) return null;
+
+  const fs = nodeRequire('fs') as { existsSync(p: string): boolean };
+  const path = nodeRequire('path') as { join(...paths: string[]): string };
+  const vaultBase = getVaultRootPath(plugin);
+  if (!vaultBase) return null;
+
+  const candidates = [
+    { p: path.join(vaultBase, 'artifacts', 'icon.ico'), isIco: true },
+    { p: path.join(vaultBase, 'artifacts', 'icon.png'), isIco: false },
+    { p: path.join(vaultBase, 'artifact', 'icon.ico'), isIco: true },
+    { p: path.join(vaultBase, 'artifact', 'icon.png'), isIco: false },
+  ];
+
+  for (const item of candidates) {
+    if (fs.existsSync(item.p)) {
+      return { path: item.p, isIco: item.isIco };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolve target cache directory for generated vault icon (.ico)
  */
 export function resolveVaultCacheIcoPath(plugin: PakCLILocalPlugin): string {
-  const adapter = plugin.app.vault.adapter;
   const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
   if (!nodeRequire) return '';
 
   try {
     const path = nodeRequire('path') as { join(...paths: string[]): string };
-    const vaultBase = plugin.vaultRoot || (adapter instanceof FileSystemAdapter ? adapter.getBasePath() : '');
-
+    const vaultBase = getVaultRootPath(plugin);
     if (!vaultBase) return '';
+
     const configDir = plugin.app.vault.configDir || '.obsidian';
     const manifestId = plugin.manifest.id || 'pakcli-local';
 
@@ -86,56 +133,118 @@ export function resolveVaultCacheIcoPath(plugin: PakCLILocalPlugin): string {
 }
 
 /**
- * Resolve icon location with fallback chain:
- * 1. Obsidian Appearance Icon (Settings -> Appearance -> Custom app icon) if sync is enabled
- * 2. Custom path from plugin settings
- * 3. Vault-level icons (.obsidian/icon.ico or plugins/pakcli-local/icon.ico)
+ * Relocate/Copy the current Obsidian Appearance icon into <vault>/artifacts/icon.png and icon.ico
  */
-export function resolveEffectiveIconSource(plugin: PakCLILocalPlugin): { sourcePath: string; isAppearance: boolean } {
+export async function saveAppearanceIconToArtifacts(plugin: PakCLILocalPlugin): Promise<TaskbarApplyResult> {
   const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
-  if (!nodeRequire) return { sourcePath: '', isAppearance: false };
+  if (!nodeRequire) {
+    return { success: false, message: 'Node.js require not available' };
+  }
+
+  try {
+    const fs = nodeRequire('fs') as {
+      existsSync(p: string): boolean;
+      mkdirSync(p: string, opts?: { recursive?: boolean }): void;
+      readFileSync(p: string): Buffer;
+      writeFileSync(p: string, data: Buffer): void;
+    };
+    const path = nodeRequire('path') as { join(...paths: string[]): string };
+    const vaultBase = getVaultRootPath(plugin);
+    if (!vaultBase) {
+      throw new Error('Unable to resolve vault root path');
+    }
+
+    const appIcon = getObsidianAppearanceIconPath();
+    if (!appIcon) {
+      throw new Error('No custom icon found in Obsidian Appearance settings (%APPDATA%/obsidian/icon.png)');
+    }
+
+    const artifactsDir = path.join(vaultBase, 'artifacts');
+    if (!fs.existsSync(artifactsDir)) {
+      fs.mkdirSync(artifactsDir, { recursive: true });
+    }
+
+    const pngBuffer = fs.readFileSync(appIcon);
+    const targetPngPath = path.join(artifactsDir, 'icon.png');
+    const targetIcoPath = path.join(artifactsDir, 'icon.ico');
+
+    // 1. Write PNG
+    fs.writeFileSync(targetPngPath, pngBuffer);
+
+    // 2. Wrap as ICO with true dimensions
+    const icoBuffer = convertPngBufferToIco(pngBuffer);
+    fs.writeFileSync(targetIcoPath, icoBuffer);
+
+    new Notice(`✨ Icon saved to vault artifacts: artifacts/icon.ico`);
+    console.log(`[PakCLI Local] Relocated Appearance icon to vault artifacts: ${targetIcoPath}`);
+
+    // Immediately re-apply to taskbar
+    return await applyTaskbarIcon(plugin, true);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    new Notice(`❌ Failed to copy icon to artifacts: ${msg}`);
+    console.error('[PakCLI Local] Failed to copy icon to artifacts:', err);
+    return { success: false, message: msg };
+  }
+}
+
+/**
+ * Resolve icon location with fallback chain (Vault Artifacts First!):
+ * 1. <vaultBase>/artifacts/icon.ico or icon.png
+ * 2. <vaultBase>/artifact/icon.ico or icon.png
+ * 3. Custom path from plugin settings
+ * 4. Obsidian Appearance Icon (Settings -> Appearance -> Custom app icon) if sync is enabled
+ * 5. Vault-level icons (.obsidian/icon.ico or plugins/pakcli-local/icon.ico)
+ */
+export function resolveEffectiveIconSource(plugin: PakCLILocalPlugin): { sourcePath: string; origin: string } {
+  const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+  if (!nodeRequire) return { sourcePath: '', origin: 'unknown' };
 
   const fs = nodeRequire('fs') as { existsSync(p: string): boolean };
   const path = nodeRequire('path') as { join(...paths: string[]): string };
 
-  // 1. Sync with Obsidian Appearance Icon
-  if (plugin.settings.taskbarSyncAppearance !== false) {
-    const appIcon = getObsidianAppearanceIconPath();
-    if (appIcon) {
-      return { sourcePath: appIcon, isAppearance: true };
-    }
+  // 1. Check Vault Artifacts (artifacts/ or artifact/)
+  const artifactIcon = resolveVaultArtifactsIcon(plugin);
+  if (artifactIcon) {
+    return { sourcePath: artifactIcon.path, origin: 'vault artifacts (artifacts/)' };
   }
 
   // 2. Custom Path from settings
   const customPath = (plugin.settings.taskbarIconPath || '').trim();
   if (customPath && fs.existsSync(customPath)) {
-    return { sourcePath: customPath, isAppearance: false };
+    return { sourcePath: customPath, origin: 'custom setting path' };
   }
 
-  // 3. Vault plugin default icon
-  const adapter = plugin.app.vault.adapter;
-  const vaultBase = plugin.vaultRoot || (adapter instanceof FileSystemAdapter ? adapter.getBasePath() : '');
+  // 3. Sync with Obsidian Appearance Icon
+  if (plugin.settings.taskbarSyncAppearance !== false) {
+    const appIcon = getObsidianAppearanceIconPath();
+    if (appIcon) {
+      return { sourcePath: appIcon, origin: 'Obsidian Appearance setting' };
+    }
+  }
 
+  // 4. Vault plugin default icon
+  const vaultBase = getVaultRootPath(plugin);
   if (vaultBase) {
     const configDir = plugin.app.vault.configDir || '.obsidian';
     const manifestId = plugin.manifest.id || 'pakcli-local';
 
     const pluginIco = path.join(vaultBase, configDir, 'plugins', manifestId, 'icon.ico');
-    if (fs.existsSync(pluginIco)) return { sourcePath: pluginIco, isAppearance: false };
+    if (fs.existsSync(pluginIco)) return { sourcePath: pluginIco, origin: 'plugin default icon' };
 
     const vaultIco = path.join(vaultBase, configDir, 'icon.ico');
-    if (fs.existsSync(vaultIco)) return { sourcePath: vaultIco, isAppearance: false };
+    if (fs.existsSync(vaultIco)) return { sourcePath: vaultIco, origin: '.obsidian/icon.ico' };
 
     const vaultPng = path.join(vaultBase, configDir, 'icon.png');
-    if (fs.existsSync(vaultPng)) return { sourcePath: vaultPng, isAppearance: false };
+    if (fs.existsSync(vaultPng)) return { sourcePath: vaultPng, origin: '.obsidian/icon.png' };
   }
 
-  return { sourcePath: '', isAppearance: false };
+  return { sourcePath: '', origin: 'none' };
 }
 
 /**
  * Ensure an icon file is ready for Windows Taskbar (.ico format).
- * If the source is .png, it automatically generates and caches a valid .ico file.
+ * If the source is .png, it automatically generates and caches a valid .ico file with true dimensions.
  */
 export function ensureIcoFile(plugin: PakCLILocalPlugin, sourcePath: string): string {
   const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
@@ -147,7 +256,7 @@ export function ensureIcoFile(plugin: PakCLILocalPlugin, sourcePath: string): st
     statSync(p: string): { mtimeMs: number };
     existsSync(p: string): boolean;
   };
-  const path = nodeRequire('path') as { extname(p: string): string; dirname(p: string): string };
+  const path = nodeRequire('path') as { extname(p: string): string };
 
   const ext = path.extname(sourcePath).toLowerCase();
   if (ext === '.ico') {
@@ -233,12 +342,12 @@ export async function applyTaskbarIcon(
     }
 
     // 3. Resolve Target Icon
-    const { sourcePath, isAppearance } = resolveEffectiveIconSource(plugin);
+    const { sourcePath, origin } = resolveEffectiveIconSource(plugin);
     if (!sourcePath) {
-      const msg = 'No icon found. Set an icon in Settings -> Appearance -> Custom app icon or configure a custom path.';
+      const msg = 'No icon found in artifacts/ or settings. Place icon.ico in artifacts/ or copy from Appearance settings.';
       console.warn(`[PakCLI Local] ${msg}`);
       if (showNotice) {
-        new Notice(`[PakCLI Local] No icon found. Please choose an icon in Settings -> Appearance -> Custom app icon.`);
+        new Notice(`[PakCLI Local] No icon found. Click "Save Appearance Icon to Artifacts" in settings or put icon.ico in artifacts/.`);
       }
       return { success: false, message: msg };
     }
@@ -268,11 +377,10 @@ export async function applyTaskbarIcon(
       relaunchDisplayName,
     });
 
-    const originText = isAppearance ? 'Appearance settings' : 'custom path';
-    const successMsg = `Taskbar identity updated for vault "${vaultName}" using ${originText} (AppId: ${appId})`;
+    const successMsg = `Taskbar identity updated for vault "${vaultName}" from ${origin} (AppId: ${appId})`;
     console.log(`[PakCLI Local] ${successMsg}`);
     if (showNotice) {
-      new Notice(`✅ Taskbar icon applied from ${originText} ("${vaultName}")`);
+      new Notice(`✅ Taskbar icon applied from ${origin} ("${vaultName}")`);
     }
 
     return {

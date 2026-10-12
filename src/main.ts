@@ -45,7 +45,7 @@ import { copyFilesToNativeOsClipboard, getAbsoluteFileSystemPath } from './utils
 import { GitHubFetcherManager, GitHubBatchFetcherModal, renderGitHubFetcherSettings } from './features/githubFetcher';
 
 // Taskbar Vault Icon Imports
-import { applyTaskbarIcon } from './features/taskbar/taskbar';
+import { applyTaskbarIcon, saveAppearanceIconToArtifacts } from './features/taskbar/taskbar';
 import { renderTaskbarSettings } from './features/taskbar/settings';
 
 export default class PakCLILocalPlugin extends Plugin {
@@ -699,6 +699,15 @@ export default class PakCLILocalPlugin extends Plugin {
 			name: 'Reapply taskbar icon',
 			callback: async () => {
 				await applyTaskbarIcon(this, true);
+			}
+		});
+
+		// Command: Save Appearance Icon to Vault Artifacts
+		this.addCommand({
+			id: 'pl-save-appearance-icon-artifacts',
+			name: 'Taskbar: Save Appearance Icon to Vault Artifacts',
+			callback: async () => {
+				await saveAppearanceIconToArtifacts(this);
 			}
 		});
 	}

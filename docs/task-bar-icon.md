@@ -1,6 +1,6 @@
 # 📌 Master Brief: Per-Vault Windows Taskbar Icon via Vault Artifacts (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `pakcli-local`  
 > **Platform**: Windows Desktop (`Platform.isDesktopApp && process.platform === 'win32'`)  
 > **Date**: 2026-10-12  
@@ -18,7 +18,7 @@ Penggunaan file global `%APPDATA%\obsidian\icon.png` menyebabkan 2 masalah utama
 Relokasi icon ke folder lokal vault masing-masing:
 - **Lokasi Utama**: `<vault>/artifacts/icon.ico` (atau `icon.png`).
 - Mendukung folder `<vault>/artifact/` dan `<vault>/.obsidian/icons/` sebagai alias.
-- **1-Click Relocation**: Menyediakan tombol di Settings Hub untuk meng-copy icon dari menu Appearance langsung ke `<vault>/artifacts/icon.ico` secara otomatis.
+- **1-Click Relocation**: Menyediakan tombol di Settings Hub dan Command Palette ("Taskbar: Save Appearance Icon to Vault Artifacts") untuk meng-copy icon dari menu Appearance langsung ke `<vault>/artifacts/icon.ico` secara otomatis.
 - **Dynamic PNG Dimension Parser**: Membaca lebar & tinggi asli dari header IHDR PNG (offset 16-24) agar header ICO sesuai spesifikasi Windows Shell dan tidak glitch hitam.
 
 ---
@@ -40,26 +40,27 @@ const height = pngBuf.readUInt32BE(20);
 const icoWidth = width >= 256 ? 0 : width;
 const icoHeight = height >= 256 ? 0 : height;
 ```
-Menghasilkan file `.ico` yang 100% valid untuk Windows Taskbar.
+Menghasilkan file `.ico` yang 100% valid untuk Windows Taskbar tanpa black/blank visual artifact.
 
 ---
 
-## 3. Planned Files & Changes
+## 3. Implemented Files
 
 | File | Status | Keterangan |
 | :--- | :---: | :--- |
-| `src/features/taskbar/types.ts` | ⏳ Pending | Tambah helper & return types untuk artifacts |
-| `src/features/taskbar/taskbar.ts` | ⏳ Pending | Relokasi pencarian ke `<vault>/artifacts/`, dynamic IHDR sizing, & copy utility |
-| `src/features/taskbar/settings.ts` | ⏳ Pending | UI update: path artifacts indicator & 1-click copy button |
-| `src/settings.ts` | ⏳ Pending | Default settings check |
-| `docs/task-bar-icon.md` | ⏳ Pending | Brief status tracking |
+| `src/features/taskbar/types.ts` | ✅ Done | Interface settings, AppDetails, & RemoteWindow contract |
+| `src/features/taskbar/taskbar.ts` | ✅ Done | Relokasi pencarian ke `<vault>/artifacts/`, dynamic IHDR sizing, & copy utility |
+| `src/features/taskbar/settings.ts` | ✅ Done | UI update: path artifacts indicator & 1-click copy button |
+| `src/main.ts` | ✅ Done | Command Palette & layout-ready hook |
+| `docs/task-bar-icon.md` | ✅ Done | Brief status 1 tracking |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
 
-- [ ] Status 0 brief dibuat dan di-commit ke Git repo.
-- [ ] Icon dicari dan dimuat dari `<vault>/artifacts/icon.ico` atau `icon.png`.
-- [ ] Dimensi PNG dibaca dinamis dari IHDR (bebas glitch hitam/blank).
-- [ ] Tombol "Save Appearance Icon to Artifacts" meng-copy icon ke `<vault>/artifacts/` dan menerapkan taskbar.
-- [ ] Status diupdate ke `1` (Completed), build clean, dan di-commit.
+- [x] Status 0 brief dibuat dan di-commit ke Git repo (`107ea40`).
+- [x] Icon dicari dan dimuat dari `<vault>/artifacts/icon.ico` atau `icon.png`.
+- [x] Dimensi PNG dibaca dinamis dari IHDR (bebas glitch hitam/blank).
+- [x] Tombol "Save Appearance Icon to Artifacts" meng-copy icon ke `<vault>/artifacts/` dan menerapkan taskbar.
+- [x] Command Palette: "Taskbar: Save Appearance Icon to Vault Artifacts".
+- [x] Status diupdate ke `1` (Completed), build clean, dan di-commit.
