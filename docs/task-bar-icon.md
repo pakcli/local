@@ -1,6 +1,6 @@
-# 📌 Master Brief: Per-Vault Taskbar Icon Subwindow & Collapse Management (`pakcli-local`)
+# 📌 Master Brief: Strict Multi-Vault Window Isolation for Taskbar (`pakcli-local`)
 
-> **Feature Status**: `1` (Implemented & Verified)  
+> **Feature Status**: `0` (Draft / Pending Implementation)  
 > **Target Module**: `pakcli-local`  
 > **Platform**: Windows Desktop (`Platform.isDesktopApp && process.platform === 'win32'`)  
 > **Date**: 2026-10-12  
@@ -10,58 +10,45 @@
 ## 1. Objective & Problem Statement
 
 ### The Problem
-Ketika pengguna membuka jendela pengaturan Obsidian (Settings), dialog popout, atau popout leaf sebagai jendela terpisah (sub-window):
-1. Sub-window tersebut mewarisi AppUserModelID bawaan Obsidian (`md.obsidian`) dan menampilkan icon ungu default Obsidian.
-2. Di Windows Taskbar, jendela Settings muncul sebagai aplikasi terpisah di sebelah icon vault kustom, tanpa pengelompokan (collapse/grouping).
+Dalam environment Electron Obsidian, `BrowserWindow.getAllWindows()` mengembalikan seluruh jendela dari **seluruh vault yang sedang terbuka secara bersamaan**.
+Jika satu plugin vault memanggil `setAppDetails()` ke seluruh window tanpa memfilter pemilik vault:
+- Jendela Vault B secara keliru tertimpa `appId` dari Vault A!
+- Vault A dan Vault B malah ter-group / collapse menjadi satu grup taskbar, merusak isolasi independen per-vault!
 
-### The Solution (Subwindow Management with 3 Options)
-Menambahkan pengaturan mode penanganan sub-window (dropdown 3 opsi):
-1. **`change other subwindows aswell + can be join collpase with main`** (Rekomendasi / Default):
-   Menyuntikkan `appId` dan `appIconPath` yang identik dengan jendela utama ke seluruh sub-window/popout. Windows Taskbar otomatis menggabungkan (group & collapse) sub-window ke dalam tombol taskbar vault utama.
-2. **`change other subwindows aswell`**:
-   Menyuntikkan icon kustom ke seluruh sub-window, namun menggunakan `appId` unik per sub-window (`md.obsidian.vault.<Vault>.sub.<id>`). Sub-window tetap terpisah di taskbar (tidak digabung), namun menampilkan icon kustom vault.
-3. **`none`**:
-   Hanya memodifikasi jendela utama vault. Sub-window dibiarkan murni default Obsidian.
+### The Solution (Strict Vault Boundary & Title Matching)
+Setiap instance plugin PakCLI Local **HANYA BOLEH** menyentuh jendela yang terbukti milik vault tersebut:
+1. **Main Window**: Selalu milik vault ini (`remote.getCurrentWindow()`).
+2. **Sub-Window (Settings / Popouts)**: Hanya diproses jika dan hanya jika judul jendela (`win.getTitle()`) memuat nama vault aktif ini (format Obsidian: `"... - <VaultName> - Obsidian ..."`).
+3. **Jendela Vault Lain**: **MUTLAK DIABAIKAN (SKIP)** dan tidak akan pernah diubah atau digabung dengan jendela vault ini!
 
 ---
 
 ## 2. Technical Architecture & Constraints
 
-### A. Electron Window Discovery & Lifecycle Tracking
-- Gunakan `remote.BrowserWindow.getAllWindows()` untuk memindai seluruh jendela aktif Obsidian.
-- Pantau pembuatan sub-window baru melalui:
-  - `app.workspace.on('window-open', ...)` di level Obsidian Workspace.
-  - Event listener `browser-window-created` pada `remote.app`.
-  - Panggilan refresh otomatis saat modal/settings dibuka.
-
-### B. Windows AUMID Rules for Taskbar Collapsing
-- **Collapse/Grouping**: Terjadi jika 2 jendela memiliki nilai `appId` persis sama.
-- **Separate Items**: Terjadi jika jendela memiliki `appId` berbeda.
-- **Restart App Notice**: Ditambahkan catatan jelas bahwa restart Obsidian app diperlukan untuk mengikat AUMID pada jendela Windows yang baru dibuat.
+```typescript
+function isWindowBelongingToVault(win: any, vaultName: string, mainWinId?: number): boolean {
+  if (win.id && mainWinId && win.id === mainWinId) return true;
+  const title = typeof win.getTitle === 'function' ? win.getTitle() : '';
+  // Format Obsidian title: "<Note/Page> - <VaultName> - Obsidian <Version>"
+  return title.includes(` - ${vaultName} - `) || title.endsWith(` - ${vaultName}`);
+}
+```
 
 ---
 
-## 3. Implemented Files
+## 3. Planned Files & Changes
 
 | File | Status | Keterangan |
 | :--- | :---: | :--- |
-| `src/features/taskbar/types.ts` | ✅ Done | Definisi `TaskbarSubwindowMode` & default setting |
-| `src/features/taskbar/taskbar.ts` | ✅ Done | Core engine: iterasi `getAllWindows`, lifecycle watcher, & dynamic AUMID |
-| `src/features/taskbar/settings.ts` | ✅ Done | Dropdown 3 opsi & note banner "Restart app to see the effect" |
-| `src/main.ts` | ✅ Done | Lifecycle watcher registration on load |
-| `docs/task-bar-icon.md` | ✅ Done | Brief tracking status 1 |
+| `src/features/taskbar/taskbar.ts` | ⏳ Pending | Filter ketat `isWindowBelongingToVault` pada perulangan jendela |
+| `docs/task-bar-icon.md` | ⏳ Pending | Brief status tracking |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
 
-- [x] Status 0 brief dibuat dan di-commit ke Git repo (`e0295b6`).
-- [x] Dropdown 3 opsi tersedia di Settings PakCLI Local:
-      1. `change other subwindows aswell + can be join collpase with main`
-      2. `change other subwindows aswell`
-      3. `none`
-- [x] Banner note "Restart Obsidian app to see the effect" tampil jelas di UI settings.
-- [x] Jendela Settings dan popout leaf mengikuti opsi yang dipilih.
-- [x] Opsi collapse menggabungkan jendela Settings ke dalam grup taskbar vault utama dengan icon yang sama.
-- [x] Build TypeScript clean dan auto-deployed ke vault.
-- [x] Status diupdate ke `1` (Completed) dan di-commit.
+- [ ] Status 0 brief dibuat dan di-commit ke Git repo.
+- [ ] Jendela milik vault lain tidak pernah diubah atau di-collapse.
+- [ ] Jendela Settings dan sub-window milik vault ini tetap terkelola sesuai dropdown 3 opsi.
+- [ ] Build clean dan auto-deployed ke vault.
+- [ ] Status diupdate ke `1` (Completed) dan di-commit.
