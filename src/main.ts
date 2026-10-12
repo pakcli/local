@@ -45,7 +45,7 @@ import { copyFilesToNativeOsClipboard, getAbsoluteFileSystemPath } from './utils
 import { GitHubFetcherManager, GitHubBatchFetcherModal, renderGitHubFetcherSettings } from './features/githubFetcher';
 
 // Taskbar Vault Icon Imports
-import { applyTaskbarIcon, saveAppearanceIconToArtifacts } from './features/taskbar/taskbar';
+import { applyTaskbarIcon, saveAppearanceIconToArtifacts, registerSubwindowLifecycleWatcher } from './features/taskbar/taskbar';
 import { renderTaskbarSettings } from './features/taskbar/settings';
 
 export default class PakCLILocalPlugin extends Plugin {
@@ -294,6 +294,7 @@ export default class PakCLILocalPlugin extends Plugin {
 				void applyTaskbarIcon(this, false);
 			}, 500);
 		});
+		registerSubwindowLifecycleWatcher(this);
 
 		// 16. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {

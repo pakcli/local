@@ -295,7 +295,7 @@ export function ensureIcoFile(plugin: PakCLILocalPlugin, sourcePath: string): st
 }
 
 /**
- * Apply per-vault taskbar identity and icon via Electron setAppDetails
+ * Apply per-vault taskbar identity and icon via Electron setAppDetails to main and sub-windows.
  */
 export async function applyTaskbarIcon(
   plugin: PakCLILocalPlugin,
@@ -314,13 +314,12 @@ export async function applyTaskbarIcon(
     }
 
     // 2. Resolve Remote Module: @electron/remote -> electron.remote
-    let remote: { getCurrentWindow(): ElectronRemoteWindow } | null = null;
+    let remote: any = null;
     try {
-      remote = nodeRequire('@electron/remote') as { getCurrentWindow(): ElectronRemoteWindow };
+      remote = nodeRequire('@electron/remote');
     } catch {
       try {
-        const electron = nodeRequire('electron') as { remote?: { getCurrentWindow(): ElectronRemoteWindow } };
-        remote = electron?.remote || null;
+        remote = (nodeRequire('electron') as any)?.remote;
       } catch {
         remote = null;
       }
@@ -333,7 +332,7 @@ export async function applyTaskbarIcon(
       return { success: false, message: msg };
     }
 
-    const currentWin = remote.getCurrentWindow();
+    const currentWin: ElectronRemoteWindow = remote.getCurrentWindow();
     if (!currentWin || typeof currentWin.setAppDetails !== 'function') {
       const msg = 'BrowserWindow.setAppDetails is not supported on this Electron build.';
       console.warn(`[PakCLI Local] ${msg}`);
@@ -362,22 +361,60 @@ export async function applyTaskbarIcon(
 
     // 4. Resolve AppUserModelID (AUMID)
     const vaultName = plugin.app.vault.getName();
-    const appId = (plugin.settings.taskbarCustomAppId || '').trim() || sanitizeVaultAppId(vaultName);
+    const baseAppId = (plugin.settings.taskbarCustomAppId || '').trim() || sanitizeVaultAppId(vaultName);
 
     // 5. Configure Relaunch Target
     const execPath = processObj?.execPath || 'obsidian';
     const relaunchCommand = `"${execPath}" "obsidian://open?vault=${encodeURIComponent(vaultName)}"`;
     const relaunchDisplayName = `Obsidian - ${vaultName}`;
 
-    // 6. Invoke Electron API
+    // 6. Gather all open Electron windows
+    const allWindows: ElectronRemoteWindow[] = [];
+    if (typeof remote.BrowserWindow?.getAllWindows === 'function') {
+      try {
+        const wins = remote.BrowserWindow.getAllWindows();
+        if (Array.isArray(wins)) {
+          allWindows.push(...wins);
+        }
+      } catch {}
+    }
+    if (!allWindows.includes(currentWin)) {
+      allWindows.push(currentWin);
+    }
+
+    // 7. Invoke Electron API on main window
     currentWin.setAppDetails({
-      appId,
+      appId: baseAppId,
       appIconPath: finalIcoPath,
       relaunchCommand,
       relaunchDisplayName,
     });
 
-    const successMsg = `Taskbar identity updated for vault "${vaultName}" from ${origin} (AppId: ${appId})`;
+    // 8. Handle Sub-windows (Settings, popouts) based on taskbarSubwindowMode
+    const subwindowMode = plugin.settings.taskbarSubwindowMode || 'subwindows-collapse';
+    if (subwindowMode !== 'none') {
+      for (const win of allWindows) {
+        if (win === currentWin) continue;
+        try {
+          if (typeof win.setAppDetails === 'function') {
+            const subAppId = subwindowMode === 'subwindows-collapse'
+              ? baseAppId
+              : `${baseAppId}.sub.${win.id || Math.random().toString(36).slice(2, 6)}`;
+
+            win.setAppDetails({
+              appId: subAppId,
+              appIconPath: finalIcoPath,
+              relaunchCommand,
+              relaunchDisplayName,
+            });
+          }
+        } catch (subErr) {
+          console.warn('[PakCLI Local] Failed to update subwindow app details:', subErr);
+        }
+      }
+    }
+
+    const successMsg = `Taskbar identity updated for vault "${vaultName}" from ${origin} (AppId: ${baseAppId}, Subwindows: ${subwindowMode})`;
     console.log(`[PakCLI Local] ${successMsg}`);
     if (showNotice) {
       new Notice(`✅ Taskbar icon applied from ${origin} ("${vaultName}")`);
@@ -386,7 +423,7 @@ export async function applyTaskbarIcon(
     return {
       success: true,
       message: successMsg,
-      appId,
+      appId: baseAppId,
       iconPath: finalIcoPath,
     };
   } catch (error) {
@@ -397,4 +434,48 @@ export async function applyTaskbarIcon(
     }
     return { success: false, message: errorMsg };
   }
+}
+
+/**
+ * Monitor new windows (Settings, Popout windows, Modals) and apply taskbar details automatically.
+ */
+export function registerSubwindowLifecycleWatcher(plugin: PakCLILocalPlugin): void {
+  const processObj = (window as unknown as { process?: { platform?: string } }).process;
+  if (!Platform.isDesktopApp || processObj?.platform !== 'win32') return;
+
+  const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+  if (!nodeRequire) return;
+
+  let remote: any = null;
+  try {
+    remote = nodeRequire('@electron/remote');
+  } catch {
+    try {
+      remote = (nodeRequire('electron') as any)?.remote;
+    } catch {}
+  }
+
+  // 1. Electron app browser-window-created event
+  if (remote?.app && typeof remote.app.on === 'function') {
+    try {
+      remote.app.on('browser-window-created', (_event: any, newWin: any) => {
+        window.setTimeout(() => {
+          if (plugin.settings.taskbarSubwindowMode !== 'none' && typeof newWin?.setAppDetails === 'function') {
+            void applyTaskbarIcon(plugin, false);
+          }
+        }, 250);
+      });
+    } catch (err) {
+      console.warn('[PakCLI Local] Failed to register browser-window-created watcher:', err);
+    }
+  }
+
+  // 2. Obsidian Workspace window-open event (e.g. popout notes)
+  plugin.registerEvent(
+    plugin.app.workspace.on('window-open', () => {
+      window.setTimeout(() => {
+        void applyTaskbarIcon(plugin, false);
+      }, 350);
+    })
+  );
 }
