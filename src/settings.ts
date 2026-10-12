@@ -5,6 +5,7 @@ import { CopyPasteSettings, DEFAULT_COPYPASTE_SETTINGS } from './features/copypa
 import { GitManagerSettings, DEFAULT_GIT_MANAGER_SETTINGS } from './features/gitManager/types';
 import { RawOpenerSettings, DEFAULT_RAW_OPENER_SETTINGS } from './features/rawOpener/types';
 import { GitHubFetcherSettings, DEFAULT_GITHUB_FETCHER_SETTINGS } from './features/githubFetcher/types';
+import { TaskbarSettings, DEFAULT_TASKBAR_SETTINGS } from './features/taskbar/types';
 
 export interface PakCLILocalSettings extends 
     SymlinkManagerSettings, 
@@ -12,7 +13,8 @@ export interface PakCLILocalSettings extends
     FolderSyncSettings,
     CopyPasteSettings,
     RawOpenerSettings,
-    GitHubFetcherSettings
+    GitHubFetcherSettings,
+    TaskbarSettings
 {
     autoCheckDependencies?: boolean;
     gitManager?: GitManagerSettings;
@@ -26,6 +28,7 @@ export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
     ...DEFAULT_COPYPASTE_SETTINGS,
     ...DEFAULT_RAW_OPENER_SETTINGS,
     ...DEFAULT_GITHUB_FETCHER_SETTINGS,
+    ...DEFAULT_TASKBAR_SETTINGS,
     autoCheckDependencies: true,
     gitManager: { ...DEFAULT_GIT_MANAGER_SETTINGS },
     enableAssetDrag: true,

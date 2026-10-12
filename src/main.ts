@@ -44,6 +44,10 @@ import { copyFilesToNativeOsClipboard, getAbsoluteFileSystemPath } from './utils
 // GitHub Repository Batch Fetcher & Library Imports
 import { GitHubFetcherManager, GitHubBatchFetcherModal, renderGitHubFetcherSettings } from './features/githubFetcher';
 
+// Taskbar Vault Icon Imports
+import { applyTaskbarIcon } from './features/taskbar/taskbar';
+import { renderTaskbarSettings } from './features/taskbar/settings';
+
 export default class PakCLILocalPlugin extends Plugin {
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
@@ -284,7 +288,14 @@ export default class PakCLILocalPlugin extends Plugin {
 		// 14. Register Master-Detail Settings Tab
 		this.registerSettingsHub();
 
-		// 15. Background Health Check
+		// 15. Taskbar Vault Icon Auto-Apply on Layout Ready
+		this.app.workspace.onLayoutReady(() => {
+			window.setTimeout(() => {
+				void applyTaskbarIcon(this, false);
+			}, 500);
+		});
+
+		// 16. Background Health Check
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
@@ -681,6 +692,15 @@ export default class PakCLILocalPlugin extends Plugin {
 				).open();
 			}
 		});
+
+		// Command: Reapply taskbar icon
+		this.addCommand({
+			id: 'pl-reapply-taskbar-icon',
+			name: 'Reapply taskbar icon',
+			callback: async () => {
+				await applyTaskbarIcon(this, true);
+			}
+		});
 	}
 
 	private registerSettingsHub() {
@@ -810,6 +830,22 @@ export default class PakCLILocalPlugin extends Plugin {
 					containerEl,
 					this.settings,
 					() => this.saveSettings()
+				);
+			}
+		});
+
+		// 8. Taskbar Vault Icon Section Handler
+		settingsTab.registerLocalSection({
+			id: 'local-taskbar-icon',
+			category: 'local',
+			title: 'Taskbar Vault Icon (Windows)',
+			icon: 'layout',
+			isInstalled: true,
+			render: (containerEl) => {
+				renderTaskbarSettings(
+					this.app,
+					this,
+					containerEl
 				);
 			}
 		});
