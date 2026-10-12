@@ -414,6 +414,22 @@ export async function applyTaskbarIcon(
       relaunchDisplayName,
     });
 
+    // Also update window window-icon directly if supported (Electron nativeImage / setIcon)
+    try {
+      if (typeof (currentWin as any).setIcon === 'function') {
+        const electronModule = nodeRequire('electron') as { nativeImage?: { createFromPath(p: string): unknown } };
+        const nativeImage = electronModule?.nativeImage || (remote as any)?.nativeImage;
+        if (nativeImage && typeof nativeImage.createFromPath === 'function') {
+          const img = nativeImage.createFromPath(finalIcoPath);
+          if (img && !(img as any).isEmpty?.()) {
+            (currentWin as any).setIcon(img);
+          }
+        }
+      }
+    } catch (iconErr) {
+      console.warn('[PakCLI Local] Non-fatal: could not set window icon directly:', iconErr);
+    }
+
     // 8. Handle Sub-windows (Settings, popouts) strictly belonging to THIS vault
     const subwindowMode = plugin.settings.taskbarSubwindowMode || 'subwindows-collapse';
     if (subwindowMode !== 'none') {
@@ -438,6 +454,18 @@ export async function applyTaskbarIcon(
               relaunchCommand,
               relaunchDisplayName,
             });
+          }
+
+          // Also set window icon directly on subwindow
+          if (typeof (win as any).setIcon === 'function') {
+            const electronModule = nodeRequire('electron') as { nativeImage?: { createFromPath(p: string): unknown } };
+            const nativeImage = electronModule?.nativeImage || (remote as any)?.nativeImage;
+            if (nativeImage && typeof nativeImage.createFromPath === 'function') {
+              const img = nativeImage.createFromPath(finalIcoPath);
+              if (img && !(img as any).isEmpty?.()) {
+                (win as any).setIcon(img);
+              }
+            }
           }
         } catch (subErr) {
           console.warn('[PakCLI Local] Failed to update subwindow app details:', subErr);
