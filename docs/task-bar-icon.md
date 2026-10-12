@@ -1,6 +1,6 @@
-# 📌 Master Brief: Per-Vault Windows Taskbar Icon via Vault Artifacts (`pakcli-local`)
+# 📌 Master Brief: Per-Vault Taskbar Icon Subwindow & Collapse Management (`pakcli-local`)
 
-> **Feature Status**: `1` (Implemented & Verified)  
+> **Feature Status**: `0` (Draft / Pending Implementation)  
 > **Target Module**: `pakcli-local`  
 > **Platform**: Windows Desktop (`Platform.isDesktopApp && process.platform === 'win32'`)  
 > **Date**: 2026-10-12  
@@ -10,57 +10,56 @@
 ## 1. Objective & Problem Statement
 
 ### The Problem
-Penggunaan file global `%APPDATA%\obsidian\icon.png` menyebabkan 2 masalah utama:
-1. **Kurang Isolasi**: Seluruh vault di komputer berbagi satu file `%APPDATA%`, sehingga perubahan icon di satu vault mengacaukan atau menimpa vault lain.
-2. **Glitch Taskbar (Strip Hitam / Blank)**: Dimensi file PNG yang di-wrap ke `.ico` tanpa membaca ukuran header asli (IHDR) menyebabkan Windows DWM gagal merender icon di taskbar.
+Ketika pengguna membuka jendela pengaturan Obsidian (Settings), dialog popout, atau popout leaf sebagai jendela terpisah (sub-window):
+1. Sub-window tersebut mewarisi AppUserModelID bawaan Obsidian (`md.obsidian`) dan menampilkan icon ungu default Obsidian.
+2. Di Windows Taskbar, jendela Settings muncul sebagai aplikasi terpisah di sebelah icon vault kustom, tanpa pengelompokan (collapse/grouping).
 
-### The Solution (Vault Artifacts Relocation)
-Relokasi icon ke folder lokal vault masing-masing:
-- **Lokasi Utama**: `<vault>/artifacts/icon.ico` (atau `icon.png`).
-- Mendukung folder `<vault>/artifact/` dan `<vault>/.obsidian/icons/` sebagai alias.
-- **1-Click Relocation**: Menyediakan tombol di Settings Hub dan Command Palette ("Taskbar: Save Appearance Icon to Vault Artifacts") untuk meng-copy icon dari menu Appearance langsung ke `<vault>/artifacts/icon.ico` secara otomatis.
-- **Dynamic PNG Dimension Parser**: Membaca lebar & tinggi asli dari header IHDR PNG (offset 16-24) agar header ICO sesuai spesifikasi Windows Shell dan tidak glitch hitam.
+### The Solution (Subwindow Management with 3 Options)
+Menambahkan pengaturan mode penanganan sub-window (dropdown 3 opsi):
+1. **`change other subwindows aswell + can be join collpase with main`** (Rekomendasi / Default):
+   Menyuntikkan `appId` dan `appIconPath` yang identik dengan jendela utama ke seluruh sub-window/popout. Windows Taskbar otomatis menggabungkan (group & collapse) sub-window ke dalam tombol taskbar vault utama.
+2. **`change other subwindows aswell`**:
+   Menyuntikkan icon kustom ke seluruh sub-window, namun menggunakan `appId` unik per sub-window (`md.obsidian.vault.<Vault>.sub.<id>`). Sub-window tetap terpisah di taskbar (tidak digabung), namun menampilkan icon kustom vault.
+3. **`none`**:
+   Hanya memodifikasi jendela utama vault. Sub-window dibiarkan murni default Obsidian.
 
 ---
 
 ## 2. Technical Architecture & Constraints
 
-### A. Icon Hierarchy (Per-Vault First)
-1. **Priority 1**: `<vaultBase>/artifacts/icon.ico` atau `<vaultBase>/artifacts/icon.png`.
-2. **Priority 2**: `<vaultBase>/artifact/icon.ico` atau `<vaultBase>/artifact/icon.png`.
-3. **Priority 3**: Custom path yang diatur secara manual oleh user di setting.
-4. **Priority 4**: `<vaultBase>/.obsidian/plugins/pakcli-local/icon.ico`.
-5. **Fallback Utility**: Tombol "Save Appearance Icon to Artifacts" untuk menduplikasi icon Appearance ke `artifacts/icon.ico` lokal vault.
+### A. Electron Window Discovery & Lifecycle Tracking
+- Gunakan `remote.BrowserWindow.getAllWindows()` untuk memindai seluruh jendela aktif Obsidian.
+- Pantau pembuatan sub-window baru melalui:
+  - `app.workspace.on('window-open', ...)` di level Obsidian Workspace.
+  - Event listener `browser-window-created` pada `remote.app` (jika tersedia).
+  - Panggilan refresh otomatis saat modal/settings dibuka.
 
-### B. Precise ICO Wrapping
-Membaca dimensi dari buffer PNG:
-```typescript
-const width = pngBuf.readUInt32BE(16);
-const height = pngBuf.readUInt32BE(20);
-const icoWidth = width >= 256 ? 0 : width;
-const icoHeight = height >= 256 ? 0 : height;
-```
-Menghasilkan file `.ico` yang 100% valid untuk Windows Taskbar tanpa black/blank visual artifact.
+### B. Windows AUMID Rules for Taskbar Collapsing
+- **Collapse/Grouping**: Terjadi jika 2 jendela memiliki nilai `appId` persis sama.
+- **Separate Items**: Terjadi jika jendela memiliki `appId` berbeda.
 
 ---
 
-## 3. Implemented Files
+## 3. Planned Files & Changes
 
 | File | Status | Keterangan |
 | :--- | :---: | :--- |
-| `src/features/taskbar/types.ts` | ✅ Done | Interface settings, AppDetails, & RemoteWindow contract |
-| `src/features/taskbar/taskbar.ts` | ✅ Done | Relokasi pencarian ke `<vault>/artifacts/`, dynamic IHDR sizing, & copy utility |
-| `src/features/taskbar/settings.ts` | ✅ Done | UI update: path artifacts indicator & 1-click copy button |
-| `src/main.ts` | ✅ Done | Command Palette & layout-ready hook |
-| `docs/task-bar-icon.md` | ✅ Done | Brief status 1 tracking |
+| `src/features/taskbar/types.ts` | ⏳ Pending | Tambah tipe `TaskbarSubwindowMode` dan field settings |
+| `src/features/taskbar/taskbar.ts` | ⏳ Pending | Logika iterasi seluruh `BrowserWindow` dan subwindow mode handler |
+| `src/features/taskbar/settings.ts` | ⏳ Pending | Dropdown 3 opsi di settings hub |
+| `src/main.ts` | ⏳ Pending | Workspace `window-open` event listener |
+| `docs/task-bar-icon.md` | ⏳ Pending | Brief tracking status |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
 
-- [x] Status 0 brief dibuat dan di-commit ke Git repo (`107ea40`).
-- [x] Icon dicari dan dimuat dari `<vault>/artifacts/icon.ico` atau `icon.png`.
-- [x] Dimensi PNG dibaca dinamis dari IHDR (bebas glitch hitam/blank).
-- [x] Tombol "Save Appearance Icon to Artifacts" meng-copy icon ke `<vault>/artifacts/` dan menerapkan taskbar.
-- [x] Command Palette: "Taskbar: Save Appearance Icon to Vault Artifacts".
-- [x] Status diupdate ke `1` (Completed), build clean, dan di-commit.
+- [ ] Status 0 brief dibuat dan di-commit ke Git repo.
+- [ ] Dropdown 3 opsi tersedia di Settings PakCLI Local:
+      - `change other subwindows aswell + can be join collpase with main`
+      - `change other subwindows aswell`
+      - `none`
+- [ ] Jendela Settings dan popout leaf mengikuti opsi yang dipilih.
+- [ ] Opsi collapse menggabungkan jendela Settings ke dalam grup taskbar vault utama dengan icon yang sama.
+- [ ] Build TypeScript clean dan auto-deployed ke vault.
+- [ ] Status diupdate ke `1` (Completed) dan di-commit.
