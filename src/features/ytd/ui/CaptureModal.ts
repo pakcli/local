@@ -24,6 +24,7 @@ import {
   formatTime,
   buildNotesMarkdown,
   buildMediaBaseName,
+  buildWebEmbed,
 } from "../utils/fileHelpers";
 import { buildZip } from "../utils/zipBuilder";
 import { getIncrementalCaptureHistory } from "../utils/historyCache";
@@ -350,6 +351,55 @@ export class CaptureModal extends Modal {
           ? "ytec-badge ytec-badge-ok"
           : "ytec-badge ytec-badge-warn",
         text: p.has_transcript ? "✓ Subtitles Available" : "⚠ No Subtitles",
+      });
+
+      const copyRow = cardPreview.createDiv({ cls: "ytec-embed-copy-actions ytec-mt-6" });
+      const copyIframeBtn = copyRow.createEl("button", {
+        cls: "ytec-btn ytec-btn-sm",
+        text: "📋 Copy iframe",
+        type: "button",
+        title: "Copy embed iframe HTML",
+      });
+      copyIframeBtn.addEventListener("click", async () => {
+        const embed = buildWebEmbed(
+          p.platform,
+          p.video_id,
+          this.urlValue.trim(),
+          this.editedStart,
+          p.title,
+          this.plugin.settings.ytCaptureEmbedWidth || "100%",
+          this.plugin.settings.ytCaptureEmbedHeight || "520"
+        );
+        try {
+          await navigator.clipboard.writeText(embed.iframeHtml);
+          new Notice("📋 Copied iframe embed code!");
+        } catch {
+          new Notice("Failed to copy iframe embed code");
+        }
+      });
+
+      const copyUrlBtn = copyRow.createEl("button", {
+        cls: "ytec-btn ytec-btn-sm",
+        text: "🔗 Copy Embed URL",
+        type: "button",
+        title: "Copy direct embed player URL",
+      });
+      copyUrlBtn.addEventListener("click", async () => {
+        const embed = buildWebEmbed(
+          p.platform,
+          p.video_id,
+          this.urlValue.trim(),
+          this.editedStart,
+          p.title,
+          this.plugin.settings.ytCaptureEmbedWidth || "100%",
+          this.plugin.settings.ytCaptureEmbedHeight || "520"
+        );
+        try {
+          await navigator.clipboard.writeText(embed.embedUrl);
+          new Notice("🔗 Copied player embed URL!");
+        } catch {
+          new Notice("Failed to copy embed URL");
+        }
       });
     } else {
       cardPreview.createDiv({
@@ -815,6 +865,7 @@ export class CaptureModal extends Modal {
           title: p.title,
           url: targetUrl,
           videoId: p.video_id,
+          platform: p.platform,
           channel: p.channel,
           channelUrl: p.channel_url,
           uploadDate: p.upload_date,
@@ -831,6 +882,11 @@ export class CaptureModal extends Modal {
           mediaEmbeds: {
             mp4Filename: mp4Name,
             thumbFilename: thumbName,
+          },
+          webEmbed: {
+            enabled: this.plugin.settings.ytCaptureIncludeWebEmbed ?? true,
+            width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
+            height: this.plugin.settings.ytCaptureEmbedHeight || "520",
           },
           frontmatterKeys: activePreset?.frontmatterKeys,
         });
@@ -987,6 +1043,7 @@ export class CaptureModal extends Modal {
         title: p.title,
         url: targetUrl,
         videoId: p.video_id,
+        platform: p.platform,
         channel: p.channel,
         channelUrl: p.channel_url,
         uploadDate: p.upload_date,
@@ -1003,6 +1060,11 @@ export class CaptureModal extends Modal {
         mediaEmbeds: {
           mp4Filename: mp4Name,
           thumbFilename: thumbName,
+        },
+        webEmbed: {
+          enabled: this.plugin.settings.ytCaptureIncludeWebEmbed ?? true,
+          width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
+          height: this.plugin.settings.ytCaptureEmbedHeight || "520",
         },
         frontmatterKeys: activePreset?.frontmatterKeys,
       });

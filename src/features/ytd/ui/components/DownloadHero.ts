@@ -1,10 +1,11 @@
-import { setIcon } from "obsidian";
+import { Notice, setIcon } from "obsidian";
 import type { VideoPreview } from "../../types";
-import { formatTime } from "../../utils/fileHelpers";
+import { formatTime, buildWebEmbed } from "../../utils/fileHelpers";
 
 export interface DownloadHeroOptions {
   onUrlChange?: (url: string) => void;
   onEnter?: () => void;
+  getEmbedSettings?: () => { width?: string; height?: string };
 }
 
 export class DownloadHero {
@@ -107,6 +108,59 @@ export class DownloadHero {
     if (preview.duration > 0) {
       subEl.createSpan({ cls: "ytec-hero-duration", text: `· ${formatTime(preview.duration)}` });
     }
+
+    const actionsRow = textEl.createDiv({ cls: "ytec-hero-meta-actions" });
+    const copyIframeBtn = actionsRow.createEl("button", {
+      cls: "ytec-btn ytec-btn-sm",
+      text: "📋 Copy iframe",
+      type: "button",
+      title: "Copy embed iframe HTML",
+    });
+    copyIframeBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const dims = this.options.getEmbedSettings?.() || {};
+      const embed = buildWebEmbed(
+        preview.platform,
+        preview.video_id,
+        this.getUrl(),
+        preview.start || 0,
+        preview.title,
+        dims.width || "100%",
+        dims.height || "520"
+      );
+      try {
+        await navigator.clipboard.writeText(embed.iframeHtml);
+        new Notice("📋 Copied iframe embed code!");
+      } catch {
+        new Notice("Failed to copy iframe embed code");
+      }
+    });
+
+    const copyUrlBtn = actionsRow.createEl("button", {
+      cls: "ytec-btn ytec-btn-sm",
+      text: "🔗 Copy Embed URL",
+      type: "button",
+      title: "Copy direct embed player URL",
+    });
+    copyUrlBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const dims = this.options.getEmbedSettings?.() || {};
+      const embed = buildWebEmbed(
+        preview.platform,
+        preview.video_id,
+        this.getUrl(),
+        preview.start || 0,
+        preview.title,
+        dims.width || "100%",
+        dims.height || "520"
+      );
+      try {
+        await navigator.clipboard.writeText(embed.embedUrl);
+        new Notice("🔗 Copied player embed URL!");
+      } catch {
+        new Notice("Failed to copy embed URL");
+      }
+    });
   }
 
   setLoading(loading: boolean): void {

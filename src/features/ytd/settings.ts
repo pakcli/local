@@ -224,6 +224,44 @@ export function renderYTCaptureSettings(
       });
     });
 
+  new Setting(captureSection)
+    .setName("Extract Web Player & iframe")
+    .setDesc("Automatically extract and insert playable YouTube / Instagram iframe and native embed player into generated Markdown notes.")
+    .addToggle((toggle) =>
+      toggle
+        .setValue(plugin.settings.ytCaptureIncludeWebEmbed ?? true)
+        .onChange(async (v) => {
+          plugin.settings.ytCaptureIncludeWebEmbed = v;
+          await plugin.saveSettings();
+        })
+    );
+
+  new Setting(captureSection)
+    .setName("Default Embed iframe Width")
+    .setDesc("Width for the extracted iframe player (default: 100%).")
+    .addText((t) =>
+      t
+        .setPlaceholder("100%")
+        .setValue(plugin.settings.ytCaptureEmbedWidth || "100%")
+        .onChange(async (v) => {
+          plugin.settings.ytCaptureEmbedWidth = v.trim() || "100%";
+          await plugin.saveSettings();
+        })
+    );
+
+  new Setting(captureSection)
+    .setName("Default Embed iframe Height")
+    .setDesc("Height for the extracted iframe player in pixels or CSS units (default: 520).")
+    .addText((t) =>
+      t
+        .setPlaceholder("520")
+        .setValue(plugin.settings.ytCaptureEmbedHeight || "520")
+        .onChange(async (v) => {
+          plugin.settings.ytCaptureEmbedHeight = v.trim() || "520";
+          await plugin.saveSettings();
+        })
+    );
+
   // ══════════════════════════════════════════════════════════════════════════
   //  SECTION 4 — Debug & Diagnostics (Inside Obsidian UI)
   // ══════════════════════════════════════════════════════════════════════════

@@ -200,6 +200,10 @@ export class YTDownloaderView extends ItemView {
         const state = this.form.getState();
         this.handleFetchAndDownload(state);
       },
+      getEmbedSettings: () => ({
+        width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
+        height: this.plugin.settings.ytCaptureEmbedHeight || "520",
+      }),
     });
 
     // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download) + Info button
@@ -806,6 +810,7 @@ export class YTDownloaderView extends ItemView {
           title: activePreview.title,
           url,
           videoId: activePreview.video_id,
+          platform: activePreview.platform,
           channel: activePreview.channel,
           channelUrl: activePreview.channel_url,
           uploadDate: activePreview.upload_date,
@@ -822,6 +827,11 @@ export class YTDownloaderView extends ItemView {
           mediaEmbeds: {
             mp4Filename: clipFileName,
             thumbFilename: thumbFileName,
+          },
+          webEmbed: {
+            enabled: this.plugin.settings.ytCaptureIncludeWebEmbed ?? true,
+            width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
+            height: this.plugin.settings.ytCaptureEmbedHeight || "520",
           },
           frontmatterKeys: activePreset?.frontmatterKeys,
         });

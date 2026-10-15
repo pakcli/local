@@ -2,7 +2,7 @@
 id: ytd-embed-iframe-extraction
 title: YTD YouTube & Instagram Embed & iframe Extraction
 plugin: local
-status: 0
+status: 1
 tags:
   - pakcli
   - local
@@ -17,7 +17,7 @@ created: 2026-10-15
 
 # 📌 Master Brief: YouTube & Instagram Embed and iframe Extraction (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local/src/features/ytd`  
 > **Platform**: Cross-platform (Desktop & Mobile)  
 > **Date**: 2026-10-15  
@@ -70,20 +70,24 @@ created: 2026-10-15
 ## 3. Implementation Plan & Target Files
 | File | Status | Description |
 | :--- | :---: | :--- |
-| `docs/brief-ytd-embed-iframe-extraction.md` | ⏳ | Master brief (Status 0 -> 1) |
-| `src/features/ytd/utils/fileHelpers.ts` | ⏳ | Generate YouTube & Instagram iframe/embed markdown di `buildNotesMarkdown` |
-| `src/features/ytd/ui/CaptureModal.ts` | ⏳ | Integrasi tombol Copy Embed & passing parameter embed |
-| `src/features/ytd/ui/YTDownloaderView.ts` | ⏳ | Integrasi pembuatan note dengan web embed & iframe |
-| `src/features/ytd/settings.ts` | ⏳ | Pengaturan toggle embed / iframe extraction |
+| `docs/brief-ytd-embed-iframe-extraction.md` | ✅ | Master brief (Status 0 -> 1) |
+| `src/features/ytd/types.ts` | ✅ | Setting types for embed toggle, default width ("100%"), height ("520") |
+| `src/features/ytd/utils/fileHelpers.ts` | ✅ | Generate YouTube & Instagram iframe/embed markdown di `buildNotesMarkdown` and `buildWebEmbed` |
+| `src/features/ytd/ui/CaptureModal.ts` | ✅ | Integrasi tombol Copy Embed, Copy iframe & passing parameter embed |
+| `src/features/ytd/ui/components/DownloadHero.ts` | ✅ | Tombol Copy iframe & Copy Embed URL di preview card |
+| `src/features/ytd/ui/YTDownloaderView.ts` | ✅ | Integrasi pembuatan note dengan web embed & iframe serta embed dimensions |
+| `src/features/ytd/settings.ts` | ✅ | Pengaturan toggle embed / iframe extraction serta editable width & height |
+| `src/styles/ytcapture.css` | ✅ | Styling untuk small action buttons dan button rows |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
-- [ ] Status 0 brief dibuat dan di-commit ke branch aktif
-- [ ] Catatan hasil capture YouTube menyertakan iframe YouTube interaktif (lengkap dengan timestamp start clip)
-- [ ] Catatan hasil capture Instagram menyertakan iframe Instagram reel/post resmi
-- [ ] YAML Frontmatter menyertakan metadata `embed_url` dan `embed_iframe`
-- [ ] Terdapat tombol salin kode iframe/embed di UI CaptureModal / YTDownloaderView
-- [ ] Ekstraksi berfungsi mulus di desktop & mobile tanpa merusak file download mp4/jpg lokal
-- [ ] Production build (`npm run build`) sukses tanpa error dan lolos verifikasi
-- [ ] Status 1 brief diperbarui dan di-commit
+- [x] Status 0 brief dibuat dan di-commit ke branch aktif
+- [x] Catatan hasil capture YouTube menyertakan iframe YouTube interaktif (lengkap dengan timestamp start clip)
+- [x] Catatan hasil capture Instagram menyertakan iframe Instagram reel/post resmi
+- [x] Default iframe width adalah `100%` dan height `520`, dapat diedit di menu plugin settings
+- [x] YAML Frontmatter menyertakan metadata `platform`, `embed_url`, dan `embed_iframe`
+- [x] Terdapat tombol salin kode iframe/embed di UI CaptureModal dan YTDownloaderView
+- [x] Ekstraksi berfungsi mulus di desktop & mobile tanpa merusak file download mp4/jpg lokal
+- [x] Production build (`npm run build`) sukses tanpa error dan lolos verifikasi (bundle 520 KB < 5.0 MB)
+- [x] Status 1 brief diperbarui dan di-commit

@@ -160,10 +160,68 @@ export function buildMediaBaseName(
   return { baseName, formatExt, resolution, prefix, cleanTitle, dateTimeStr };
 }
 
-interface NoteParams {
+export interface WebEmbedInfo {
+  platform: "youtube" | "instagram";
+  embedUrl: string;
+  iframeHtml: string;
+  markdownEmbed: string;
+}
+
+export function buildWebEmbed(
+  platformInput?: string,
+  videoId?: string,
+  rawUrl?: string,
+  clipStart = 0,
+  title = "Video player",
+  width = "100%",
+  height = "520"
+): WebEmbedInfo {
+  const url = rawUrl || "";
+  const isInstagram =
+    platformInput === "instagram" ||
+    url.includes("instagram.com") ||
+    url.includes("instagr.am");
+  const id = videoId || "";
+
+  if (isInstagram) {
+    let embedUrl = `https://www.instagram.com/reel/${id}/embed/`;
+    if (url.includes("/p/")) {
+      embedUrl = `https://www.instagram.com/p/${id}/embed/`;
+    } else if (url.includes("/tv/")) {
+      embedUrl = `https://www.instagram.com/tv/${id}/embed/`;
+    }
+
+    const iframeHtml = `<iframe width="${width}" height="${height}" src="${embedUrl}" frameborder="0" scrolling="no" allowtransparency="true"></iframe>`;
+    const markdownEmbed = `[📸 View on Instagram](${url || `https://www.instagram.com/reel/${id}/`})`;
+
+    return {
+      platform: "instagram",
+      embedUrl,
+      iframeHtml,
+      markdownEmbed,
+    };
+  }
+
+  // YouTube
+  const startSec = Math.floor(clipStart);
+  const startQuery = startSec > 0 ? `?start=${startSec}` : "";
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${id}${startQuery}`;
+  const iframeHtml = `<iframe width="${width}" height="${height}" src="${embedUrl}" title="${title.replace(/"/g, "&quot;")}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+  const markdownEmbed = `![](https://www.youtube.com/watch?v=${id})`;
+
+  return {
+    platform: "youtube",
+    embedUrl,
+    iframeHtml,
+    markdownEmbed,
+  };
+}
+
+export interface NoteParams {
   title: string;
   url: string;
   videoId: string;
+  platform?: "youtube" | "instagram" | string;
   channel: string;
   channelUrl: string;
   uploadDate: string;
@@ -180,6 +238,11 @@ interface NoteParams {
   mediaEmbeds?: {
     mp4Filename: string;
     thumbFilename: string;
+  };
+  webEmbed?: {
+    enabled?: boolean;
+    width?: string;
+    height?: string;
   };
   frontmatterKeys?: {
     titleKey?: string;
@@ -208,16 +271,32 @@ export function buildNotesMarkdown(p: NoteParams): string {
   const timeRangeVal = `${formatTime(p.clipStart)}–${formatTime(p.clipEnd)}`;
   const cleanDesc = (p.description || "").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
 
+  const includeWebEmbed = p.webEmbed?.enabled !== false;
+  const embedWidth = p.webEmbed?.width || "100%";
+  const embedHeight = p.webEmbed?.height || "520";
+  const webEmbed = buildWebEmbed(
+    p.platform,
+    p.videoId,
+    p.url,
+    p.clipStart,
+    p.title,
+    embedWidth,
+    embedHeight
+  );
+
   const frontmatter = [
     "---",
     `${titleK}: "${p.title.replace(/"/g, '\\"')}"`,
     `${urlK}: "${p.url}"`,
+    `platform: "${webEmbed.platform}"`,
     `${channelK}: "${p.channel}"`,
     `${uploadK}: "${p.uploadDate}"`,
     `${thumbK}: "[[${thumbName}]]"`,
     `${timeRangeK}: "${timeRangeVal}"`,
     `${descK}: "${cleanDesc}"`,
     `video_id: "${p.videoId}"`,
+    `embed_url: "${webEmbed.embedUrl}"`,
+    `embed_iframe: '${webEmbed.iframeHtml.replace(/'/g, "\\'")}'`,
     `captured_at: "${p.capturedAt}"`,
     `clip_duration_seconds: ${p.clipDuration}`,
     `view_count: ${p.viewCount}`,
@@ -226,21 +305,36 @@ export function buildNotesMarkdown(p: NoteParams): string {
     "---",
   ].join("\n");
 
-  const embeds = p.mediaEmbeds
-    ? [
-        `![[${mp4Name}]]`,
-        "",
-        `![[${thumbName}]]`,
-        "",
-      ]
-    : [];
+  const mediaSections: string[] = [];
+  if (p.mediaEmbeds) {
+    mediaSections.push(
+      "## Media Attachments",
+      "",
+      `![[${mp4Name}]]`,
+      "",
+      `![[${thumbName}]]`,
+      ""
+    );
+  }
+
+  if (includeWebEmbed) {
+    const platformLabel = webEmbed.platform === "instagram" ? "Instagram" : "YouTube";
+    mediaSections.push(
+      `## Web Player & Embed (${platformLabel})`,
+      "",
+      webEmbed.iframeHtml,
+      "",
+      webEmbed.markdownEmbed,
+      ""
+    );
+  }
 
   return [
     frontmatter,
     "",
     `# ${p.title}`,
     "",
-    ...embeds,
+    ...mediaSections,
     `## Clip transcript (${timeRangeVal})`,
     "",
     p.clipTranscript,

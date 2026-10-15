@@ -380,6 +380,31 @@
   width: 100%;
 }
 
+.ytec-btn-sm {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  border-radius: var(--ytec-radius-sm);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ytec-btn-sm:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--text-accent);
+}
+
+.ytec-embed-copy-actions,
+.ytec-hero-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 .ytec-actions {
   margin-top: 14px;
 }

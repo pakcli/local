@@ -88,6 +88,9 @@ export interface YTCaptureSettings {
   presets?: YTPreset[];
   activePresetId?: string;
   ytHistoryCache?: YTHistoryCache;
+  ytCaptureIncludeWebEmbed?: boolean;
+  ytCaptureEmbedWidth?: string;
+  ytCaptureEmbedHeight?: string;
 }
 
 export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
@@ -102,6 +105,9 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   maxTitleLength: 20,
   presets: DEFAULT_PRESETS,
   activePresetId: "yt_evidence_standard",
+  ytCaptureIncludeWebEmbed: true,
+  ytCaptureEmbedWidth: "100%",
+  ytCaptureEmbedHeight: "520",
 };
 
 // ── yt-dlp raw metadata shape ─────────────────────────────────────────────────
