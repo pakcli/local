@@ -95,10 +95,16 @@ export class DownloadHero {
     const titleEl = textEl.createEl("h3", { cls: "ytec-hero-meta-title", text: preview.title });
     titleEl.title = preview.title;
 
+    const isImage = preview.media_type === "image";
+    let platformBadgeText = preview.platform === "youtube" ? "🎬 YouTube" : "📸 Instagram";
+    if (preview.platform === "instagram" && isImage) {
+      platformBadgeText = "📸 Instagram (Photo)";
+    }
+
     const subEl = textEl.createDiv({ cls: "ytec-hero-meta-sub" });
     subEl.createSpan({
       cls: `ytec-badge ytec-badge-${preview.platform}`,
-      text: preview.platform === "youtube" ? "🎬 YouTube" : "📸 Instagram",
+      text: platformBadgeText,
     });
 
     if (preview.channel) {
@@ -107,6 +113,8 @@ export class DownloadHero {
 
     if (preview.duration > 0) {
       subEl.createSpan({ cls: "ytec-hero-duration", text: `· ${formatTime(preview.duration)}` });
+    } else if (isImage) {
+      subEl.createSpan({ cls: "ytec-hero-duration", text: "· 📷 Photo / Image Post" });
     }
 
     const actionsRow = textEl.createDiv({ cls: "ytec-hero-meta-actions" });

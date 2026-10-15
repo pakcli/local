@@ -2,7 +2,7 @@
 id: instagram-image-posts-support
 title: Instagram Photo & Image-Only Posts Support
 plugin: local
-status: 0
+status: 1
 tags:
   - pakcli
   - local
@@ -16,7 +16,7 @@ created: 2026-10-15
 
 # 📌 Master Brief: Instagram Photo & Image-Only Posts Support (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local/src/features/ytd`  
 > **Platform**: Cross-platform (Desktop & Mobile)  
 > **Date**: 2026-10-15  
@@ -64,22 +64,22 @@ created: 2026-10-15
 ## 3. Implementation Plan & Target Files
 | File | Status | Description |
 | :--- | :---: | :--- |
-| `docs/brief-instagram-image-posts-support.md` | ⏳ | Master brief (Status 0 -> 1) |
-| `src/features/ytd/types.ts` | ⏳ | Tambahkan `media_type?: "video" | "image"` pada `VideoPreview` dan `YtDlpInfo` |
-| `src/features/ytd/utils/ytdlp.ts` | ⏳ | Handle error `There is no video in this post`, generate metadata foto & downloader gambar |
-| `src/features/ytd/utils/fileHelpers.ts` | ⏳ | Format penamaan file jpg & catatan Markdown untuk media bertipe image |
-| `src/features/ytd/ui/components/DownloadHero.ts` | ⏳ | Indikator badge `📸 Instagram (Photo)` |
-| `src/features/ytd/ui/components/DownloadForm.ts` | ⏳ | Adaptasi UI form untuk postingan gambar/foto |
-| `src/features/ytd/ui/YTDownloaderView.ts` | ⏳ | Alur unduh gambar & create note khusus image post |
-| `src/features/ytd/ui/CaptureModal.ts` | ⏳ | Dukungan image post di modal capture |
+| `docs/brief-instagram-image-posts-support.md` | ✅ | Master brief (Status 0 -> 1) |
+| `src/features/ytd/types.ts` | ✅ | Tambahkan `media_type?: "video" | "image"` pada `VideoPreview` dan `YtDlpInfo` |
+| `src/features/ytd/utils/ytdlp.ts` | ✅ | Handle error `There is no video in this post`, generate metadata foto & downloader gambar |
+| `src/features/ytd/utils/fileHelpers.ts` | ✅ | Format penamaan file jpg & catatan Markdown untuk media bertipe image |
+| `src/features/ytd/ui/components/DownloadHero.ts` | ✅ | Indikator badge `📸 Instagram (Photo)` |
+| `src/features/ytd/ui/components/DownloadForm.ts` | ✅ | Adaptasi UI form untuk postingan gambar/foto (`jpg (Image Post)`) |
+| `src/features/ytd/ui/YTDownloaderView.ts` | ✅ | Alur unduh gambar & create note khusus image post |
+| `src/features/ytd/ui/CaptureModal.ts` | ✅ | Dukungan image post di modal capture |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
-- [ ] Status 0 brief dibuat dan di-commit ke branch aktif
-- [ ] Postingan foto/gambar Instagram (seperti `https://www.instagram.com/p/DeglkiPl1Qf/`) berhasil di-fetch tanpa error `There is no video in this post`
-- [ ] Preview card menampilkan thumbnail gambar resolusi tinggi dan badge `📸 Instagram (Photo)`
-- [ ] Tombol `📋 Copy iframe` dan `🔗 Copy Embed URL` berfungsi normal untuk postingan foto
-- [ ] Tombol `Fetch & Download` berhasil mengunduh file gambar `.jpg` ke vault dan membuat catatan Markdown dengan iframe embed
-- [ ] Build produksi (`npm run build`) sukses 0 error dan ukuran bundle < 5.0 MB
-- [ ] Status 1 brief diperbarui dan di-commit
+- [x] Status 0 brief dibuat dan di-commit ke branch aktif
+- [x] Postingan foto/gambar Instagram (seperti `https://www.instagram.com/p/DeglkiPl1Qf/`) berhasil di-fetch tanpa error `There is no video in this post`
+- [x] Preview card menampilkan thumbnail gambar resolusi tinggi dan badge `📸 Instagram (Photo)`
+- [x] Tombol `📋 Copy iframe` dan `🔗 Copy Embed URL` berfungsi normal untuk postingan foto
+- [x] Tombol `Fetch & Download` berhasil mengunduh file gambar `.jpg` ke vault dan membuat catatan Markdown dengan iframe embed
+- [x] Build produksi (`npm run build`) sukses 0 error dan ukuran bundle < 5.0 MB (525 KB)
+- [x] Status 1 brief diperbarui dan di-commit

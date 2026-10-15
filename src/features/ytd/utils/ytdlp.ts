@@ -5,6 +5,7 @@ import { requestUrl } from "obsidian";
 import { PathUtils, getNodeFs } from "../../../utils/nodeHelpers";
 import type { YTCaptureSettings, YtDlpInfo, VideoQuality, VideoFps } from "../types";
 import { runCommand, resolveBinary } from "./process";
+import { parseMediaUrl } from "./urlParser";
 
 interface MinimalFs {
   existsSync(path: string): boolean;
@@ -31,6 +32,33 @@ export async function fetchVideoInfo(
     stdout = await runCommand(settings.ytDlpPath, baseArgs);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+    const isNoVideo =
+      msg.toLowerCase().includes("there is no video in this post") ||
+      msg.toLowerCase().includes("no video in this post");
+    const isInstagram = url.includes("instagram.com") || url.includes("instagr.am");
+
+    if (isNoVideo && isInstagram) {
+      // Instagram image-only post fallback (photo / carousel)
+      const parsed = parseMediaUrl(url);
+      const shortcode = parsed?.videoId || (url.match(/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i)?.[1] ?? "post");
+      const mediaUrl = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
+      return {
+        id: shortcode,
+        title: `Instagram Post (${shortcode})`,
+        uploader: "Instagram",
+        channel: "Instagram",
+        channel_url: "https://www.instagram.com",
+        upload_date: new Date().toISOString().slice(0, 10).replace(/-/g, ""),
+        duration: 0,
+        video_duration: 0,
+        thumbnail: mediaUrl,
+        webpage_url: `https://www.instagram.com/p/${shortcode}/`,
+        description: `Instagram image post (${shortcode})`,
+        tags: ["instagram", "photo", "image"],
+        media_type: "image",
+      };
+    }
+
     // If live event ended error or extractor error, retry with player_client fallback
     if (msg.toLowerCase().includes("live event has ended") || msg.toLowerCase().includes("this live event has ended")) {
       try {
@@ -187,9 +215,80 @@ export async function downloadSubtitles(
   ).catch(() => {/* silently ignore */});
 }
 
+export async function fetchImageBuffer(url: string, maxRedirects = 5): Promise<ArrayBuffer> {
+  // 1. Try Obsidian requestUrl first
+  try {
+    if (typeof requestUrl === "function") {
+      const resp = await requestUrl({
+        url,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      });
+      if (resp.status >= 200 && resp.status < 300) {
+        return resp.arrayBuffer;
+      }
+    }
+  } catch {
+    // fallback to node https
+  }
+
+  // 2. Node https redirect-following fallback
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    try {
+      const https = typeof window !== "undefined" && (window as any).require
+        ? (window as any).require("https")
+        : require("https");
+      const getWithRedirect = (currentUrl: string, redirectsRemaining: number) => {
+        if (redirectsRemaining <= 0) {
+          return reject(new Error("Too many redirects"));
+        }
+        const req = https.get(
+          currentUrl,
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+          },
+          (res: any) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              return getWithRedirect(res.headers.location, redirectsRemaining - 1);
+            }
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+              return reject(new Error(`HTTP error ${res.statusCode}`));
+            }
+            const chunks: any[] = [];
+            res.on("data", (chunk: any) => chunks.push(chunk));
+            res.on("end", () => {
+              const buf = Buffer.concat(chunks);
+              resolve(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+            });
+            res.on("error", (err: any) => reject(err));
+          }
+        );
+        req.on("error", (err: any) => reject(err));
+      };
+
+      getWithRedirect(url, maxRedirects);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 export async function downloadThumbnail(thumbnailUrl: string): Promise<ArrayBuffer> {
-  const resp = await requestUrl({ url: thumbnailUrl, method: "GET" });
-  return resp.arrayBuffer;
+  return await fetchImageBuffer(thumbnailUrl);
+}
+
+export async function downloadInstagramImage(urlOrId: string): Promise<ArrayBuffer> {
+  let shortcode = urlOrId.trim();
+  const match = shortcode.match(/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
+  if (match) {
+    shortcode = match[1];
+  }
+  const mediaUrl = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
+  return await fetchImageBuffer(mediaUrl);
 }
 
 export function findSubtitleFile(dir: string): string | null {

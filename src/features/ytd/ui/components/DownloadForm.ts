@@ -42,6 +42,7 @@ export class DownloadForm {
   private formatNoteEl: HTMLElement;
   private fpsPillsEl: HTMLElement;
   private rangeSectionEl: HTMLElement;
+  private isImagePost: boolean = false;
   private startInputEl!: HTMLInputElement;
   private endInputEl!: HTMLInputElement;
   private rangeMinEl!: HTMLInputElement;
@@ -129,6 +130,17 @@ export class DownloadForm {
 
   private renderFormatNote(): void {
     this.formatNoteEl.empty();
+
+    if (this.isImagePost) {
+      this.formatNoteEl.createSpan({ text: "File format: ", cls: "ytec-fmt-label" });
+      const jpgTag = this.formatNoteEl.createSpan({
+        cls: "ytec-fmt-tag is-active",
+        text: "jpg (Image Post)",
+      });
+      jpgTag.title = "Instagram Photo Post — single or carousel photo";
+      return;
+    }
+
     const isAudio = this.state.quality === "audio";
 
     this.formatNoteEl.createSpan({ text: "File format: ", cls: "ytec-fmt-label" });
@@ -404,6 +416,9 @@ export class DownloadForm {
   }
 
   setPreview(preview: VideoPreview | null): void {
+    this.isImagePost = preview?.media_type === "image";
+    this.renderFormatNote();
+
     if (!preview) {
       this.totalDuration = 0;
       return;

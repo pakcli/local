@@ -136,10 +136,11 @@ export function buildMediaBaseName(
   fps: string = "auto",
   platform: "youtube" | "instagram" | string = "youtube",
   date: Date = new Date(),
-  maxTitleLen: number = 20
+  maxTitleLen: number = 20,
+  mediaType: "video" | "image" = "video"
 ): {
   baseName: string;
-  formatExt: "mp4" | "mp3";
+  formatExt: "mp4" | "mp3" | "jpg";
   resolution: string;
   prefix: string;
   cleanTitle: string;
@@ -148,11 +149,12 @@ export function buildMediaBaseName(
   const isIg = platform === "instagram" || String(platform).toLowerCase().includes("instagram");
   const prefix = isIg ? "ig" : "yt";
   const cleanTitle = sanitizeFilename(title, maxTitleLen);
-  const formatExt = quality === "audio" ? "mp3" : "mp4";
-  const resolution = quality || "1080p";
+  const isImage = mediaType === "image";
+  const formatExt = isImage ? "jpg" : quality === "audio" ? "mp3" : "mp4";
+  const resolution = isImage ? "image" : quality || "1080p";
 
-  // If audio, quality string is "audio" without fps. If video: ${resolution}_${fps}
-  const qualFps = quality === "audio" ? "audio" : `${resolution}_${fps || "auto"}`;
+  // If image: "image". If audio: "audio". If video: ${resolution}_${fps}
+  const qualFps = isImage ? "image" : quality === "audio" ? "audio" : `${resolution}_${fps || "auto"}`;
   const { dateTimeStr } = formatDateTimeStamp(date);
 
   const baseName = `${prefix}_${cleanTitle}_${qualFps}_${dateTimeStr}`;
@@ -222,6 +224,7 @@ export interface NoteParams {
   url: string;
   videoId: string;
   platform?: "youtube" | "instagram" | string;
+  mediaType?: "video" | "image";
   channel: string;
   channelUrl: string;
   uploadDate: string;
@@ -236,8 +239,9 @@ export interface NoteParams {
   description: string;
   fullTranscript: string;
   mediaEmbeds?: {
-    mp4Filename: string;
-    thumbFilename: string;
+    mp4Filename?: string;
+    thumbFilename?: string;
+    imageFilename?: string;
   };
   webEmbed?: {
     enabled?: boolean;
@@ -256,8 +260,10 @@ export interface NoteParams {
 }
 
 export function buildNotesMarkdown(p: NoteParams): string {
+  const isImage = p.mediaType === "image";
   const mp4Name = p.mediaEmbeds?.mp4Filename || "clip.mp4";
   const thumbName = p.mediaEmbeds?.thumbFilename || "thumb.jpg";
+  const imageName = p.mediaEmbeds?.imageFilename || thumbName || "image.jpg";
   const keys = p.frontmatterKeys || {};
 
   const titleK = keys.titleKey || "yt_title";
@@ -268,7 +274,7 @@ export function buildNotesMarkdown(p: NoteParams): string {
   const timeRangeK = keys.timeRangeKey || "capture_time_range";
   const descK = keys.descriptionKey || "yt_description";
 
-  const timeRangeVal = `${formatTime(p.clipStart)}–${formatTime(p.clipEnd)}`;
+  const timeRangeVal = isImage ? "Full Image" : `${formatTime(p.clipStart)}–${formatTime(p.clipEnd)}`;
   const cleanDesc = (p.description || "").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
 
   const includeWebEmbed = p.webEmbed?.enabled !== false;
@@ -289,9 +295,10 @@ export function buildNotesMarkdown(p: NoteParams): string {
     `${titleK}: "${p.title.replace(/"/g, '\\"')}"`,
     `${urlK}: "${p.url}"`,
     `platform: "${webEmbed.platform}"`,
+    `media_type: "${isImage ? "image" : "video"}"`,
     `${channelK}: "${p.channel}"`,
     `${uploadK}: "${p.uploadDate}"`,
-    `${thumbK}: "[[${thumbName}]]"`,
+    `${thumbK}: "[[${isImage ? imageName : thumbName}]]"`,
     `${timeRangeK}: "${timeRangeVal}"`,
     `${descK}: "${cleanDesc}"`,
     `video_id: "${p.videoId}"`,
@@ -301,20 +308,29 @@ export function buildNotesMarkdown(p: NoteParams): string {
     `clip_duration_seconds: ${p.clipDuration}`,
     `view_count: ${p.viewCount}`,
     `tags: [${p.tags.map((t) => `"${t}"`).join(", ")}]`,
-    `clip_file: "[[${mp4Name}]]"`,
+    isImage ? `image_file: "[[${imageName}]]"` : `clip_file: "[[${mp4Name}]]"`,
     "---",
   ].join("\n");
 
   const mediaSections: string[] = [];
   if (p.mediaEmbeds) {
-    mediaSections.push(
-      "## Media Attachments",
-      "",
-      `![[${mp4Name}]]`,
-      "",
-      `![[${thumbName}]]`,
-      ""
-    );
+    if (isImage) {
+      mediaSections.push(
+        "## Media Attachments",
+        "",
+        `![[${imageName}]]`,
+        ""
+      );
+    } else {
+      mediaSections.push(
+        "## Media Attachments",
+        "",
+        `![[${mp4Name}]]`,
+        "",
+        `![[${thumbName}]]`,
+        ""
+      );
+    }
   }
 
   if (includeWebEmbed) {

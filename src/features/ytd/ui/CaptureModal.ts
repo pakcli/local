@@ -13,6 +13,7 @@ import {
   downloadClip,
   downloadSubtitles,
   downloadThumbnail,
+  downloadInstagramImage,
   findSubtitleFile,
 } from "../utils/ytdlp";
 import {
@@ -302,7 +303,10 @@ export class CaptureModal extends Modal {
       const playerBox = cardPreview.createDiv({ cls: "ytec-player-box" });
 
       if (isInstagram) {
-        const embedUrl = `https://www.instagram.com/reel/${p.video_id}/embed/`;
+        let embedUrl = `https://www.instagram.com/reel/${p.video_id}/embed/`;
+        if (p.original_url?.includes("/p/") || this.urlValue.includes("/p/") || p.media_type === "image") {
+          embedUrl = `https://www.instagram.com/p/${p.video_id}/embed/`;
+        }
         playerBox.createEl("iframe", {
           cls: "ytec-video-iframe",
           attr: {
@@ -330,10 +334,16 @@ export class CaptureModal extends Modal {
       meta.createEl("div", { cls: "ytec-video-title", text: p.title });
       meta.createEl("div", { cls: "ytec-channel", text: p.channel });
 
+      const isImage = p.media_type === "image";
+      let badgeLabel = isInstagram ? "📸 Instagram Media" : "🎬 YouTube Media";
+      if (isInstagram && isImage) {
+        badgeLabel = "📸 Instagram (Photo)";
+      }
+
       const badges = cardPreview.createDiv({ cls: "ytec-badges ytec-mt-6" });
       badges.createEl("span", {
         cls: "ytec-badge ytec-badge-ok",
-        text: isInstagram ? "📸 Instagram Media" : "🎬 YouTube Media",
+        text: badgeLabel,
       });
       if (!isInstagram && p.is_live) {
         badges.createEl("span", {
@@ -769,6 +779,7 @@ export class CaptureModal extends Modal {
         description: info.description ?? "",
         quality: this.selectedQuality,
         fps: this.selectedFps,
+        media_type: info.media_type || "video",
       };
 
       this.step = "input";
@@ -808,6 +819,7 @@ export class CaptureModal extends Modal {
 
       const platform = p.platform || (targetUrl.includes("instagram.com") ? "instagram" : "youtube");
       const maxTitleLen = this.plugin.settings.maxTitleLength || 20;
+      const isImagePost = p.media_type === "image";
       const { baseName, formatExt } = buildMediaBaseName(
         p.title,
         p.start,
@@ -816,7 +828,8 @@ export class CaptureModal extends Modal {
         p.fps,
         platform,
         new Date(),
-        maxTitleLen
+        maxTitleLen,
+        isImagePost ? "image" : "video"
       );
       const outputFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
 
@@ -838,6 +851,81 @@ export class CaptureModal extends Modal {
         await this.app.vault.createFolder(outputFolder);
       } catch {
         // Folder exists
+      }
+
+      // Handle Instagram Image/Photo posts directly (Desktop & Mobile)
+      if (isImagePost) {
+        this.setStatus("Downloading Instagram photo & creating note…");
+        this.addLog("Downloading Instagram photo…");
+
+        let imgArrayBuffer: ArrayBuffer;
+        try {
+          imgArrayBuffer = await downloadInstagramImage(targetUrl);
+          this.addLog(`✓ Downloaded high-resolution photo (${imgArrayBuffer.byteLength} bytes)`);
+        } catch (e: any) {
+          this.addLog(`⚠ Image download fallback: ${e.message}`);
+          imgArrayBuffer = await downloadThumbnail(p.thumbnail);
+        }
+
+        const imgVaultPath = `${outputFolder}/${thumbName}`;
+        const existingImg = this.app.vault.getAbstractFileByPath(imgVaultPath);
+        if (existingImg instanceof TFile) {
+          await this.app.vault.modifyBinary(existingImg, imgArrayBuffer);
+        } else {
+          await this.app.vault.createBinary(imgVaultPath, imgArrayBuffer);
+        }
+        this.addLog(`✓ Saved photo: ${imgVaultPath}`);
+
+        const capturedAt = new Date().toISOString();
+        const notesContent = buildNotesMarkdown({
+          title: p.title,
+          url: targetUrl,
+          videoId: p.video_id,
+          platform: p.platform,
+          mediaType: "image",
+          channel: p.channel,
+          channelUrl: p.channel_url,
+          uploadDate: p.upload_date,
+          videoDuration: 0,
+          capturedAt,
+          clipStart: 0,
+          clipEnd: 0,
+          clipDuration: 0,
+          viewCount: p.view_count,
+          tags: p.tags,
+          clipTranscript: "*Photo / Image post.*",
+          description: p.description,
+          fullTranscript: "*No transcript for photo post.*",
+          mediaEmbeds: {
+            thumbFilename: thumbName,
+            imageFilename: thumbName,
+          },
+          webEmbed: {
+            enabled: this.plugin.settings.ytCaptureIncludeWebEmbed ?? true,
+            width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
+            height: this.plugin.settings.ytCaptureEmbedHeight || "520",
+          },
+          frontmatterKeys: activePreset?.frontmatterKeys,
+        });
+
+        const noteVaultPath = `${outputFolder}/${noteName}`;
+        const existingNote = this.app.vault.getAbstractFileByPath(noteVaultPath);
+        if (existingNote instanceof TFile) {
+          await this.app.vault.modify(existingNote, notesContent);
+        } else {
+          await this.app.vault.create(noteVaultPath, notesContent);
+        }
+        this.addLog(`✓ Saved note: ${noteVaultPath}`);
+
+        this.result = { filename: noteName, vaultPath: noteVaultPath, fsDirPath: outputFolder };
+
+        if (this.currentTaskId) {
+          this.bgManager.completeTask(this.currentTaskId, p.title, noteVaultPath);
+        }
+
+        this.step = "done";
+        this.render();
+        return;
       }
 
       // On Mobile platforms without yt-dlp binary execution

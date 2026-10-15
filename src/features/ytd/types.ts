@@ -135,6 +135,7 @@ export interface YtDlpInfo {
   subtitles?: Record<string, unknown>;
   automatic_captions?: Record<string, unknown>;
   formats?: Array<{ duration?: number }>;
+  media_type?: "video" | "image";
 }
 
 // ── Preview state (across modal steps) ───────────────────────────────────────
@@ -161,6 +162,7 @@ export interface VideoPreview {
   description: string;
   quality: VideoQuality;
   fps: VideoFps;
+  media_type?: "video" | "image";
 }
 
 export interface CaptureResult {

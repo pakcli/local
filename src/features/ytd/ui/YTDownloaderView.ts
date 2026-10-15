@@ -18,6 +18,7 @@ import {
   fetchVideoInfo,
   downloadClip,
   downloadThumbnail,
+  downloadInstagramImage,
   downloadSubtitles,
   findSubtitleFile,
   getVideoDimensions,
@@ -377,6 +378,7 @@ export class YTDownloaderView extends ItemView {
         description: info.description || "",
         quality: formState.quality,
         fps: formState.fps,
+        media_type: info.media_type || "video",
       };
 
       this.currentPreview = preview;
@@ -454,6 +456,7 @@ export class YTDownloaderView extends ItemView {
           description: info.description || "",
           quality: formState.quality,
           fps: formState.fps,
+          media_type: info.media_type || "video",
         };
 
         this.hero.setPreview(this.currentPreview);
@@ -573,84 +576,118 @@ export class YTDownloaderView extends ItemView {
         }
 
         // Step 3: Download
-        taskManager.setStep(taskId, "download", "downloading");
-        taskManager.log(taskId, `Starting clip download: ${quality} @ ${fps} (${formatTime(start)} → ${formatTime(end)})`);
-
+        const isImagePost = activePreview.media_type === "image";
         const tempDir = PathUtils.join(os.tmpdir(), `ytd_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
-        const clipOutExt = quality === "audio" ? "mp3" : "mp4";
-        const clipOutPath = PathUtils.join(tempDir, `clip.${clipOutExt}`);
+        let actualClipPath = "";
+        let thumbBuffer: Buffer | Uint8Array | null = null;
+        let effectiveQuality = quality;
 
-        await downloadClip(
-          url,
-          start,
-          end,
-          clipOutPath,
-          this.plugin.settings,
-          quality,
-          fps,
-          (msg) => {
-            const clean = msg.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim();
-            if (!clean) return;
+        if (isImagePost) {
+          taskManager.setStep(taskId, "download", "downloading");
+          taskManager.log(taskId, `Starting Instagram photo download for: ${activePreview.title}`);
+          taskManager.updateProgress(taskId, {
+            percent: 40,
+            downloaded: "--",
+            total: "--",
+            eta: "",
+            speed: "--",
+            rawMsg: "Downloading Instagram photo...",
+          });
 
-            const prog = parseYtDlpProgress(clean);
-            if (prog) {
-              taskManager.updateProgress(taskId, prog);
-            } else if (clean.includes("[ExtractAudio]") || clean.includes("Destination: ") || clean.includes("[ffmpeg]")) {
-              taskManager.log(taskId, clean.slice(0, 100));
-              taskManager.updateProgress(taskId, {
-                percent: 100,
-                downloaded: "--",
-                total: "--",
-                eta: "",
-                speed: "",
-                rawMsg: quality === "audio" ? "Converting audio to MP3..." : "Merging video & audio...",
-              });
-            } else if (clean.startsWith("[download]") || clean.startsWith("[Merger]")) {
-              taskManager.log(taskId, clean.slice(0, 100));
-            }
-          },
-          isFull
-        );
+          const imgArrayBuf = await downloadInstagramImage(url);
+          thumbBuffer = typeof Buffer !== "undefined" ? Buffer.from(imgArrayBuf) : new Uint8Array(imgArrayBuf);
+          const tempImgPath = PathUtils.join(tempDir, "image.jpg");
+          fs.writeFileSync(tempImgPath, thumbBuffer);
+          actualClipPath = tempImgPath;
 
-        if (abortController.signal.aborted) {
-          taskManager.cancelTask(taskId);
-          return;
-        }
+          taskManager.log(taskId, `✓ Photo download completed (${thumbBuffer.byteLength} bytes)`);
+          taskManager.updateProgress(taskId, {
+            percent: 100,
+            downloaded: `${Math.round(thumbBuffer.byteLength / 1024)}KB`,
+            total: `${Math.round(thumbBuffer.byteLength / 1024)}KB`,
+            eta: "",
+            speed: "--",
+            rawMsg: "Image download completed",
+          });
+        } else {
+          taskManager.setStep(taskId, "download", "downloading");
+          taskManager.log(taskId, `Starting clip download: ${quality} @ ${fps} (${formatTime(start)} → ${formatTime(end)})`);
 
-        // Dynamically find actual downloaded media file in temp directory
-        const expectedClipPath = PathUtils.join(tempDir, quality === "audio" ? "clip.mp3" : "clip.mp4");
-        let actualClipPath = expectedClipPath;
-        if (!fs.existsSync(actualClipPath)) {
-          const mediaExts = [".mp3", ".m4a", ".mp4", ".webm", ".opus", ".mkv", ".wav", ".aac"];
-          const candidates = fs
-            .readdirSync(tempDir)
-            .filter((f: string) => {
-              const lower = f.toLowerCase();
-              return (
-                mediaExts.some((ext) => lower.endsWith(ext)) &&
-                !lower.endsWith(".part") &&
-                !lower.endsWith(".ytdl") &&
-                !lower.endsWith(".json") &&
-                !lower.endsWith(".json3") &&
-                !lower.endsWith(".jpg")
-              );
-            })
-            .map((f: string) => PathUtils.join(tempDir, f));
+          const clipOutExt = quality === "audio" ? "mp3" : "mp4";
+          const clipOutPath = PathUtils.join(tempDir, `clip.${clipOutExt}`);
 
-          if (candidates.length > 0) {
-            const prioritized = candidates.find((f: string) =>
-              quality === "audio" ? f.toLowerCase().endsWith(".mp3") : f.toLowerCase().endsWith(".mp4")
-            );
-            actualClipPath = prioritized || candidates[0];
+          await downloadClip(
+            url,
+            start,
+            end,
+            clipOutPath,
+            this.plugin.settings,
+            quality,
+            fps,
+            (msg) => {
+              const clean = msg.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim();
+              if (!clean) return;
+
+              const prog = parseYtDlpProgress(clean);
+              if (prog) {
+                taskManager.updateProgress(taskId, prog);
+              } else if (clean.includes("[ExtractAudio]") || clean.includes("Destination: ") || clean.includes("[ffmpeg]")) {
+                taskManager.log(taskId, clean.slice(0, 100));
+                taskManager.updateProgress(taskId, {
+                  percent: 100,
+                  downloaded: "--",
+                  total: "--",
+                  eta: "",
+                  speed: "",
+                  rawMsg: quality === "audio" ? "Converting audio to MP3..." : "Merging video & audio...",
+                });
+              } else if (clean.startsWith("[download]") || clean.startsWith("[Merger]")) {
+                taskManager.log(taskId, clean.slice(0, 100));
+              }
+            },
+            isFull
+          );
+
+          if (abortController.signal.aborted) {
+            taskManager.cancelTask(taskId);
+            return;
           }
-        }
 
-        taskManager.log(taskId, `Clip download completed (${actualClipPath}). Processing outputs...`);
+          // Dynamically find actual downloaded media file in temp directory
+          const expectedClipPath = PathUtils.join(tempDir, quality === "audio" ? "clip.mp3" : "clip.mp4");
+          actualClipPath = expectedClipPath;
+          if (!fs.existsSync(actualClipPath)) {
+            const mediaExts = [".mp3", ".m4a", ".mp4", ".webm", ".opus", ".mkv", ".wav", ".aac"];
+            const candidates = fs
+              .readdirSync(tempDir)
+              .filter((f: string) => {
+                const lower = f.toLowerCase();
+                return (
+                  mediaExts.some((ext) => lower.endsWith(ext)) &&
+                  !lower.endsWith(".part") &&
+                  !lower.endsWith(".ytdl") &&
+                  !lower.endsWith(".json") &&
+                  !lower.endsWith(".json3") &&
+                  !lower.endsWith(".jpg")
+                );
+              })
+              .map((f: string) => PathUtils.join(tempDir, f));
+
+            if (candidates.length > 0) {
+              const prioritized = candidates.find((f: string) =>
+                quality === "audio" ? f.toLowerCase().endsWith(".mp3") : f.toLowerCase().endsWith(".mp4")
+              );
+              actualClipPath = prioritized || candidates[0];
+            }
+          }
+
+          taskManager.log(taskId, `Clip download completed (${actualClipPath}). Processing outputs...`);
+        }
 
         // Inspect actual video dimensions and apply Smart Fallback / Force Upscale
-        let effectiveQuality = quality;
+        effectiveQuality = quality;
         if (quality !== "audio" && fs.existsSync(actualClipPath)) {
           try {
             const dims = await getVideoDimensions(actualClipPath, this.plugin.settings);
@@ -689,18 +726,17 @@ export class YTDownloaderView extends ItemView {
           }
         }
 
-        // Download thumbnail
-        let thumbBuffer: Buffer | Uint8Array | null = null;
-        if (activePreview.thumbnail) {
+        // Download thumbnail (if not already downloaded as image)
+        if (!thumbBuffer && activePreview.thumbnail) {
           try {
             const arr = await downloadThumbnail(activePreview.thumbnail);
             thumbBuffer = typeof Buffer !== "undefined" ? Buffer.from(arr) : new Uint8Array(arr);
           } catch {}
         }
 
-        // Subtitles / Transcripts (skip for audio to maximize speed; only fetch for video)
+        // Subtitles / Transcripts (skip for audio or photo to maximize speed; only fetch for video)
         let transcriptEntries: any[] = [];
-        if (quality !== "audio" && activePreview.has_transcript) {
+        if (!isImagePost && quality !== "audio" && activePreview.has_transcript) {
           try {
             taskManager.updateProgress(taskId, {
               percent: 100,
@@ -733,7 +769,8 @@ export class YTDownloaderView extends ItemView {
           fps,
           platform,
           new Date(),
-          maxTitleLen
+          maxTitleLen,
+          isImagePost ? "image" : "video"
         );
         const actualExt = actualClipPath && fs.existsSync(actualClipPath)
           ? actualClipPath.split(".").pop()?.toLowerCase() || formatExt
@@ -811,6 +848,7 @@ export class YTDownloaderView extends ItemView {
           url,
           videoId: activePreview.video_id,
           platform: activePreview.platform,
+          mediaType: isImagePost ? "image" : "video",
           channel: activePreview.channel,
           channelUrl: activePreview.channel_url,
           uploadDate: activePreview.upload_date,
@@ -821,12 +859,13 @@ export class YTDownloaderView extends ItemView {
           clipDuration: Math.max(0, end - start),
           viewCount: activePreview.view_count,
           tags: activePreview.tags,
-          clipTranscript: clipTranscriptText,
+          clipTranscript: isImagePost ? "*Photo / Image post.*" : clipTranscriptText,
           description: activePreview.description,
-          fullTranscript: fullTranscriptText,
+          fullTranscript: isImagePost ? "*No transcript available for photo post.*" : fullTranscriptText,
           mediaEmbeds: {
-            mp4Filename: clipFileName,
+            mp4Filename: isImagePost ? undefined : clipFileName,
             thumbFilename: thumbFileName,
+            imageFilename: clipFileName,
           },
           webEmbed: {
             enabled: this.plugin.settings.ytCaptureIncludeWebEmbed ?? true,
