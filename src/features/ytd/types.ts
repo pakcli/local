@@ -146,6 +146,7 @@ export interface VideoPreview {
   platform: "youtube" | "instagram";
   title: string;
   channel: string;
+  uploader?: string;
   channel_url: string;
   thumbnail: string;
   start: number;

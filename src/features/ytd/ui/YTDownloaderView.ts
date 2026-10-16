@@ -23,6 +23,7 @@ import {
   findSubtitleFile,
   getVideoDimensions,
   upscaleVideo,
+  scaleImageViaFFmpeg,
   QUALITY_HEIGHT_MAP,
   getQualityFromHeight,
 } from "../utils/ytdlp";
@@ -602,14 +603,34 @@ export class YTDownloaderView extends ItemView {
           fs.writeFileSync(tempImgPath, thumbBuffer);
           actualClipPath = tempImgPath;
 
-          taskManager.log(taskId, `✓ Photo download completed (${thumbBuffer.byteLength} bytes)`);
+          // If user picked a quality height (144p to 4k), scale image with FFmpeg Lanczos
+          const targetHeight = QUALITY_HEIGHT_MAP[quality] || 0;
+          if (targetHeight > 0) {
+            taskManager.log(taskId, `⚡ Scaling photo to ${quality} (${targetHeight}p) via FFmpeg (Lanczos)...`);
+            try {
+              actualClipPath = await scaleImageViaFFmpeg(
+                actualClipPath,
+                targetHeight,
+                this.plugin.settings,
+                (msg) => taskManager.log(taskId, msg)
+              );
+              if (fs.existsSync(actualClipPath)) {
+                thumbBuffer = fs.readFileSync(actualClipPath);
+                taskManager.log(taskId, `✓ Photo scaled to ${quality} (${thumbBuffer.byteLength} bytes)`);
+              }
+            } catch (scaleErr: any) {
+              taskManager.log(taskId, `[WARN] Photo scaling skipped: ${scaleErr?.message || scaleErr}`);
+            }
+          }
+
+          taskManager.log(taskId, `✓ Photo processing completed (${thumbBuffer.byteLength} bytes)`);
           taskManager.updateProgress(taskId, {
             percent: 100,
             downloaded: `${Math.round(thumbBuffer.byteLength / 1024)}KB`,
             total: `${Math.round(thumbBuffer.byteLength / 1024)}KB`,
             eta: "",
             speed: "--",
-            rawMsg: "Image download completed",
+            rawMsg: `Image download completed (${quality || "original"})`,
           });
         } else {
           taskManager.setStep(taskId, "download", "downloading");
@@ -760,24 +781,25 @@ export class YTDownloaderView extends ItemView {
         await this.ensureFolder(outputFolder);
 
         const platform = activePreview.platform || (url.includes("instagram.com") ? "instagram" : "youtube");
-        const maxTitleLen = this.plugin.settings.maxTitleLength || 20;
-        const { baseName, formatExt } = buildMediaBaseName(
-          activePreview.title,
-          start,
-          end,
-          effectiveQuality,
+        const { baseName, noteBaseName, thumbBaseName, formatExt } = buildMediaBaseName({
+          title: activePreview.title,
+          channel: activePreview.channel || activePreview.uploader,
+          startSec: start,
+          endSec: end,
+          quality: effectiveQuality,
           fps,
           platform,
-          new Date(),
-          maxTitleLen,
-          isImagePost ? "image" : "video"
-        );
+          date: new Date(),
+          maxTitleLen: 15,
+          mediaType: isImagePost ? "image" : "video",
+          slideIndex: 1,
+        });
         const actualExt = actualClipPath && fs.existsSync(actualClipPath)
           ? actualClipPath.split(".").pop()?.toLowerCase() || formatExt
           : formatExt;
         const clipFileName = `${baseName}.${actualExt}`;
-        const thumbFileName = `${baseName}.jpg`;
-        const noteFileName = `${baseName}.md`;
+        const thumbFileName = `${thumbBaseName}.jpg`;
+        const noteFileName = `${noteBaseName}.md`;
 
         const targetMediaVaultPath = `${outputFolder}/${clipFileName}`;
         const targetThumbVaultPath = `${outputFolder}/${thumbFileName}`;

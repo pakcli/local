@@ -27,6 +27,8 @@ const QUALITY_OPTIONS: Array<{ value: VideoQuality; label: string }> = [
   { value: "720p", label: "720p" },
   { value: "480p", label: "480p" },
   { value: "360p", label: "360p" },
+  { value: "240p", label: "240p" },
+  { value: "144p", label: "144p" },
   { value: "audio", label: "Audio" },
 ];
 
@@ -106,7 +108,10 @@ export class DownloadForm {
 
   private renderQualityPills(): void {
     this.qualityPillsEl.empty();
-    for (const opt of QUALITY_OPTIONS) {
+    const options = this.isImagePost
+      ? QUALITY_OPTIONS.filter((o) => o.value !== "audio")
+      : QUALITY_OPTIONS;
+    for (const opt of options) {
       const isDl = this.downloadedQualities.has(opt.value.toLowerCase());
       const pill = this.qualityPillsEl.createEl("button", {
         cls: `ytec-pill-btn ${this.state.quality === opt.value ? "is-active" : ""} ${isDl ? "is-downloaded" : ""}`,
@@ -417,6 +422,10 @@ export class DownloadForm {
 
   setPreview(preview: VideoPreview | null): void {
     this.isImagePost = preview?.media_type === "image";
+    if (this.isImagePost && this.state.quality === "audio") {
+      this.state.quality = "1080p";
+    }
+    this.renderQualityPills();
     this.renderFormatNote();
 
     if (!preview) {

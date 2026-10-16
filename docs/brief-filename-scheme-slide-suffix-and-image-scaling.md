@@ -2,7 +2,7 @@
 id: filename-scheme-slide-suffix-and-image-scaling
 title: Slide Suffix Filename Scheme and Image Quality Scaling
 plugin: local
-status: 0
+status: 1
 tags:
   - pakcli
   - local
@@ -17,7 +17,7 @@ created: 2026-10-16
 
 # 📌 Master Brief: Slide Suffix Filename Scheme and Image Quality Scaling (`pakcli-local`)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Completed & Verified)  
 > **Target Module**: `local/src/features/ytd`  
 > **Platform**: Cross-platform (Desktop & Mobile)  
 > **Date**: 2026-10-16  
@@ -67,23 +67,23 @@ created: 2026-10-16
 ## 3. Implementation Plan & Target Files
 | File | Status | Description |
 | :--- | :---: | :--- |
-| `docs/brief-filename-scheme-slide-suffix-and-image-scaling.md` | ⏳ | Master brief (Status 0 -> 1) |
-| `src/features/ytd/utils/fileHelpers.ts` | ⏳ | Update `buildMediaBaseName` untuk skema `{channel}_{title15}_{date}_{time}_s{XX}_{format}_{quality}` |
-| `src/features/ytd/utils/ytdlp.ts` | ⏳ | Fungsi scaling gambar via FFmpeg (`scaleImageViaFFmpeg`) & download image |
-| `src/features/ytd/ui/components/DownloadHero.ts` | ⏳ | Perbaikan `referrerpolicy="no-referrer"` pada tag img thumbnail |
-| `src/features/ytd/ui/components/DownloadForm.ts` | ⏳ | Pastikan pill quality 144p - 4K aktif untuk mode gambar |
-| `src/features/ytd/ui/YTDownloaderView.ts` | ⏳ | Integrasi filename scheme baru, slide numbering `s00`/`s01`, dan image scaling |
-| `src/features/ytd/ui/CaptureModal.ts` | ⏳ | Integrasi filename scheme baru dan image scaling di modal capture |
+| `docs/brief-filename-scheme-slide-suffix-and-image-scaling.md` | ✅ | Master brief (Status 0 -> 1) |
+| `src/features/ytd/utils/fileHelpers.ts` | ✅ | Update `buildMediaBaseName` untuk skema `{channel}_{title15}_{date}_{time}_s{XX}_{format}_{quality}` |
+| `src/features/ytd/utils/ytdlp.ts` | ✅ | Fungsi scaling gambar via FFmpeg (`scaleImageViaFFmpeg`) & download image |
+| `src/features/ytd/ui/components/DownloadHero.ts` | ✅ | Perbaikan `referrerpolicy="no-referrer"` pada tag img thumbnail |
+| `src/features/ytd/ui/components/DownloadForm.ts` | ✅ | Pastikan pill quality 144p - 4K aktif untuk mode gambar |
+| `src/features/ytd/ui/YTDownloaderView.ts` | ✅ | Integrasi filename scheme baru, slide numbering `s00`/`s01`, dan image scaling |
+| `src/features/ytd/ui/CaptureModal.ts` | ✅ | Integrasi filename scheme baru dan image scaling di modal capture |
 
 ---
 
 ## 4. Acceptance Criteria Checklist
-- [ ] Status 0 brief dibuat dan di-commit ke branch aktif
-- [ ] Format penamaan file mengikuti `{channel}_{title15}_{date}_{time}_s{XX}_{format}_{quality}.{ext}`
-- [ ] File note deskripsi menggunakan `s00` sehingga tersortir di paling atas folder
-- [ ] File media menggunakan `s01`, `s02`, dst.
-- [ ] Pengguna dapat memilih kualitas 144p hingga 4K untuk gambar
-- [ ] Gambar di-scale dengan FFmpeg mempertahankan rasio aspek asli dan format `.jpg`
-- [ ] Thumbnail preview tidak rusak (bebas blokir referrer)
-- [ ] Build produksi (`npm run build`) sukses 0 error dan ukuran bundle < 5.0 MB
-- [ ] Status 1 brief diperbarui dan di-commit
+- [x] Status 0 brief dibuat dan di-commit ke branch aktif
+- [x] Format penamaan file mengikuti `{channel}_{title15}_{date}_{time}_s{XX}_{format}_{quality}.{ext}`
+- [x] File note deskripsi menggunakan `s00` sehingga tersortir di paling atas folder
+- [x] File media menggunakan `s01`, `s02`, dst.
+- [x] Pengguna dapat memilih kualitas 144p hingga 4K untuk gambar
+- [x] Gambar di-scale dengan FFmpeg mempertahankan rasio aspek asli dan format `.jpg`
+- [x] Thumbnail preview tidak rusak (bebas blokir referrer)
+- [x] Build produksi (`npm run build`) sukses 0 error dan ukuran bundle < 5.0 MB
+- [x] Status 1 brief diperbarui dan di-commit

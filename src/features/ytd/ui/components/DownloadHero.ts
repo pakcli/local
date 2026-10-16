@@ -1,6 +1,7 @@
 import { Notice, setIcon } from "obsidian";
 import type { VideoPreview } from "../../types";
 import { formatTime, buildWebEmbed } from "../../utils/fileHelpers";
+import { downloadThumbnail } from "../../utils/ytdlp";
 
 export interface DownloadHeroOptions {
   onUrlChange?: (url: string) => void;
@@ -85,7 +86,35 @@ export class DownloadHero {
 
     if (preview.thumbnail) {
       const thumbEl = metaCard.createDiv({ cls: "ytec-hero-meta-thumb" });
-      thumbEl.createEl("img", { attr: { src: preview.thumbnail, alt: preview.title } });
+      const img = thumbEl.createEl("img", {
+        attr: {
+          src: preview.thumbnail,
+          alt: preview.title,
+          referrerpolicy: "no-referrer",
+        },
+      });
+      img.onerror = async () => {
+        if (!img.src.startsWith("data:") && preview.thumbnail) {
+          try {
+            const arr = await downloadThumbnail(preview.thumbnail);
+            if (arr && arr.byteLength > 0) {
+              let b64 = "";
+              if (typeof Buffer !== "undefined") {
+                b64 = Buffer.from(arr).toString("base64");
+              } else {
+                const u8 = new Uint8Array(arr);
+                let binary = "";
+                const chunkSize = 8192;
+                for (let i = 0; i < u8.length; i += chunkSize) {
+                  binary += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + chunkSize)));
+                }
+                b64 = btoa(binary);
+              }
+              img.src = `data:image/jpeg;base64,${b64}`;
+            }
+          } catch {}
+        }
+      };
       if (preview.duration > 0) {
         thumbEl.createSpan({ cls: "ytec-thumb-duration", text: formatTime(preview.duration) });
       }

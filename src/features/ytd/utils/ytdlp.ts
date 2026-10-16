@@ -42,6 +42,27 @@ export async function fetchVideoInfo(
       const parsed = parseMediaUrl(url);
       const shortcode = parsed?.videoId || (url.match(/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i)?.[1] ?? "post");
       const mediaUrl = `https://www.instagram.com/p/${shortcode}/media/?size=l`;
+
+      let thumbDataUrl = mediaUrl;
+      try {
+        const imgBuffer = await downloadInstagramImage(shortcode);
+        if (imgBuffer && imgBuffer.byteLength > 0) {
+          if (typeof Buffer !== "undefined") {
+            thumbDataUrl = `data:image/jpeg;base64,${Buffer.from(imgBuffer).toString("base64")}`;
+          } else {
+            const u8 = new Uint8Array(imgBuffer);
+            let binary = "";
+            const chunkSize = 8192;
+            for (let i = 0; i < u8.length; i += chunkSize) {
+              binary += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + chunkSize)));
+            }
+            thumbDataUrl = `data:image/jpeg;base64,${btoa(binary)}`;
+          }
+        }
+      } catch {
+        // Fallback to mediaUrl
+      }
+
       return {
         id: shortcode,
         title: `Instagram Post (${shortcode})`,
@@ -51,7 +72,7 @@ export async function fetchVideoInfo(
         upload_date: new Date().toISOString().slice(0, 10).replace(/-/g, ""),
         duration: 0,
         video_duration: 0,
-        thumbnail: mediaUrl,
+        thumbnail: thumbDataUrl,
         webpage_url: `https://www.instagram.com/p/${shortcode}/`,
         description: `Instagram image post (${shortcode})`,
         tags: ["instagram", "photo", "image"],
@@ -423,6 +444,56 @@ export async function upscaleVideo(
       return inputPath;
     } catch {
       return tempUpscaledPath;
+    }
+  }
+
+  return inputPath;
+}
+
+/**
+ * Scale image to target height using FFmpeg Lanczos scaling algorithm.
+ * Preserves original aspect ratio (-2 ensures proportional width rounded to even integer)
+ * and keeps high-quality JPEG output (-q:v 2).
+ */
+export async function scaleImageViaFFmpeg(
+  inputPath: string,
+  targetHeight: number,
+  settings: YTCaptureSettings,
+  onProgress?: (msg: string) => void
+): Promise<string> {
+  const fs = getNodeFs() as MinimalFs | null;
+  if (!fs || !fs.existsSync(inputPath)) return inputPath;
+
+  const ffmpegBin = resolveBinary(settings.ffmpegPath || "ffmpeg");
+  const dir = PathUtils.dirname(inputPath);
+  const ext = PathUtils.extname(inputPath) || ".jpg";
+  const base = PathUtils.basename(inputPath, ext);
+  const tempScaledPath = PathUtils.join(dir, `${base}_scaled${ext}`);
+
+  onProgress?.(`Scaling image to ${targetHeight}p via FFmpeg (Lanczos)...`);
+
+  const filter = `scale=-2:${targetHeight}:flags=lanczos`;
+  const args = [
+    "-y",
+    "-i", inputPath,
+    "-vf", filter,
+    "-q:v", "2",
+    tempScaledPath,
+  ];
+
+  await runCommand(ffmpegBin, args, {
+    onStderr: (line) => {
+      onProgress?.(`Scaling image: ${line.trim().slice(0, 80)}`);
+    },
+  });
+
+  if (fs.existsSync(tempScaledPath)) {
+    try {
+      fs.unlinkSync(inputPath);
+      fs.renameSync(tempScaledPath, inputPath);
+      return inputPath;
+    } catch {
+      return tempScaledPath;
     }
   }
 

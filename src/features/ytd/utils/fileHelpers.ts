@@ -120,46 +120,162 @@ export function formatDateTimeStamp(d: Date = new Date()): {
 }
 
 /**
+ * Sanitize channel or author name for filename components.
+ * Strips special chars and replaces spaces with hyphens.
+ */
+export function sanitizeChannelName(name?: string, defaultPrefix: string = "channel"): string {
+  if (!name) return defaultPrefix;
+  let clean = name
+    .replace(/[/\\:*?"<>|#^[\]@]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .trim();
+  if (clean.length > 20) {
+    clean = clean.slice(0, 20);
+  }
+  clean = clean.replace(/[-_.]+$/, "").trim();
+  return clean || defaultPrefix;
+}
+
+/**
+ * Sanitize title for filename components:
+ * Strips special chars, converts spaces to hyphens to maintain clear separation
+ * between underscore-delimited metadata fields, and limits to maxLen (default 15 characters).
+ */
+export function sanitizeTitlePart(name: string, maxLen: number = 15): string {
+  if (!name) return "post";
+  let clean = name
+    .replace(/[/\\:*?"<>|#^[\]]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .trim();
+  if (maxLen > 0 && clean.length > maxLen) {
+    clean = clean.slice(0, maxLen);
+  }
+  clean = clean.replace(/[-_.]+$/, "").trim();
+  return clean || "post";
+}
+
+export interface BuildMediaBaseNameOptions {
+  title: string;
+  channel?: string;
+  startSec?: number;
+  endSec?: number;
+  quality?: string;
+  fps?: string;
+  platform?: "youtube" | "instagram" | string;
+  date?: Date;
+  maxTitleLen?: number;
+  mediaType?: "video" | "image";
+  slideIndex?: number;
+}
+
+/**
  * Build structured filename base following pattern:
- * yt | ig_title_qty_fps_date_time
+ * {channel/profile}_{title/first15letters}_{date(YYYY-MM-DD)}_{time(HH-mm-ss)}_s{XX}_{format(mp3/mp4/jpg)}_{quality}
  *
- * Example:
- * - YouTube Video: yt_Akhir Dari Minecraf_1080p_60_2026-09-18_12-45-53
- * - YouTube Audio: yt_Akhir Dari Minecraf_audio_2026-09-18_12-45-53
- * - Instagram Reel: ig_Surah Al Fajr Isma_1080p_auto_2026-09-18_12-45-53
+ * Suffixes:
+ * - Description/Markdown Note: s00 (e.g. ..._s00_note.md) — always sorts at top in Obsidian!
+ * - Media assets / Slides: s01, s02, etc. (e.g. ..._s01_jpg_1080p.jpg, ..._s01_mp4_1080p.mp4)
+ * - Video Thumbnail: s01_thumb (e.g. ..._s01_thumb.jpg)
  */
 export function buildMediaBaseName(
-  title: string,
+  titleOrOpts: string | BuildMediaBaseNameOptions,
   startSec?: number,
   endSec?: number,
   quality: string = "best",
   fps: string = "auto",
   platform: "youtube" | "instagram" | string = "youtube",
   date: Date = new Date(),
-  maxTitleLen: number = 20,
-  mediaType: "video" | "image" = "video"
+  maxTitleLen: number = 15,
+  mediaType: "video" | "image" = "video",
+  channel?: string,
+  slideIndex: number = 1
 ): {
   baseName: string;
+  noteBaseName: string;
+  thumbBaseName: string;
   formatExt: "mp4" | "mp3" | "jpg";
   resolution: string;
   prefix: string;
   cleanTitle: string;
+  cleanChannel: string;
   dateTimeStr: string;
+  slideTag: string;
+  noteSlideTag: string;
 } {
-  const isIg = platform === "instagram" || String(platform).toLowerCase().includes("instagram");
-  const prefix = isIg ? "ig" : "yt";
-  const cleanTitle = sanitizeFilename(title, maxTitleLen);
-  const isImage = mediaType === "image";
-  const formatExt = isImage ? "jpg" : quality === "audio" ? "mp3" : "mp4";
-  const resolution = isImage ? "image" : quality || "1080p";
+  let opts: BuildMediaBaseNameOptions;
+  if (typeof titleOrOpts === "object" && titleOrOpts !== null) {
+    opts = titleOrOpts;
+  } else {
+    opts = {
+      title: typeof titleOrOpts === "string" ? titleOrOpts : "",
+      startSec,
+      endSec,
+      quality,
+      fps,
+      platform,
+      date,
+      maxTitleLen,
+      mediaType,
+      channel,
+      slideIndex,
+    };
+  }
 
-  // If image: "image". If audio: "audio". If video: ${resolution}_${fps}
-  const qualFps = isImage ? "image" : quality === "audio" ? "audio" : `${resolution}_${fps || "auto"}`;
-  const { dateTimeStr } = formatDateTimeStamp(date);
+  const resolvedDate = opts.date || new Date();
+  const { dateStr, timeStr, dateTimeStr } = formatDateTimeStamp(resolvedDate);
 
-  const baseName = `${prefix}_${cleanTitle}_${qualFps}_${dateTimeStr}`;
+  const isIg = opts.platform === "instagram" || String(opts.platform).toLowerCase().includes("instagram");
+  const fallbackPlatform = isIg ? "instagram" : "youtube";
+  const cleanChannel = sanitizeChannelName(opts.channel, fallbackPlatform);
 
-  return { baseName, formatExt, resolution, prefix, cleanTitle, dateTimeStr };
+  const titleLength = typeof opts.maxTitleLen === "number" && opts.maxTitleLen > 0 ? opts.maxTitleLen : 15;
+  const cleanTitle = sanitizeTitlePart(opts.title || "", titleLength);
+
+  const isImage = opts.mediaType === "image";
+  const isAudio = opts.quality === "audio";
+  const formatExt: "mp4" | "mp3" | "jpg" = isImage ? "jpg" : isAudio ? "mp3" : "mp4";
+
+  // Normalize quality representation in filename (e.g. 1080p, 4k, 720p, 144p, audio, best)
+  let cleanQuality = "best";
+  if (isAudio) {
+    cleanQuality = "audio";
+  } else if (opts.quality && opts.quality !== "best") {
+    cleanQuality = opts.quality.toLowerCase();
+  } else if (isImage) {
+    cleanQuality = "original";
+  } else {
+    cleanQuality = "1080p";
+  }
+
+  const sIndex = Math.max(1, opts.slideIndex || 1);
+  const slideTag = `s${String(sIndex).padStart(2, "0")}`;
+  const noteSlideTag = "s00";
+
+  // Structured filenames:
+  // Note:    {channel}_{title15}_{YYYY-MM-DD}_{HH-mm-ss}_s00_note
+  // Media:   {channel}_{title15}_{YYYY-MM-DD}_{HH-mm-ss}_s01_{format}_{quality}
+  // Thumb:   {channel}_{title15}_{YYYY-MM-DD}_{HH-mm-ss}_s01_thumb
+  const noteBaseName = `${cleanChannel}_${cleanTitle}_${dateStr}_${timeStr}_${noteSlideTag}_note`;
+  const baseName = `${cleanChannel}_${cleanTitle}_${dateStr}_${timeStr}_${slideTag}_${formatExt}_${cleanQuality}`;
+  const thumbBaseName = `${cleanChannel}_${cleanTitle}_${dateStr}_${timeStr}_${slideTag}_thumb`;
+
+  return {
+    baseName,
+    noteBaseName,
+    thumbBaseName,
+    formatExt,
+    resolution: cleanQuality,
+    prefix: cleanChannel,
+    cleanTitle,
+    cleanChannel,
+    dateTimeStr,
+    slideTag,
+    noteSlideTag,
+  };
 }
 
 export interface WebEmbedInfo {

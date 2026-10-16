@@ -15,6 +15,8 @@ import {
   downloadThumbnail,
   downloadInstagramImage,
   findSubtitleFile,
+  scaleImageViaFFmpeg,
+  QUALITY_HEIGHT_MAP,
 } from "../utils/ytdlp";
 import {
   parseSubtitleFile,
@@ -178,10 +180,15 @@ export class CaptureModal extends Modal {
     qGroup.createEl("label", { cls: "ytec-label", text: "Quality" });
     const qSelect = qGroup.createEl("select", { cls: "ytec-input" }) as HTMLSelectElement;
     const qOpts: { val: VideoQuality; label: string }[] = [
-      { val: "best",  label: "Best Available (1080p+)" },
+      { val: "best",  label: "Best Available (Original)" },
+      { val: "4k",    label: "4K Ultra HD (2160p)" },
+      { val: "2k",    label: "1440p 2K QHD" },
+      { val: "1080p", label: "1080p Full HD" },
       { val: "720p",  label: "720p HD" },
       { val: "480p",  label: "480p SD" },
       { val: "360p",  label: "360p Low" },
+      { val: "240p",  label: "240p Mobile" },
+      { val: "144p",  label: "144p Minimal" },
       { val: "audio", label: "Audio Only (m4a/mp3)" },
     ];
     qOpts.forEach(o => {
@@ -818,24 +825,25 @@ export class CaptureModal extends Modal {
         (p.platform === "instagram" ? this.urlValue : buildYouTubeUrl(p.video_id));
 
       const platform = p.platform || (targetUrl.includes("instagram.com") ? "instagram" : "youtube");
-      const maxTitleLen = this.plugin.settings.maxTitleLength || 20;
       const isImagePost = p.media_type === "image";
-      const { baseName, formatExt } = buildMediaBaseName(
-        p.title,
-        p.start,
-        p.end,
-        p.quality,
-        p.fps,
+      const { baseName, noteBaseName, thumbBaseName, formatExt } = buildMediaBaseName({
+        title: p.title,
+        channel: p.channel || p.uploader,
+        startSec: p.start,
+        endSec: p.end,
+        quality: p.quality,
+        fps: p.fps,
         platform,
-        new Date(),
-        maxTitleLen,
-        isImagePost ? "image" : "video"
-      );
+        date: new Date(),
+        maxTitleLen: 15,
+        mediaType: isImagePost ? "image" : "video",
+        slideIndex: 1,
+      });
       const outputFolder = this.plugin.settings.ytCaptureOutputFolder || "YT Captures";
 
       const mp4Name = `${baseName}.${formatExt}`;
-      const thumbName = `${baseName}.jpg`;
-      const noteName = `${baseName}.md`;
+      const thumbName = isImagePost ? `${baseName}.jpg` : `${thumbBaseName}.jpg`;
+      const noteName = `${noteBaseName}.md`;
       const zipName = `${baseName}.zip`;
 
       const activePresetId = this.plugin.settings.activePresetId || "yt_evidence_standard";
@@ -865,6 +873,33 @@ export class CaptureModal extends Modal {
         } catch (e: any) {
           this.addLog(`⚠ Image download fallback: ${e.message}`);
           imgArrayBuffer = await downloadThumbnail(p.thumbnail);
+        }
+
+        // Scale image via FFmpeg if quality is selected and fs is available
+        const targetHeight = QUALITY_HEIGHT_MAP[p.quality] || 0;
+        if (targetHeight > 0 && fs) {
+          try {
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+            const tempOrigImg = PathUtils.join(tempDir, "orig_image.jpg");
+            fs.writeFileSync(tempOrigImg, Buffer.from(imgArrayBuffer));
+            this.addLog(`⚡ Scaling photo to ${p.quality} (${targetHeight}p) via FFmpeg...`);
+            const scaledImgPath = await scaleImageViaFFmpeg(
+              tempOrigImg,
+              targetHeight,
+              this.plugin.settings,
+              (msg) => this.addLog(msg)
+            );
+            if (fs.existsSync(scaledImgPath)) {
+              const scaledBuf = fs.readFileSync(scaledImgPath);
+              imgArrayBuffer = scaledBuf.buffer.slice(
+                scaledBuf.byteOffset,
+                scaledBuf.byteOffset + scaledBuf.byteLength
+              ) as ArrayBuffer;
+              this.addLog(`✓ Scaled photo to ${p.quality} (${imgArrayBuffer.byteLength} bytes)`);
+            }
+          } catch (err: any) {
+            this.addLog(`[WARN] Photo scaling skipped: ${err?.message || err}`);
+          }
         }
 
         const imgVaultPath = `${outputFolder}/${thumbName}`;
