@@ -226,6 +226,12 @@ export class YTDownloaderView extends ItemView {
       getHistoryItems: () => this.getCombinedHistoryItems(),
       onSelectHistoryItem: (preview) => this.loadPreviewFromHistory(preview),
       onDirectDownloadHistoryItem: (preview) => this.directDownloadFromHistory(preview),
+      onSelectPlaylistHistoryItem: (preview) => {
+        void this.loadPlaylistFromHistory(preview);
+      },
+      onDirectDownloadPlaylistHistoryItem: (preview) => {
+        this.directDownloadPlaylistFromHistory(preview);
+      },
       onClearHistory: () => this.clearHistoryFetches(),
     });
 
@@ -404,6 +410,7 @@ export class YTDownloaderView extends ItemView {
       const outFolder = `${this.plugin.settings.ytCaptureOutputFolder || "YT Captures"}/Playlists`;
       const targetSub = `${outFolder}/${remote.playlistTitle}`;
       const delta = await calculatePlaylistDelta(this.app, remote.items, remote, targetSub);
+      this.recordRecentPlaylistFetch(remote, url);
 
       this.activePlaylistQueueView = new PlaylistQueueView(
         this.playlistContainerEl,
@@ -1354,6 +1361,113 @@ export class YTDownloaderView extends ItemView {
       preview,
     });
     new Notice(`⬇ Direct download queued for: "${preview.title.slice(0, 26)}..."`);
+  }
+
+  private recordRecentPlaylistFetch(
+    remote: { playlistId: string; playlistTitle: string; channelTitle: string; items: any[] },
+    url: string
+  ): void {
+    const playlistPreview: VideoPreview = {
+      video_id: remote.playlistId,
+      original_url: url,
+      platform: "youtube",
+      title: remote.playlistTitle,
+      channel: remote.channelTitle || "YouTube",
+      channel_url: "",
+      thumbnail: remote.items?.[0]?.thumbnailUrl || remote.items?.[0]?.thumbnail || "",
+      start: 0,
+      end: 0,
+      duration: (remote.items || []).reduce((acc: number, it: any) => acc + (typeof it.duration === "number" ? it.duration : 0), 0),
+      video_duration: 0,
+      has_transcript: false,
+      upload_date: new Date().toISOString(),
+      view_count: 0,
+      tags: ["playlist"],
+      description: `YouTube Playlist (${remote.items?.length || 0} items)`,
+      quality: this.plugin.settings.ytCaptureQuality || "1080p",
+      fps: "auto",
+      media_type: "video",
+      is_playlist: true,
+      playlist_id: remote.playlistId,
+      playlist_items: remote.items,
+    };
+    this.recordRecentFetch(playlistPreview);
+  }
+
+  private async loadPlaylistFromHistory(preview: VideoPreview): Promise<void> {
+    if (!preview.is_playlist || !preview.playlist_items || preview.playlist_items.length === 0) {
+      this.loadPreviewFromHistory(preview);
+      return;
+    }
+    this.hero.setUrl(preview.original_url);
+    if (this.form) this.form.getContainerEl().style.display = "none";
+    if (this.activePlaylistQueueView) {
+      this.activePlaylistQueueView.destroy();
+      this.activePlaylistQueueView = null;
+    }
+
+    const outFolder = `${this.plugin.settings.ytCaptureOutputFolder || "YT Captures"}/Playlists`;
+    const targetSub = `${outFolder}/${preview.title}`;
+    const remote = {
+      playlistId: preview.playlist_id || preview.video_id,
+      playlistTitle: preview.title,
+      channelTitle: preview.channel,
+      items: preview.playlist_items,
+    };
+    const delta = await calculatePlaylistDelta(this.app, remote.items, remote, targetSub);
+
+    this.activePlaylistQueueView = new PlaylistQueueView(
+      this.playlistContainerEl,
+      this.app,
+      this.plugin,
+      {
+        delta,
+        targetFolder: outFolder,
+        onSyncComplete: () => {
+          void this.refreshData(true);
+        },
+        onQueueDownload: (item) => {
+          this.enqueueDownload({
+            url: item.url,
+            quality: item.quality,
+            fps: item.fps,
+            start: item.start,
+            end: item.end,
+            isFull: item.isFull,
+            folder: item.folder,
+            presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
+            title: item.title,
+            thumbnail: item.thumbnail,
+            channel: item.channel,
+            duration: item.duration,
+          });
+        },
+      }
+    );
+    new Notice(`⚡ Loaded playlist "${preview.title}" from history (0s wait, no re-fetch!)`);
+  }
+
+  private directDownloadPlaylistFromHistory(preview: VideoPreview): void {
+    if (!preview.playlist_items || preview.playlist_items.length === 0) return;
+    const outFolder = `${this.plugin.settings.ytCaptureOutputFolder || "YT Captures"}/Playlists/${preview.title}`;
+    for (const item of preview.playlist_items) {
+      const dur = typeof item.duration === "number" ? item.duration : (parseInt(String(item.duration || 0), 10) || 0);
+      this.enqueueDownload({
+        url: item.url,
+        quality: this.plugin.settings.ytCaptureQuality || "1080p",
+        fps: "auto",
+        start: 0,
+        end: dur,
+        isFull: true,
+        folder: outFolder,
+        presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
+        title: item.title,
+        thumbnail: item.thumbnailUrl,
+        channel: item.author || preview.channel,
+        duration: dur,
+      });
+    }
+    new Notice(`⬇ Enqueued all ${preview.playlist_items.length} items from playlist "${preview.title}"!`);
   }
 
   private clearHistoryFetches(): void {

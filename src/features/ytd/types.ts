@@ -168,6 +168,9 @@ export interface VideoPreview {
   quality: VideoQuality;
   fps: VideoFps;
   media_type?: "video" | "image";
+  is_playlist?: boolean;
+  playlist_id?: string;
+  playlist_items?: PlaylistSyncItem[];
 }
 
 export interface CaptureResult {

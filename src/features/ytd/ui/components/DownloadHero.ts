@@ -10,6 +10,8 @@ export interface DownloadHeroOptions {
   getHistoryItems?: () => VideoPreview[];
   onSelectHistoryItem?: (preview: VideoPreview) => void;
   onDirectDownloadHistoryItem?: (preview: VideoPreview) => void;
+  onSelectPlaylistHistoryItem?: (preview: VideoPreview) => void;
+  onDirectDownloadPlaylistHistoryItem?: (preview: VideoPreview) => void;
   onClearHistory?: () => void;
 }
 
@@ -297,71 +299,238 @@ export class DownloadHero {
     }
 
     for (const item of items) {
-      const row = listEl.createDiv({ cls: "ytec-history-item" });
+      if (item.is_playlist && item.playlist_items && item.playlist_items.length > 0) {
+        // Grouped Accordion for Playlists
+        const groupEl = listEl.createDiv({ cls: "ytec-history-group" });
+        const groupHeader = groupEl.createDiv({ cls: "ytec-history-group-header" });
 
-      // Thumbnail
-      const thumbEl = row.createDiv({ cls: "ytec-history-thumb" });
-      if (item.thumbnail) {
-        const img = thumbEl.createEl("img", {
-          attr: { src: item.thumbnail, referrerpolicy: "no-referrer" },
+        const chevronEl = groupHeader.createSpan({ cls: "ytec-history-group-chevron" });
+        setIcon(chevronEl, "chevron-right");
+
+        const thumbEl = groupHeader.createDiv({ cls: "ytec-history-thumb ytec-history-thumb-playlist" });
+        if (item.thumbnail) {
+          const img = thumbEl.createEl("img", {
+            attr: { src: item.thumbnail, referrerpolicy: "no-referrer" },
+          });
+          img.onerror = () => {
+            img.style.display = "none";
+            setIcon(thumbEl, "list-video");
+          };
+        } else {
+          setIcon(thumbEl, "list-video");
+        }
+        thumbEl.createSpan({ cls: "ytec-history-thumb-dur", text: `${item.playlist_items.length} vids` });
+
+        const infoEl = groupHeader.createDiv({ cls: "ytec-history-info" });
+        const titleEl = infoEl.createSpan({ cls: "ytec-history-title", text: `📑 ${item.title || "YouTube Playlist"}` });
+        titleEl.title = item.title;
+
+        const subEl = infoEl.createDiv({ cls: "ytec-history-sub" });
+        subEl.createSpan({ text: `YouTube Playlist · ${item.playlist_items.length} items` });
+        if (item.channel) {
+          subEl.createSpan({ text: `· ${item.channel}` });
+        }
+
+        const actionsEl = groupHeader.createDiv({ cls: "ytec-history-actions" });
+
+        const loadPlaylistBtn = actionsEl.createEl("button", {
+          cls: "ytec-history-btn-load",
+          text: "⚡ Load All",
+          title: "Load entire playlist into queue (0s wait, no re-fetch)",
+          type: "button",
         });
-        img.onerror = () => {
-          img.style.display = "none";
-          setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
-        };
+        loadPlaylistBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeHistoryDropdown();
+          this.options.onSelectPlaylistHistoryItem?.(item);
+        });
+
+        const dlAllBtn = actionsEl.createEl("button", {
+          cls: "ytec-history-btn-dl",
+          text: "⬇ DL All",
+          title: "Queue all videos in playlist for sequential download",
+          type: "button",
+        });
+        dlAllBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeHistoryDropdown();
+          this.options.onDirectDownloadPlaylistHistoryItem?.(item);
+        });
+
+        const groupBody = groupEl.createDiv({ cls: "ytec-history-group-body is-collapsed" });
+
+        let isGroupOpen = false;
+        groupHeader.addEventListener("click", (e) => {
+          if ((e.target as HTMLElement).closest(".ytec-history-actions")) return;
+          isGroupOpen = !isGroupOpen;
+          if (isGroupOpen) {
+            groupBody.removeClass("is-collapsed");
+            setIcon(chevronEl, "chevron-down");
+            groupHeader.addClass("is-expanded");
+          } else {
+            groupBody.addClass("is-collapsed");
+            setIcon(chevronEl, "chevron-right");
+            groupHeader.removeClass("is-expanded");
+          }
+        });
+
+        // Nested child items inside accordion
+        for (let i = 0; i < item.playlist_items.length; i++) {
+          const child = item.playlist_items[i];
+          const childRow = groupBody.createDiv({ cls: "ytec-history-child-item" });
+
+          childRow.createSpan({
+            cls: "ytec-history-child-idx",
+            text: `#${child.originalIndex || i + 1}`,
+          });
+
+          const dur = typeof child.duration === "number" ? child.duration : (parseInt(String(child.duration || 0), 10) || 0);
+
+          const childThumb = childRow.createDiv({ cls: "ytec-history-thumb ytec-history-thumb-sm" });
+          if (child.thumbnailUrl) {
+            const img = childThumb.createEl("img", {
+              attr: { src: child.thumbnailUrl, referrerpolicy: "no-referrer" },
+            });
+            img.onerror = () => {
+              img.style.display = "none";
+              setIcon(childThumb, "video");
+            };
+          } else {
+            setIcon(childThumb, "video");
+          }
+
+          if (dur > 0) {
+            childThumb.createSpan({ cls: "ytec-history-thumb-dur", text: formatTime(dur) });
+          }
+
+          const childInfo = childRow.createDiv({ cls: "ytec-history-info" });
+          const childTitle = childInfo.createSpan({ cls: "ytec-history-title", text: child.title });
+          childTitle.title = child.title;
+
+          const childSub = childInfo.createDiv({ cls: "ytec-history-sub" });
+          if (child.author || item.channel) {
+            childSub.createSpan({ text: child.author || item.channel || "" });
+          }
+
+          const childActions = childRow.createDiv({ cls: "ytec-history-actions" });
+
+          const toChildPreview = (): VideoPreview => ({
+            video_id: child.videoId,
+            original_url: child.url,
+            platform: "youtube",
+            title: child.title,
+            channel: child.author || item.channel || "",
+            channel_url: "",
+            thumbnail: child.thumbnailUrl,
+            start: 0,
+            end: dur,
+            duration: dur,
+            video_duration: dur,
+            has_transcript: false,
+            upload_date: child.uploadDate || "",
+            view_count: 0,
+            tags: [],
+            description: "",
+            quality: item.quality || "1080p",
+            fps: item.fps || "auto",
+            media_type: "video",
+          });
+
+          const childLoadBtn = childActions.createEl("button", {
+            cls: "ytec-history-btn-load",
+            text: "⚡ Load",
+            title: "Load this video into form",
+            type: "button",
+          });
+          childLoadBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.closeHistoryDropdown();
+            this.options.onSelectHistoryItem?.(toChildPreview());
+          });
+
+          const childDlBtn = childActions.createEl("button", {
+            cls: "ytec-history-btn-dl",
+            text: "⬇ DL",
+            title: "Download this video immediately without fetch",
+            type: "button",
+          });
+          childDlBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.closeHistoryDropdown();
+            this.options.onDirectDownloadHistoryItem?.(toChildPreview());
+          });
+
+          childRow.addEventListener("click", (e) => {
+            if ((e.target as HTMLElement).closest(".ytec-history-actions")) return;
+            this.closeHistoryDropdown();
+            this.options.onSelectHistoryItem?.(toChildPreview());
+          });
+        }
       } else {
-        setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
+        // Standard single item row
+        const row = listEl.createDiv({ cls: "ytec-history-item" });
+
+        const thumbEl = row.createDiv({ cls: "ytec-history-thumb" });
+        if (item.thumbnail) {
+          const img = thumbEl.createEl("img", {
+            attr: { src: item.thumbnail, referrerpolicy: "no-referrer" },
+          });
+          img.onerror = () => {
+            img.style.display = "none";
+            setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
+          };
+        } else {
+          setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
+        }
+
+        if (item.duration > 0) {
+          thumbEl.createSpan({ cls: "ytec-history-thumb-dur", text: formatTime(item.duration) });
+        }
+
+        const infoEl = row.createDiv({ cls: "ytec-history-info" });
+        const titleEl = infoEl.createSpan({ cls: "ytec-history-title", text: item.title || "Untitled Video" });
+        titleEl.title = item.title;
+
+        const subEl = infoEl.createDiv({ cls: "ytec-history-sub" });
+        subEl.createSpan({
+          text: item.platform === "instagram" ? "📸 Instagram" : "🎬 YouTube",
+        });
+        if (item.channel) {
+          subEl.createSpan({ text: `· ${item.channel}` });
+        }
+
+        const actionsEl = row.createDiv({ cls: "ytec-history-actions" });
+
+        const loadBtn = actionsEl.createEl("button", {
+          cls: "ytec-history-btn-load",
+          text: "⚡ Load",
+          title: "Load into form (0s wait, no re-fetch)",
+          type: "button",
+        });
+        loadBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeHistoryDropdown();
+          this.options.onSelectHistoryItem?.(item);
+        });
+
+        const dlBtn = actionsEl.createEl("button", {
+          cls: "ytec-history-btn-dl",
+          text: "⬇ DL",
+          title: "Download immediately without fetch",
+          type: "button",
+        });
+        dlBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeHistoryDropdown();
+          this.options.onDirectDownloadHistoryItem?.(item);
+        });
+
+        row.addEventListener("click", (e) => {
+          if ((e.target as HTMLElement).closest(".ytec-history-actions")) return;
+          this.closeHistoryDropdown();
+          this.options.onSelectHistoryItem?.(item);
+        });
       }
-
-      if (item.duration > 0) {
-        thumbEl.createSpan({ cls: "ytec-history-thumb-dur", text: formatTime(item.duration) });
-      }
-
-      // Title & sub
-      const infoEl = row.createDiv({ cls: "ytec-history-info" });
-      const titleEl = infoEl.createSpan({ cls: "ytec-history-title", text: item.title || "Untitled Video" });
-      titleEl.title = item.title;
-
-      const subEl = infoEl.createDiv({ cls: "ytec-history-sub" });
-      subEl.createSpan({
-        text: item.platform === "instagram" ? "📸 Instagram" : "🎬 YouTube",
-      });
-      if (item.channel) {
-        subEl.createSpan({ text: `· ${item.channel}` });
-      }
-
-      // Actions
-      const actionsEl = row.createDiv({ cls: "ytec-history-actions" });
-
-      const loadBtn = actionsEl.createEl("button", {
-        cls: "ytec-history-btn-load",
-        text: "⚡ Load",
-        title: "Load into form (0s wait, no re-fetch)",
-        type: "button",
-      });
-      loadBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.closeHistoryDropdown();
-        this.options.onSelectHistoryItem?.(item);
-      });
-
-      const dlBtn = actionsEl.createEl("button", {
-        cls: "ytec-history-btn-dl",
-        text: "⬇ DL",
-        title: "Download immediately without fetch",
-        type: "button",
-      });
-      dlBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.closeHistoryDropdown();
-        this.options.onDirectDownloadHistoryItem?.(item);
-      });
-
-      // Entire row click defaults to Load
-      row.addEventListener("click", () => {
-        this.closeHistoryDropdown();
-        this.options.onSelectHistoryItem?.(item);
-      });
     }
   }
 
