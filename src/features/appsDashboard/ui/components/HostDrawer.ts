@@ -4,6 +4,7 @@ import type { AppScanRecord, GitCommitRecord } from "../../types";
 import { CopyButton } from "../../../../uiComponents";
 import { SetupFirebaseModal } from "../SetupFirebaseModal";
 import { AccountManagerModal } from "../AccountManagerModal";
+import { LinkRemoteModal } from "../AppsDashboardView";
 
 export class HostDrawer {
   public containerEl: HTMLElement;
@@ -232,6 +233,40 @@ export class HostDrawer {
         new AccountManagerModal(this.appInstance!, this.store, app).open();
       });
     }
+
+    const remoteUrlVal = app.git.remoteUrl || (app.git.isRepo ? "local (no remote)" : "uninitialized");
+    const remoteRow = this.createMetaRow(metaList, "Remote Repo", remoteUrlVal);
+    if (this.appInstance) {
+      const cfgRepoBtn = remoteRow.createEl("button", {
+        cls: "pakcli-btn-secondary mod-small",
+        text: app.git.remoteUrl ? "⚙️ Config" : "+ Remote",
+        attr: { type: "button", title: "Config / switch GitHub remote repository" },
+      });
+      cfgRepoBtn.style.marginLeft = "8px";
+      cfgRepoBtn.style.padding = "2px 6px";
+      cfgRepoBtn.style.fontSize = "0.72rem";
+      cfgRepoBtn.addEventListener("click", () => {
+        const defaultTitle = app.catalog?.title || app.folderName;
+        const ghUser = this.store.health?.cli.gh.userEmail || "pakcli";
+        new LinkRemoteModal(
+          this.appInstance!,
+          defaultTitle,
+          async (url) => {
+            const res = await this.store.linkRemoteForApp(app, url);
+            new Notice(res.message);
+            this.render(this.store.selectedApp || app);
+          },
+          ghUser,
+          app.git.remoteUrl,
+          async () => {
+            const res = await this.store.unlinkRemoteForApp(app);
+            new Notice(res.message);
+            this.render(this.store.selectedApp || app);
+          }
+        ).open();
+      });
+    }
+
     this.createMetaRow(
       metaList,
       "Git Status",

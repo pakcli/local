@@ -167,6 +167,18 @@ export class CliBridge {
     }
   }
 
+  public async unlinkGitHubRemote(appPath: string): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) {
+      return { success: false, message: "Node child_process API not available." };
+    }
+    try {
+      await this.execAsync("git remote remove origin", appPath);
+      return { success: true, message: "Remote origin unlinked." };
+    } catch (err: any) {
+      return { success: false, message: `Failed to unlink remote: ${err?.message || err}` };
+    }
+  }
+
   public async setupFirebaseHosting(
     appPath: string,
     siteId: string,

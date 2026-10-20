@@ -17,27 +17,33 @@ import {
 } from "../../../uiComponents";
 import { getNodeChildProcess, getNodeFs, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
 
-class LinkRemoteModal extends BaseModal {
+export class LinkRemoteModal extends BaseModal {
   private repoName = "";
   private remoteUrl = "";
   private prefix = "pakcli";
   private onConfirm: (url: string) => void;
+  private onUnlink?: () => void;
   private checkStatusEl?: HTMLElement;
+  private existingRemoteUrl?: string;
 
   constructor(
     app: App,
     defaultTitle: string,
     onConfirm: (url: string) => void,
-    existingPrefix?: string
+    existingPrefix?: string,
+    existingRemoteUrl?: string,
+    onUnlink?: () => void
   ) {
     super(app, {
-      title: "Link GitHub Remote Repository",
-      subtitle: `Connect "${defaultTitle}" to remote repository.`,
+      title: existingRemoteUrl ? "Configure GitHub Remote" : "Link GitHub Remote Repository",
+      subtitle: `Configure Git remote repository for "${defaultTitle}".`,
       badgeText: "Git",
       badgeCls: "is-info",
-      width: "500px",
+      width: "520px",
     });
     this.onConfirm = onConfirm;
+    this.onUnlink = onUnlink;
+    this.existingRemoteUrl = existingRemoteUrl;
     if (existingPrefix) this.prefix = existingPrefix;
 
     // Clean slug from title
@@ -46,7 +52,7 @@ class LinkRemoteModal extends BaseModal {
       .replace(/[^\w\s-]/g, "")
       .trim()
       .replace(/\s+/g, "-");
-    this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
+    this.remoteUrl = existingRemoteUrl || `https://github.com/${this.prefix}/${this.repoName}.git`;
   }
 
   renderBody(bodyEl: HTMLElement): void {
@@ -54,10 +60,37 @@ class LinkRemoteModal extends BaseModal {
 
     let urlInput: any;
 
+    if (this.existingRemoteUrl) {
+      const curBox = bodyEl.createDiv({ cls: "pakcli-info-banner" });
+      curBox.style.padding = "8px 12px";
+      curBox.style.marginBottom = "14px";
+      curBox.style.background = "var(--background-secondary)";
+      curBox.style.borderRadius = "4px";
+      curBox.style.border = "1px solid var(--background-modifier-border)";
+      curBox.style.fontSize = "0.82rem";
+
+      curBox.createDiv({ cls: "text-muted", text: "Current Remote URL:" });
+      const curUrlEl = curBox.createEl("strong", { text: this.existingRemoteUrl });
+      curUrlEl.style.fontFamily = "var(--font-monospace)";
+
+      const switchBtn = curBox.createEl("button", {
+        cls: "pakcli-btn-secondary mod-small",
+        text: `⚡ Quick Switch to: https://github.com/${this.prefix}/${this.repoName}.git`,
+        attr: { type: "button" },
+      });
+      switchBtn.style.marginTop = "6px";
+      switchBtn.style.display = "block";
+      switchBtn.addEventListener("click", () => {
+        this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
+        if (urlInput) urlInput.setValue(this.remoteUrl);
+        new Notice(`Set target URL to ${this.remoteUrl}`);
+      });
+    }
+
     // 1. Repo Name with Check Button
     new Setting(bodyEl)
       .setName("Repository Name")
-      .setDesc("Default suggestion from title. Click [ Check ] to validate.")
+      .setDesc(`GitHub repository slug under user '${this.prefix}'.`)
       .addText((text) => {
         text.setValue(this.repoName).onChange((val) => {
           this.repoName = val.trim();
@@ -83,7 +116,7 @@ class LinkRemoteModal extends BaseModal {
         text.setValue(this.remoteUrl).onChange((val) => {
           this.remoteUrl = val.trim();
         });
-        text.inputEl.style.width = "260px";
+        text.inputEl.style.width = "280px";
       });
 
     // 3. GitHub Pages Domain Preview
@@ -118,9 +151,21 @@ class LinkRemoteModal extends BaseModal {
     });
     cancelBtn.addEventListener("click", () => this.close());
 
+    if (this.onUnlink) {
+      const unlinkBtn = footerEl.createEl("button", {
+        cls: "pakcli-btn-secondary mod-warning",
+        text: "🗑️ Unlink Remote",
+        attr: { type: "button", title: "Remove remote 'origin' from this repo" },
+      });
+      unlinkBtn.addEventListener("click", () => {
+        this.onUnlink?.();
+        this.close();
+      });
+    }
+
     const confirmBtn = footerEl.createEl("button", {
       cls: "mod-cta pakcli-btn-primary",
-      text: "Link Remote",
+      text: this.existingRemoteUrl ? "Save / Switch Remote" : "Link Remote",
     });
     confirmBtn.addEventListener("click", () => {
       if (!this.remoteUrl) {
@@ -358,6 +403,32 @@ export class AppsDashboardView extends ItemView {
             const urlText = wrap.createSpan({ cls: "pakcli-repo-link-text", text: app.git.remoteUrl });
             urlText.title = app.git.remoteUrl;
 
+            // Config / Switch Remote Button
+            const cfgBtn = wrap.createEl("button", {
+              cls: "pakcli-icon-btn clickable-icon",
+              attr: { type: "button", title: "Config / switch remote repository" },
+            });
+            setIcon(cfgBtn, "settings");
+            cfgBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const defaultTitle = app.catalog?.title || app.folderName;
+              const ghUser = this.store.health?.cli.gh.userEmail || "pakcli";
+              new LinkRemoteModal(
+                this.app,
+                defaultTitle,
+                async (url) => {
+                  const res = await this.store.linkRemoteForApp(app, url);
+                  new Notice(res.message);
+                },
+                ghUser,
+                app.git.remoteUrl,
+                async () => {
+                  const res = await this.store.unlinkRemoteForApp(app);
+                  new Notice(res.message);
+                }
+              ).open();
+            });
+
             const extBtn = wrap.createEl("button", {
               cls: "pakcli-icon-btn clickable-icon",
               attr: { type: "button", title: "Open in browser" },
@@ -365,7 +436,10 @@ export class AppsDashboardView extends ItemView {
             setIcon(extBtn, "external-link");
             extBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              window.open(`https://${app.git.remoteUrl}`, "_blank");
+              const fullUrl = app.git.remoteUrl!.startsWith("http")
+                ? app.git.remoteUrl!
+                : `https://${app.git.remoteUrl}`;
+              window.open(fullUrl, "_blank");
             });
             return wrap;
           }
@@ -381,10 +455,16 @@ export class AppsDashboardView extends ItemView {
             linkBtn.addEventListener("click", (e) => {
               e.stopPropagation();
               const defaultTitle = app.catalog?.title || app.folderName;
-              new LinkRemoteModal(this.app, defaultTitle, async (url) => {
-                const res = await this.store.linkRemoteForApp(app, url);
-                new Notice(res.message);
-              }).open();
+              const ghUser = this.store.health?.cli.gh.userEmail || "pakcli";
+              new LinkRemoteModal(
+                this.app,
+                defaultTitle,
+                async (url) => {
+                  const res = await this.store.linkRemoteForApp(app, url);
+                  new Notice(res.message);
+                },
+                ghUser
+              ).open();
             });
             return wrap;
           }

@@ -211,6 +211,16 @@ export class AppDashboardStore {
     return res;
   }
 
+  public async unlinkRemoteForApp(
+    app: AppScanRecord
+  ): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.unlinkGitHubRemote(app.absolutePath);
+    if (res.success) {
+      await this.rescan();
+    }
+    return res;
+  }
+
   public async setupFirebaseForApp(
     app: AppScanRecord,
     siteId: string,
