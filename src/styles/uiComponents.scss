@@ -1,0 +1,290 @@
+/* ========================================================================= */
+/* Reusable UI Components System (pakcli-local)                             */
+/* ========================================================================= */
+
+/* --- 1. CopyButton & Hover Actions --- */
+.pakcli-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: var(--radius-s, 4px);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    transition: all 0.15s ease-in-out;
+
+    &:hover {
+        color: var(--text-normal);
+        background: var(--background-modifier-hover);
+        border-color: var(--background-modifier-border);
+    }
+
+    &.is-copied {
+        color: var(--text-success, #48bb78);
+        border-color: var(--text-success, #48bb78);
+        background: rgba(72, 187, 120, 0.1);
+    }
+
+    .pakcli-copy-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
+    }
+}
+
+/* Hover-only copy button in table cells */
+.pakcli-cell-hover-copy {
+    opacity: 0;
+    pointer-events: none;
+    margin-left: auto;
+    transition: opacity 0.15s ease;
+}
+
+.pakcli-cell-wrapper:hover .pakcli-cell-hover-copy,
+.pakcli-cell-hover-copy.is-copied {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* --- 2. SearchFilterBar --- */
+.pakcli-search-filter-bar {
+    display: flex;
+    align-items: center;
+    position: relative;
+    background: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 6px);
+    padding: 0 8px;
+    height: 32px;
+    transition: border-color 0.15s ease;
+
+    &:focus-within {
+        border-color: var(--interactive-accent);
+        box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb, 120, 100, 255), 0.2);
+    }
+
+    .pakcli-search-icon {
+        display: flex;
+        align-items: center;
+        color: var(--text-muted);
+        margin-right: 6px;
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
+    }
+
+    .pakcli-search-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--text-normal);
+        font-size: 13px;
+        outline: none;
+        box-shadow: none;
+        padding: 0;
+
+        &::placeholder {
+            color: var(--text-faint);
+        }
+    }
+
+    .pakcli-search-clear-btn {
+        display: none;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 2px;
+        border-radius: var(--radius-s, 4px);
+
+        &.is-visible {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        &:hover {
+            color: var(--text-normal);
+            background: var(--background-modifier-hover);
+        }
+
+        svg {
+            width: 13px;
+            height: 13px;
+        }
+    }
+}
+
+/* --- 3. BaseModal & ConfirmModal --- */
+.pakcli-base-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+
+    .pakcli-modal-header {
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--background-modifier-border);
+        margin-bottom: 16px;
+
+        .pakcli-modal-title-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+
+            .pakcli-modal-title {
+                margin: 0;
+                font-size: 1.2rem;
+                font-weight: 600;
+            }
+
+            .pakcli-modal-badge {
+                font-size: 10px;
+                padding: 2px 6px;
+                border-radius: 10px;
+                background: var(--background-modifier-active-hover);
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+        }
+
+        .pakcli-modal-subtitle {
+            margin: 4px 0 0 0;
+            font-size: 12px;
+        }
+    }
+
+    .pakcli-modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+
+    .pakcli-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        padding-top: 14px;
+        border-top: 1px solid var(--background-modifier-border);
+        margin-top: 16px;
+    }
+}
+
+/* Type to confirm container */
+.pakcli-type-confirm-container {
+    margin-top: 14px;
+    padding: 12px;
+    background: var(--background-secondary);
+    border-radius: var(--radius-m, 6px);
+    border: 1px solid var(--background-modifier-border);
+
+    .pakcli-type-confirm-label {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        margin-bottom: 6px;
+        color: var(--text-normal);
+    }
+
+    .pakcli-type-confirm-input {
+        width: 100%;
+        background: var(--background-primary);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: var(--radius-s, 4px);
+        padding: 6px 10px;
+        font-size: 13px;
+        color: var(--text-normal);
+
+        &:focus {
+            border-color: var(--interactive-accent);
+        }
+    }
+}
+
+/* --- 4. GenericTable --- */
+.pakcli-generic-table-container {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 6px);
+    background: var(--background-primary);
+
+    .pakcli-generic-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--background-modifier-border);
+        }
+
+        th {
+            background: var(--background-secondary);
+            color: var(--text-muted);
+            font-weight: 600;
+            user-select: none;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+
+            &.is-sortable {
+                cursor: pointer;
+
+                &:hover {
+                    color: var(--text-normal);
+                    background: var(--background-modifier-hover);
+                }
+            }
+
+            .pakcli-sort-indicator {
+                display: inline-flex;
+                margin-left: 6px;
+                vertical-align: middle;
+
+                svg {
+                    width: 12px;
+                    height: 12px;
+                }
+            }
+        }
+
+        tr.pakcli-table-row {
+            transition: background 0.1s ease;
+
+            &:hover {
+                background: var(--background-modifier-hover);
+            }
+        }
+
+        .pakcli-cell-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            user-select: text; /* Free text selection */
+        }
+
+        .pakcli-table-empty-row {
+            td {
+                text-align: center;
+                padding: 32px 16px;
+            }
+        }
+    }
+}

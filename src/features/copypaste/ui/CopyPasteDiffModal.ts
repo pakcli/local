@@ -2,6 +2,7 @@ import { App, Modal, Notice, setIcon } from 'obsidian';
 import { CopyPasteManager } from '../CopyPasteManager';
 import { TargetFilterRule, DiffPairItem } from '../types';
 import { renderDiffViewer } from '../../scriptSync/diffViewer';
+import { SearchFilterBar } from '../../../uiComponents';
 
 export class CopyPasteDiffModal extends Modal {
     private manager: CopyPasteManager;
@@ -106,15 +107,14 @@ export class CopyPasteDiffModal extends Modal {
         container.empty();
 
         const searchWrapper = container.createDiv({ cls: 'copypaste-diff-search-wrapper' });
-        const searchInput = searchWrapper.createEl('input', {
-            type: 'text',
-            cls: 'copypaste-diff-search-input',
-            value: this.searchQuery,
-            attr: { placeholder: 'Filter files...' }
-        });
-        searchInput.addEventListener('input', () => {
-            this.searchQuery = searchInput.value.toLowerCase().trim();
-            this.renderFileList(listContainer);
+        new SearchFilterBar(searchWrapper, {
+            placeholder: 'Filter files...',
+            initialValue: this.searchQuery,
+            enableSlashFocus: false,
+            onSearchChange: (query) => {
+                this.searchQuery = query.toLowerCase();
+                this.renderFileList(listContainer);
+            }
         });
 
         const listContainer = container.createDiv({ cls: 'copypaste-diff-file-list' });

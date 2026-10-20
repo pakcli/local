@@ -2,6 +2,7 @@ import { App, Notice } from "obsidian";
 import { getNodeChildProcess, getNodeOs, getNodeFs } from "../../utils/nodeHelpers";
 import { detectPsExe, runPsCommand } from "./psRunner";
 import { ConsentModal } from "./consentModal";
+import { CopyButton } from "../../uiComponents";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -561,15 +562,11 @@ export function renderDepsTable(
     if (hasPath) {
       const locWrap = tdLoc.createDiv({ cls: "pakcli-deps-loc-wrap" });
       locWrap.createSpan({ cls: "pakcli-deps-dir-text", text: dep.installDir, attr: { title: dep.installDir } });
-      const copyBtn = locWrap.createEl("button", { cls: "pakcli-deps-copy-inline", text: "📋" });
-      copyBtn.title = "Copy path";
-      copyBtn.onclick = () => {
-        navigator.clipboard.writeText(dep.installDir).then(() => {
-          copyBtn.textContent = "✅";
-          new Notice(`📋 Copied: ${dep.installDir}`);
-          setTimeout(() => { copyBtn.textContent = "📋"; }, 1800);
-        });
-      };
+      new CopyButton(locWrap, {
+        text: dep.installDir,
+        title: "Copy path",
+        onCopySuccess: () => new Notice(`📋 Copied: ${dep.installDir}`)
+      });
     } else {
       tdLoc.createSpan({ cls: "pakcli-deps-na", text: dep.status === "checking" ? "checking…" : "not installed" });
     }

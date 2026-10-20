@@ -1,6 +1,6 @@
 # 📌 Master Brief: Modular UI Components & Headless Engine Architecture (pakcli-local)
 
-> **Feature Status**: `0` (Specification & Architecture Refactoring)  
+> **Feature Status**: `1` (Completed & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Date**: 2026-10-20  
 
@@ -98,12 +98,13 @@ local/src/
 
 ## 4. Rencana Implementasi & Checklist Kriteria (Acceptance Criteria)
 
-- [ ] Status 0 brief dibuat dan terdokumentasi
-- [ ] Buat direktori `local/src/uiComponents/` beserta subfoldernya
-- [ ] Implementasikan `CopyButton.ts` (dengan auto-revert 1s)
-- [ ] Implementasikan `SearchFilterBar.ts` (dengan debounce dan keyboard focus)
-- [ ] Implementasikan `BaseModal.ts` dan `ConfirmModal.ts` (type-to-confirm ready)
-- [ ] Implementasikan `GenericTable.ts` (data-driven schema, RFC 4180 TSV export)
-- [ ] Buat barrel export `local/src/uiComponents/index.ts`
-- [ ] Verifikasi `npm run build` berhasil tanpa error compile (Green build)
-- [ ] Commit Status 1 setelah pengujian selesai
+- [x] Status 0 brief dibuat dan terdokumentasi
+- [x] Buat direktori `local/src/uiComponents/` beserta subfoldernya
+- [x] Implementasikan `CopyButton.ts` (dengan auto-revert 1s)
+- [x] Implementasikan `SearchFilterBar.ts` (dengan debounce dan keyboard focus)
+- [x] Implementasikan `BaseModal.ts` dan `ConfirmModal.ts` (type-to-confirm ready)
+- [x] Implementasikan `GenericTable.ts` (data-driven schema, RFC 4180 TSV export)
+- [x] Buat barrel export `local/src/uiComponents/index.ts`
+- [x] Verifikasi integrasi ke `depsTable.ts` dan `CopyPasteDiffModal.ts`
+- [x] Verifikasi `npm run build` berhasil tanpa error compile (Green build)
+- [x] Commit Status 1 setelah pengujian selesai
