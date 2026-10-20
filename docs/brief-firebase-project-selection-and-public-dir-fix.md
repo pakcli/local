@@ -1,4 +1,4 @@
-# 📌 Master Brief: Unified Accounts Column (GitHub & Google), 2-Letter Masking with Expose Toggle, Local PC Account Switcher & Firebase Project Selector
+# 📌 Master Brief: Self-Contained Accounts Manager, Interactive PowerShell Login Console & Firebase Project Setup
 
 > **Feature Status**: `0` (Specification & Architecture)  
 > **Target Module**: `local` (`pakcli-local`)  
@@ -7,102 +7,105 @@
 
 ---
 
-## 1. Problem Statement & User Requirements
+## 1. Problem Statement & User Decisions
 
-### 1.1 Masalah Sebelumnya:
+### 1.1 Masalah Sebelumnya
 1. **Deployment Firebase Gagal (Exit Code 2)**:
-   - Plugin secara sepihak menetapkan folder `radiansincostan` sebagai Project ID dan `dist` sebagai direktori publik. Proyek ini tidak ada di akun Google Firebase pengguna, sehingga deployment gagal.
-2. **Ketiadaan Visibilitas Akun**:
-   - Pengguna tidak dapat melihat akun GitHub dan Google Firebase mana yang saat ini terhubung dan mengelola setiap aplikasi.
+   - Plugin sebelumnya meng-hardcode Project ID `radiansincostan` dan direktori `dist`. Project tersebut tidak ada di akun Google pengguna, dan folder `dist` tidak ada di aplikasi `radiansincostan` (karena `index.html` ada di root `.`).
+2. **Ketiadaan Visibilitas & Kontrol Akun**:
+   - Pengguna tidak dapat melihat akun GitHub dan Google Firebase yang sedang aktif.
+   - Tidak ada antarmuka untuk memilih atau mengganti akun lokal.
 
-### 1.2 Kebutuhan Fitur Baru dari Pengguna:
-1. **Kolom Akun Terpadu ("Accounts" Column)**:
-   - Satu kolom di dashboard table yang menampilkan akun **GitHub** dan akun **Google Firebase** secara bersamaan.
-2. **Proteksi Privasi Sensor 2 Huruf + Tombol Expose (`👁️`)**:
-   - Secara default disensor: hanya **2 huruf pertama** yang terlihat, sisanya digantikan dengan bintang `**`.
-     - Contoh GitHub: `pakcli` ➔ `pa****`
-     - Contoh Google: `dcalibri@gmail.com` ➔ `dc******@gmail.com`
-   - Tombol **Expose** (`👁️`) di sampingnya untuk membuka/menutup sensor (unmask/mask toggle) secara instan.
-3. **Tombol Config / Switch Account Lokal PC (Tanpa Login Browser)**:
-   - Tombol **`[ ⚙️ / ⇄ ]`** di samping cell akun untuk mengganti atau menetapkan (*assign*) akun ke aplikasi tersebut.
-   - **Hanya menampilkan akun yang SUDAH login di PC saat ini**:
-     - Google/Firebase: Terdeteksi akun `dcalibri@gmail.com` (aktif) dan `pakcli4000@gmail.com`. Dapat dialihkan via `firebase login:use <email>` tanpa membuka browser pop-up.
-     - GitHub: Terdeteksi akun `pakcli` via CLI/keyring. Dapat di-assign ke konfigurasi git repo lokal (`git config user.name`/`user.email`) tanpa browser auth.
-   - **Zero Browser Authentication**: Tidak ada dialog OAuth di browser web, 100% menggunakan session yang sudah tersedia di PC.
-4. **Modal Konfigurasi Firebase (`SetupFirebaseModal`)**:
-   - Memilih Project ID nyata dari akun pengguna (misal: `pakcli`, `coba-obs`, dll.) via `firebase projects:list --json`.
-   - Menetapkan public directory secara cerdas (`.` untuk root index.html, atau `dist` jika ada subfolder dist).
+### 1.2 Keputusan Desain dari Pengguna (Key User Decisions)
+1. **Standalone & Bundled-In (No External Dependency)**:
+   - Fitur harus **self-contained** di dalam plugin `local` (`pakcli-local`).
+   - Tidak memerlukan dependensi eksternal terhadap `all-lads-tool`. Semua logic PowerShell dibundle langsung melalui Node `child_process` dan `powershell.exe` bawaan Windows.
+2. **Interactive PowerShell Login Window ("Expose How It Works")**:
+   - Saat pengguna ingin menambah/login akun baru, plugin membuka jendela terminal PowerShell interaktif (`powershell -NoExit -Command "..."`).
+   - Terminal menampilkan banner ASCII, perintah CLI yang dijalankan (`firebase login`), dan status otorisasi browser secara transparan (tanpa black box).
+3. **Kolom Akun Terpadu ("Accounts" Column)**:
+   - Satu kolom di tabel yang menggabungkan GitHub (`🐙 pa****`) dan Google Firebase (`🔥 dc******@gmail.com`).
+   - Default disensor (hanya 2 huruf pertama yang tampil).
+   - Tombol **Expose (`👁️`)** untuk membuka/menutup sensor per baris.
+4. **Zero-Browser Account Switcher (`⚙️`)**:
+   - Tombol **`[ ⚙️ ]`** di cell akun membuka modal `AccountManagerModal`.
+   - Menampilkan akun yang sudah ada di PC:
+     - Google: `dcalibri@gmail.com` (aktif) dan `pakcli4000@gmail.com` (tersimpan di PC).
+     - GitHub: `pakcli`.
+   - Mengganti akun aktif ke project/app berjalan via `firebase login:use <email>` (0 browser auth, 0.1 detik).
+   - Tombol **`[ 💻 Buka PowerShell Login ]`** untuk login akun baru ke PC.
+   - Tombol **`[ 🚪 Logout Akun dari PC ]`** untuk membersihkan akun dari PC.
+5. **Setup Firebase Modal (`SetupFirebaseModal`)**:
+   - Menampilkan dropdown daftar project dari akun aktif via `firebase projects:list --json` (misal: `pakcli`, `coba-obs`, dll.).
+   - Mendeteksi public directory secara cerdas (`.` untuk root folder aplikasi jika `index.html` di root, atau `dist` jika ada subfolder `dist/`).
 
 ---
 
-## 2. Arsitektur Komponen & Data Flow
+## 2. Arsitektur Komponen & Implementasi Teknis
 
-### 2.1 Backend / CLI Bridge (`CliBridge.ts`)
+### 2.1 Backend CLI Bridge (`CliBridge.ts`)
 1. **`getSystemAccountsInfo()`**:
-   - Membaca akun Google Firebase yang login di PC via `firebase login:list`:
-     - Email aktif (e.g. `dcalibri@gmail.com`).
-     - Email cadangan/tersedia di PC (e.g. `pakcli4000@gmail.com`).
-   - Membaca akun GitHub yang login di PC via `gh api user --jq .login` / `gh auth status` / `git config`:
-     - Username (e.g. `pakcli`).
-     - Email (e.g. `276874584+pakcli@users.noreply.github.com`).
-2. **`switchFirebaseAccount(email: string)`**:
-   - Menjalankan `firebase login:use <email>` secara headless (zero browser auth).
-3. **`listFirebaseProjects()`**:
-   - Menjalankan `firebase projects:list --json` untuk mendapatkan daftar ID proyek milik akun yang sedang aktif.
+   - Membaca akun Google Firebase aktif dan tersimpan dari `firebase login:list`.
+   - Membaca username GitHub aktif dari `gh api user --jq .login` / `git config user.name`.
+2. **`openInteractiveFirebaseLogin()`**:
+   - Menjalankan terminal PowerShell baru:
+     ```ts
+     const psScript = `
+       Write-Host "==================================================" -ForegroundColor Cyan
+       Write-Host " 🔥 FIREBASE AUTHENTICATION (Interactive Console) " -ForegroundColor Yellow
+       Write-Host "==================================================" -ForegroundColor Cyan
+       Write-Host "[*] Executing: firebase login..." -ForegroundColor Gray
+       firebase login
+       Write-Host ""
+       Write-Host "[OK] Finished! You can close this window and return to Obsidian." -ForegroundColor Green
+     `;
+     child_process.spawn("cmd.exe", ["/c", "start", "powershell.exe", "-NoExit", "-Command", psScript], { detached: true });
+     ```
+3. **`openInteractiveGitHubLogin()`**:
+   - Menjalankan terminal PowerShell untuk `gh auth login` secara interaktif.
+4. **`switchFirebaseAccount(email: string)`**:
+   - Menjalankan `firebase login:use <email>` secara headless.
+5. **`logoutFirebaseAccount(email?: string)`**:
+   - Menjalankan `firebase logout` atau `firebase logout <email>`.
+6. **`listFirebaseProjects()`**:
+   - Mem-parsing output JSON `firebase projects:list --json` menjadi array daftar `{ projectId, displayName }`.
 
 ---
 
-### 2.2 Model & Types (`types.ts`)
-```ts
-export interface SystemAccountsInfo {
-  firebase: {
-    activeEmail?: string;
-    availableEmails: string[];
-  };
-  github: {
-    username?: string;
-    email?: string;
-  };
-}
-```
-- Menambahkan kolom `"accounts"` ke `ALL_AVAILABLE_COLUMNS` dan `DEFAULT_VISIBLE_COLUMNS`.
+### 2.2 Model & Kolom Tabel (`types.ts` & `AppsDashboardView.ts`)
+1. Menambahkan kolom `accounts` ke `ALL_AVAILABLE_COLUMNS` dan `DEFAULT_VISIBLE_COLUMNS`.
+2. Fungsi `maskAccountIdentifier(str)`:
+   - `pakcli` ➔ `pa****`
+   - `dcalibri@gmail.com` ➔ `dc******@gmail.com`
+3. Renderer kolom:
+   - Baris 1: `🐙 pa****` (atau teks terbuka jika di-unmask).
+   - Baris 2: `🔥 dc******@gmail.com`.
+   - Tombol `[ 👁️ ]` toggle expose per baris.
+   - Tombol `[ ⚙️ ]` membuka `AccountManagerModal`.
 
 ---
 
-### 2.3 UI Table Column: "Accounts" (`AppsDashboardView.ts`)
-- **Tampilan Cell**:
-  ```text
-  ┌──────────────────────────────────────────────┐
-  │ 🐙 pa****                                    │
-  │ 🔥 dc******@gmail.com                        │
-  │ [ 👁️ Reveal ]  [ ⚙️ Assign / Switch ]        │
-  └──────────────────────────────────────────────┘
-  ```
-- **Fungsi Sensor (`maskAccountIdentifier`)**:
-  - `pakcli` ➔ `pa****`
-  - `dcalibri@gmail.com` ➔ `dc******@gmail.com`
-  - Klik `👁️` ➔ toggle state tampilan cell antara tersensor dan terbuka.
-- **Tombol `[ ⚙️ ]` (Assign / Switch Account Modal)**:
-  - Membuka modal `AccountAssignmentModal`:
-    - Dropdown / pilihan akun Google yang sudah login di PC (`dcalibri@gmail.com` vs `pakcli4000@gmail.com`).
-    - Akun GitHub lokal (`pakcli`).
-    - Tombol simpan dan assign ke aplikasi saat ini.
-
----
-
-### 2.4 Modal Konfigurasi Firebase (`SetupFirebaseModal`)
-- Menampilkan pilihan Project ID dari daftar project di akun aktif (`pakcli`, `coba-obs`, dll.).
-- Memilih public directory (otomatis mendeteksi root `.` atau `dist/`).
-- Tombol simpan menulis `.firebaserc` dan `firebase.json` yang valid.
+### 2.3 Modal Komponen Baru
+1. **`AccountManagerModal`**:
+   - Daftar akun Google Firebase yang tersimpan di PC dengan radio button pilih & tombol `[ ⇄ Gunakan Akun Ini ]`.
+   - Tombol `[ 💻 Buka PowerShell Login ]` untuk menambah akun.
+   - Tombol `[ 🚪 Logout Akun ]`.
+   - Info akun GitHub lokal dan opsi penetapan git author.
+2. **`SetupFirebaseModal`**:
+   - Dropdown pilihan Project ID dari akun aktif.
+   - Pilihan Public Directory (`.` vs `dist`).
+   - Tombol simpan menulis `.firebaserc` dan `firebase.json` yang benar.
+3. Tombol `[ ⚙️ Edit Config ]` di **`HostDrawer`** untuk mengubah project/direktori publik aplikasi yang sudah terkonfigurasi.
 
 ---
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Terdapat kolom baru **Accounts** yang menampilkan akun GitHub dan akun Google Firebase dalam 1 cell.
-- [ ] **AC-2**: Nilai akun disensor secara default (hanya 2 huruf pertama yang tampil, sisanya `****`).
-- [ ] **AC-3**: Terdapat tombol **Expose/Reveal (`👁️`)** yang dapat menyalakan/mematikan sensor per baris.
-- [ ] **AC-4**: Terdapat tombol **Config/Switch (`⚙️`)** di samping cell untuk memilih akun yang sudah login di PC.
-- [ ] **AC-5**: Pergantian akun berjalan 100% lokal di PC tanpa membuka auth di browser (`firebase login:use`).
-- [ ] **AC-6**: `SetupFirebaseModal` memungkinkan pemilihan project Firebase nyata (`pakcli`, dll.) dan auto-deteksi direktori publik (`.` untuk `radiansincostan`).
-- [ ] **AC-7**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+- [ ] **AC-1**: Plugin berjalan 100% self-contained tanpa dependensi file eksternal dari `all-lads-tool`.
+- [ ] **AC-2**: Terdapat kolom **Accounts** yang menampilkan akun GitHub dan Google Firebase dalam satu cell.
+- [ ] **AC-3**: Akun disensor 2 huruf pertama secara default (`pa****`, `dc******@gmail.com`) dengan tombol **`👁️`** untuk expose/reveal.
+- [ ] **AC-4**: Tombol **`[ ⚙️ ]`** membuka modal manajemen akun untuk switch akun lokal PC secara instan (zero browser).
+- [ ] **AC-5**: Tersedia tombol **`[ 💻 Buka PowerShell Login ]`** yang membuka terminal PowerShell interaktif transparan untuk proses login.
+- [ ] **AC-6**: `SetupFirebaseModal` menampilkan dropdown 10 project nyata (`pakcli`, dll.) dan auto-deteksi direktori publik (`.` untuk `radiansincostan`).
+- [ ] **AC-7**: Host Drawer menyediakan tombol `[ ⚙️ Edit Config ]` untuk mengganti project kapan saja.
+- [ ] **AC-8**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
