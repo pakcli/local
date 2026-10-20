@@ -1,6 +1,6 @@
 # 📌 Master Brief: PowerShell Script Execution Consent & Ctrl+C Cancellation Protocol (local)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop / Cross-platform  
 > **Date**: 2026-10-20  
@@ -29,20 +29,20 @@
 ## 3. Implementation Plan & Files
 | File | Status | Description |
 | :--- | :---: | :--- |
-| `local/src/features/scriptSync/types.ts` | ⏳ | Add `confirmBeforeRunPs1` setting interface and default |
-| `local/src/features/scriptSync/settings.ts` | ⏳ | Add settings UI toggle for confirmation |
-| `local/src/features/scriptSync/SyncManager.ts` | ⏳ | Upgrade `runScript` to return `{ promise, cancel }` |
-| `local/src/features/scriptSync/ui/SyncCodeblockRenderer.ts` | ⏳ | Add confirmation modal, cancel button, and Ctrl+C listener |
-| `local/src/features/appsDashboard/ui/AccountManagerModal.ts` | ⏳ | Add confirmation before launching interactive PowerShell windows |
+| `local/src/features/scriptSync/types.ts` | ✅ | Add `confirmBeforeRunPs1` setting interface and default (`true`) |
+| `local/src/features/scriptSync/settings.ts` | ✅ | Add settings UI toggle for confirmation (default ON) |
+| `local/src/features/scriptSync/SyncManager.ts` | ✅ | Upgrade `runScript` to support `onSpawn(cancel)` process kill |
+| `local/src/features/scriptSync/ui/SyncCodeblockRenderer.ts` | ✅ | Add confirmation modal, cancel button, and Ctrl+C listener |
+| `local/src/features/appsDashboard/ui/AccountManagerModal.ts` | ✅ | Add confirmation before launching interactive PowerShell windows |
 
 ## 4. Acceptance Criteria Checklist
 - [x] Status 0 brief created
-- [ ] `confirmBeforeRunPs1` defaults to `true`
-- [ ] Every `.ps1` execution prompts for user confirmation before running
-- [ ] Live `[ ⏹️ Cancel (Ctrl+C) ]` button displayed during execution
-- [ ] `Ctrl+C` / `Escape` key intercepts execution and kills process cleanly
-- [ ] Execution state resets safely to ready/OK upon cancellation
-- [ ] AccountManagerModal PowerShell login buttons prompt for approval
-- [ ] TypeScript compiles cleanly with 0 errors
-- [ ] Auto-deployed to Obsidian vaults
-- [ ] Status 1 updated and committed
+- [x] `confirmBeforeRunPs1` defaults to `true`
+- [x] Every `.ps1` execution prompts for user confirmation before running
+- [x] Live `[ ⏹️ Cancel (Ctrl+C) ]` button displayed during execution
+- [x] `Ctrl+C` / `Escape` key intercepts execution and kills process cleanly
+- [x] Execution state resets safely to ready/OK upon cancellation
+- [x] AccountManagerModal PowerShell login buttons prompt for approval
+- [x] TypeScript compiles cleanly with 0 errors
+- [x] Auto-deployed to Obsidian vaults
+- [x] Status 1 updated and committed

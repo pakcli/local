@@ -8,6 +8,7 @@
 import { MarkdownRenderChild, MarkdownView, Notice, TFile } from 'obsidian';
 import { SyncManager } from '../SyncManager';
 import { renderDiffViewer } from '../diffViewer';
+import { ConfirmModal } from '../../../uiComponents';
 
 export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private syncManager: SyncManager;
@@ -19,6 +20,9 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
     private isDiffOpen = false;
     private diffContainerEl: HTMLElement | null = null;
     private outputContainerEl: HTMLElement | null = null;
+
+    private activeCancel: (() => void) | null = null;
+    private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
     constructor(
         containerEl: HTMLElement,
@@ -38,6 +42,17 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
 
     onload(): void {
         this.render();
+    }
+
+    onunload(): void {
+        if (this.activeCancel) {
+            this.activeCancel();
+            this.activeCancel = null;
+        }
+        if (this.keydownHandler) {
+            window.removeEventListener('keydown', this.keydownHandler, true);
+            this.keydownHandler = null;
+        }
     }
 
     private isLivePreviewMode(): boolean {
@@ -146,19 +161,54 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
             };
         }
 
-        // Run Script Button
+        // Run Script Button with Confirmation (Default for .ps1) and Ctrl+C Cancellation
         const runBtn = actions.createEl('button', { cls: 'pakcli-btn-run', text: '▶ Run' });
-        runBtn.onclick = async () => {
-            runBtn.disabled = true;
-            runBtn.setText('⏳ Running...');
+
+        let isRunning = false;
+
+        const stopExecution = () => {
+            if (isRunning && this.activeCancel) {
+                this.activeCancel();
+                new Notice('⏹️ Script execution stopped (Ctrl+C)');
+                runBtn.setText('⏳ Stopping...');
+                runBtn.disabled = true;
+            }
+        };
+
+        const doRun = async () => {
+            isRunning = true;
+            runBtn.disabled = false;
+            runBtn.setText('⏹️ Stop (Ctrl+C)');
+            runBtn.addClass('is-running');
+
+            // Wire Ctrl+C / Escape keyboard listener during execution
+            if (this.keydownHandler) {
+                window.removeEventListener('keydown', this.keydownHandler, true);
+            }
+            this.keydownHandler = (e: KeyboardEvent) => {
+                if ((e.ctrlKey && (e.key === 'c' || e.key === 'C')) || e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    stopExecution();
+                }
+            };
+            window.addEventListener('keydown', this.keydownHandler, true);
+
             try {
                 if (this.outputContainerEl) {
-                    this.outputContainerEl.setCssStyles({ display: "block" });
-                    this.outputContainerEl.setText('⏳ Executing script via local shell...');
+                    this.outputContainerEl.setCssStyles({ display: 'block' });
+                    this.outputContainerEl.setText('⏳ Executing script via local shell...\n(Press Ctrl+C or click Stop to cancel)');
                 }
 
                 const cliPath = this.noteFile ? this.syncManager.resolveCliPath(this.noteFile.path, baseLang) : null;
-                const res = await this.syncManager.runScript(this.source, baseLang, cliPath);
+                const res = await this.syncManager.runScript(
+                    this.source,
+                    baseLang,
+                    cliPath,
+                    (cancel) => {
+                        this.activeCancel = cancel;
+                    }
+                );
 
                 if (this.outputContainerEl) {
                     const text = res.stdout || (res.stderr ? `Error:\n${res.stderr}` : `(Exit code: ${res.exitCode})`);
@@ -166,9 +216,46 @@ export class SyncCodeblockRenderer extends MarkdownRenderChild {
                 }
             } catch (err: any) {
                 new Notice('Execution error: ' + (err?.message || String(err)));
+                if (this.outputContainerEl) {
+                    this.outputContainerEl.setText(`Execution error: ${err?.message || String(err)}`);
+                }
             } finally {
+                isRunning = false;
+                this.activeCancel = null;
+                if (this.keydownHandler) {
+                    window.removeEventListener('keydown', this.keydownHandler, true);
+                    this.keydownHandler = null;
+                }
                 runBtn.disabled = false;
+                runBtn.removeClass('is-running');
                 runBtn.setText('▶ Run');
+            }
+        };
+
+        runBtn.onclick = () => {
+            if (isRunning) {
+                stopExecution();
+                return;
+            }
+
+            const isPs = baseLang === 'powershell' || baseLang === 'ps1' || baseLang === 'pwsh';
+            const shouldConfirm = isPs && (this.plugin?.settings?.confirmBeforeRunPs1 !== false);
+
+            if (shouldConfirm) {
+                const cliPath = this.noteFile ? this.syncManager.resolveCliPath(this.noteFile.path, baseLang) : null;
+                const previewSnippet = this.source.trim().split('\n').slice(0, 4).join('\n');
+                new ConfirmModal(this.plugin.app, {
+                    title: 'Execute PowerShell Script?',
+                    message: 'Do you want to run this PowerShell (.ps1) script on your machine?',
+                    detail: cliPath ? `Path: ${cliPath}` : `Preview:\n${previewSnippet}${this.source.length > 100 ? '\n...' : ''}`,
+                    confirmLabel: '▶ Run Script',
+                    cancelLabel: 'Cancel',
+                    onConfirm: () => {
+                        void doRun();
+                    }
+                }).open();
+            } else {
+                void doRun();
             }
         };
 

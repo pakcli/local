@@ -1,4 +1,4 @@
-@use 'core';
+﻿@use 'core';
 @use 'csvEditor';
 @use 'inlineQueries';
 @use 'listView';
@@ -2253,6 +2253,112 @@ th.tablite-frozen-cell {
     justify-content: flex-end;
     gap: 10px;
 }
+
+/* ==========================================================================
+   ScriptSync Codeblock & Script Runner Styles
+   ========================================================================== */
+
+.pakcli-codeblock-container {
+    margin: 12px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 6px);
+    overflow: hidden;
+    background: var(--background-primary);
+}
+
+.pakcli-sync-header {
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 6px 10px;
+}
+
+.pakcli-sync-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pakcli-sync-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pakcli-lang-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.pakcli-status-badge {
+    font-size: 0.70rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
+.pakcli-sync-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pakcli-btn-run {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    transition: all 0.15s ease;
+
+    &:hover {
+        opacity: 0.9;
+    }
+
+    &.is-running {
+        background: var(--text-error);
+        color: #fff;
+        animation: pakcli-pulse 1.5s infinite;
+    }
+}
+
+@keyframes pakcli-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.75; }
+    100% { opacity: 1; }
+}
+
+.pakcli-output-drawer {
+    background: var(--background-secondary-alt, #111);
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    max-height: 240px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.pakcli-diff-drawer {
+    background: var(--background-secondary);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 
 
 

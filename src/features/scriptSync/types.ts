@@ -68,10 +68,12 @@ export interface FolderSyncSettings {
     syncStrategy: SyncStrategy;
     pendingChanges: PendingSyncItem[];
     ignoredHashes: Record<string, string>; // notePath -> last ignored hash pair
+    confirmBeforeRunPs1?: boolean;
 }
 
 export const DEFAULT_FOLDER_SYNC_SETTINGS: FolderSyncSettings = {
     enabled: true,
+    confirmBeforeRunPs1: true,
     liveCodeblockToolbar: false,
     autoTurnOffToolbar: true,
     autoTurnOffDelaySeconds: 60,

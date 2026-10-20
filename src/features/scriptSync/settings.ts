@@ -74,6 +74,18 @@ export function renderScriptSyncSettings(
                 });
         });
 
+    new Setting(containerEl)
+        .setName('Ask Confirmation Before Running PowerShell (.ps1)')
+        .setDesc('When ON (default & recommended), the plugin prompts for confirmation each time before executing any PowerShell script, and allows pressing Ctrl+C or Cancel to safely stop execution.')
+        .addToggle((toggle) => {
+            toggle
+                .setValue(settings.confirmBeforeRunPs1 !== false)
+                .onChange(async (val) => {
+                    settings.confirmBeforeRunPs1 = val;
+                    await saveSettings();
+                });
+        });
+
     if (settings.enabled === false) {
         const disabledNotice = containerEl.createDiv({ cls: 'pakcli-status-card' });
         disabledNotice.setCssStyles({
@@ -82,7 +94,7 @@ export function renderScriptSyncSettings(
             marginBottom: '16px',
             background: 'var(--background-secondary)'
         });
-        disabledNotice.createEl('strong', { text: '⏸️ ScriptSync Engine is currently paused/disabled.' });
+        disabledNotice.createEl('strong', { text: 'â¸ï¸ ScriptSync Engine is currently paused/disabled.' });
         disabledNotice.createEl('p', {
             text: 'Codeblock interception is inactive. Standard Obsidian codeblocks and tables will render normally without script sync overlay.',
             cls: 'pakcli-card-sub'
@@ -102,12 +114,12 @@ export function renderScriptSyncSettings(
     });
 
     const btnRow = actionCard.createDiv({ cls: 'pakcli-banner-action-row' });
-    const scanBtn = btnRow.createEl('button', { text: '🔍 Scan Vault for Script Blocks', cls: 'pakcli-btn-primary' });
+    const scanBtn = btnRow.createEl('button', { text: 'ðŸ” Scan Vault for Script Blocks', cls: 'pakcli-btn-primary' });
     scanBtn.onclick = () => {
         new ScanSyncModal(app, syncManager, getSettings, saveSettings).open();
     };
 
-    const pendingBtn = btnRow.createEl('button', { text: '📝 View Pending Changes', cls: 'pakcli-btn-reset' });
+    const pendingBtn = btnRow.createEl('button', { text: 'ðŸ“ View Pending Changes', cls: 'pakcli-btn-reset' });
     pendingBtn.onclick = () => {
         new PendingChangesModal(app, syncManager, getSettings, saveSettings).open();
     };
@@ -131,7 +143,7 @@ export function renderScriptSyncSettings(
             new VaultFolderSuggest(app, text.inputEl);
         })
         .addButton((btn) => {
-            btn.setButtonText('📁 Browse')
+            btn.setButtonText('ðŸ“ Browse')
                 .setTooltip('Pick vault folder')
                 .onClick(() => {
                     new FolderPickerModal(app, async (chosen) => {
@@ -170,10 +182,10 @@ export function renderScriptSyncSettings(
                     await saveSettings();
                     if (val) {
                         syncManager.init();
-                        new Notice('✅ ScriptSync external file watcher activated.');
+                        new Notice('âœ… ScriptSync external file watcher activated.');
                     } else {
                         syncManager.destroy();
-                        new Notice('⏸️ ScriptSync file watcher paused.');
+                        new Notice('â¸ï¸ ScriptSync file watcher paused.');
                     }
                 });
         });

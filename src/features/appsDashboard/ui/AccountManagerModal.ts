@@ -1,5 +1,5 @@
 import { App, Setting, Notice } from "obsidian";
-import { BaseModal } from "../../../uiComponents";
+import { BaseModal, ConfirmModal } from "../../../uiComponents";
 import type { AppDashboardStore } from "../store/AppDashboardStore";
 import type { SystemAccountsInfo, AppScanRecord } from "../types";
 
@@ -208,8 +208,17 @@ export class AccountManagerModal extends BaseModal {
       attr: { type: "button", title: "Launch interactive PowerShell window to authorize new Google account" },
     });
     fbPsBtn.addEventListener("click", () => {
-      this.store.openInteractiveFirebaseLogin();
-      new Notice("Launched interactive PowerShell login window. Return here and click [Refresh] when done.");
+      new ConfirmModal(this.app, {
+        title: "Launch PowerShell Login Console?",
+        message: "This will open an interactive PowerShell terminal window on your desktop to authorize a Google Firebase account via CLI.",
+        detail: "Command: powershell.exe -NoExit -Command firebase login:add",
+        confirmLabel: "💻 Open Console",
+        cancelLabel: "Cancel",
+        onConfirm: () => {
+          this.store.openInteractiveFirebaseLogin();
+          new Notice("Launched interactive PowerShell login window. Return here and click [Refresh] when done.");
+        },
+      }).open();
     });
 
     const refreshBtn = fbPsRow.createEl("button", {
@@ -257,8 +266,17 @@ export class AccountManagerModal extends BaseModal {
       attr: { type: "button", title: "Launch interactive PowerShell window to run 'gh auth login'" },
     });
     ghPsBtn.addEventListener("click", () => {
-      this.store.openInteractiveGitHubLogin();
-      new Notice("Launched interactive PowerShell window for GitHub auth.");
+      new ConfirmModal(this.app, {
+        title: "Launch PowerShell GitHub Login?",
+        message: "This will open an interactive PowerShell terminal window on your desktop to authenticate with GitHub via GitHub CLI.",
+        detail: "Command: powershell.exe -NoExit -Command gh auth login",
+        confirmLabel: "💻 Open Console",
+        cancelLabel: "Cancel",
+        onConfirm: () => {
+          this.store.openInteractiveGitHubLogin();
+          new Notice("Launched interactive PowerShell window for GitHub auth.");
+        },
+      }).open();
     });
   }
 

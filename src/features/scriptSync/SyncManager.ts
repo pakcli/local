@@ -441,7 +441,7 @@ export class SyncManager {
                 });
 
                 this.removeFromPending(noteFile.path);
-                new Notice(`✓ Synced to CLI: ${PathUtils.basename(cliPath)}`);
+                new Notice(`âœ“ Synced to CLI: ${PathUtils.basename(cliPath)}`);
                 return true;
             } else {
                 // CLI -> Manager direction
@@ -463,7 +463,7 @@ export class SyncManager {
                 });
 
                 this.removeFromPending(noteFile.path);
-                new Notice(`✓ Updated note codeblock from CLI: ${PathUtils.basename(cliPath)}`);
+                new Notice(`âœ“ Updated note codeblock from CLI: ${PathUtils.basename(cliPath)}`);
                 return true;
             }
         } catch (err) {
@@ -499,7 +499,7 @@ export class SyncManager {
             direction,
             timestamp: Date.now(),
             language: lang,
-            summary: `${PathUtils.basename(noteFile.path)} (${direction === 'manager_to_cli' ? 'Manager → CLI' : 'CLI → Manager'})`
+            summary: `${PathUtils.basename(noteFile.path)} (${direction === 'manager_to_cli' ? 'Manager â†’ CLI' : 'CLI â†’ Manager'})`
         };
 
         this.removeFromPending(noteFile.path);
@@ -515,8 +515,14 @@ export class SyncManager {
 
     /**
      * Executes the script on demand via PowerShell or Bash/Node and returns output.
+     * Supports onSpawn callback to expose cancellation handle (Ctrl+C).
      */
-    async runScript(code: string, language: string, cliPath?: string | null): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    async runScript(
+        code: string,
+        language: string,
+        cliPath?: string | null,
+        onSpawn?: (cancel: () => void) => void
+    ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
         if (!Platform.isDesktop) {
             return {
                 stdout: '',
@@ -537,43 +543,116 @@ export class SyncManager {
 
         return new Promise((resolve) => {
             const lang = (language || '').trim().toLowerCase();
-            let command = '';
+            let proc: any = null;
+            let isCancelled = false;
+
+            const cancel = () => {
+                isCancelled = true;
+                try {
+                    if (proc && proc.pid) {
+                        const isWin = (process.platform === 'win32');
+                        if (isWin) {
+                            cp.exec(`taskkill /pid ${proc.pid} /t /f`, () => {});
+                        } else {
+                            proc.kill('SIGINT');
+                        }
+                    }
+                } catch {}
+            };
+
+            if (onSpawn) {
+                onSpawn(cancel);
+            }
+
+            let procCmd = '';
+            let procArgs: string[] = [];
 
             if (cliPath && fs && fs.existsSync(cliPath)) {
                 if (lang === 'powershell' || lang === 'ps1') {
-                    command = `powershell -NoProfile -ExecutionPolicy Bypass -File "${cliPath}"`;
+                    procCmd = 'powershell.exe';
+                    procArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', cliPath];
                 } else if (lang === 'python' || lang === 'py') {
-                    command = `python "${cliPath}"`;
+                    procCmd = 'python';
+                    procArgs = [cliPath];
                 } else if (lang === 'javascript' || lang === 'js') {
-                    command = `node "${cliPath}"`;
+                    procCmd = 'node';
+                    procArgs = [cliPath];
                 } else if (lang === 'bash' || lang === 'sh') {
-                    command = `bash "${cliPath}"`;
+                    procCmd = 'bash';
+                    procArgs = [cliPath];
                 } else {
-                    command = `"${cliPath}"`;
+                    procCmd = cliPath;
                 }
             } else {
                 // Execute inline code via interpreter
                 if (lang === 'powershell' || lang === 'ps1') {
-                    const encoded = typeof Buffer !== 'undefined' ? Buffer.from(code, 'utf16le').toString('base64') : btoa(unescape(encodeURIComponent(code)));
-                    command = `powershell -NoProfile -EncodedCommand ${encoded}`;
+                    const encoded = typeof Buffer !== 'undefined'
+                        ? Buffer.from(code, 'utf16le').toString('base64')
+                        : btoa(unescape(encodeURIComponent(code)));
+                    procCmd = 'powershell.exe';
+                    procArgs = ['-NoProfile', '-EncodedCommand', encoded];
                 } else if (lang === 'python' || lang === 'py') {
-                    const escaped = code.replace(/"/g, '\\"');
-                    command = `python -c "${escaped}"`;
+                    procCmd = 'python';
+                    procArgs = ['-c', code];
                 } else if (lang === 'javascript' || lang === 'js') {
-                    const escaped = code.replace(/"/g, '\\"');
-                    command = `node -e "${escaped}"`;
+                    procCmd = 'node';
+                    procArgs = ['-e', code];
                 } else {
-                    command = code;
+                    procCmd = code;
                 }
             }
 
-            cp.exec(command, { timeout: 30000, maxBuffer: 1024 * 1024 }, (err: any, stdout: string, stderr: string) => {
-                resolve({
-                    stdout: stdout || '',
-                    stderr: stderr || (err ? err.message : ''),
-                    exitCode: err && typeof err.code === 'number' ? err.code : 0
+            try {
+                proc = cp.spawn(procCmd, procArgs, { shell: true });
+                let stdout = '';
+                let stderr = '';
+
+                proc.stdout?.on('data', (d: any) => {
+                    stdout += d.toString();
                 });
-            });
+
+                proc.stderr?.on('data', (d: any) => {
+                    stderr += d.toString();
+                });
+
+                proc.on('close', (code: number) => {
+                    if (isCancelled) {
+                        resolve({
+                            stdout,
+                            stderr: (stderr ? stderr + '\n' : '') + '🛑 Script execution cancelled by user (Ctrl+C).',
+                            exitCode: 1,
+                        });
+                    } else {
+                        resolve({
+                            stdout: stdout || '',
+                            stderr: stderr || '',
+                            exitCode: code ?? 0,
+                        });
+                    }
+                });
+
+                proc.on('error', (err: any) => {
+                    if (isCancelled) {
+                        resolve({
+                            stdout,
+                            stderr: '🛑 Script execution cancelled by user (Ctrl+C).',
+                            exitCode: 1,
+                        });
+                    } else {
+                        resolve({
+                            stdout: stdout || '',
+                            stderr: err?.message || String(err),
+                            exitCode: 1,
+                        });
+                    }
+                });
+            } catch (err: any) {
+                resolve({
+                    stdout: '',
+                    stderr: `Failed to spawn process: ${err?.message || err}`,
+                    exitCode: 1,
+                });
+            }
         });
     }
 }
