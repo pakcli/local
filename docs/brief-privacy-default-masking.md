@@ -1,6 +1,6 @@
 # 📌 Master Brief: Frontend Privacy Default Masking Protocol (local)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop / Cross-platform  
 > **Date**: 2026-10-20  
@@ -26,17 +26,17 @@
 | :--- | :---: | :--- |
 | `.agent/everyfrontend-on-default-state-everysensitivedata-is-censored.md` | ✅ | Permanent agent rule document |
 | `.agents/rules/privacy-default-masking.md` | ✅ | Repository permissions & rules integration |
-| `local/src/features/appsDashboard/store/AppDashboardStore.ts` | ⏳ | Add `isPrivacyMasked: boolean = true` and `togglePrivacyMask()` |
-| `local/src/features/appsDashboard/ui/components/DiagnosticBar.ts` | ⏳ | Mask `firebase` and `github` badges; add unmask toggle button |
-| `local/src/features/appsDashboard/ui/components/HostDrawer.ts` | ⏳ | Apply default 2-letter masking to account metadata row |
-| `local/src/features/appsDashboard/ui/SetupFirebaseModal.ts` | ⏳ | Apply default 2-letter masking to active session email |
+| `local/src/features/appsDashboard/store/AppDashboardStore.ts` | ✅ | Add `isPrivacyMasked: boolean = true` and `togglePrivacyMask()` |
+| `local/src/features/appsDashboard/ui/components/DiagnosticBar.ts` | ✅ | Mask `firebase` and `github` badges; add unmask toggle button |
+| `local/src/features/appsDashboard/ui/components/HostDrawer.ts` | ✅ | Apply default 2-letter masking to account metadata row |
+| `local/src/features/appsDashboard/ui/SetupFirebaseModal.ts` | ✅ | Apply default 2-letter masking to active session email |
 
 ## 4. Acceptance Criteria Checklist
 - [x] Status 0 brief created
-- [ ] Store `isPrivacyMasked` added with default `true`
-- [ ] `DiagnosticBar` masks `firebase` email (`dc******@gmail.com`) and `github` user (`pa****`) on load
-- [ ] `DiagnosticBar` contains clickable eye toggle to reveal/mask
-- [ ] `HostDrawer` and `SetupFirebaseModal` masked by default
-- [ ] TypeScript compiles cleanly with 0 errors
-- [ ] Auto-deployed to Obsidian vaults
-- [ ] Status 1 updated and committed
+- [x] Store `isPrivacyMasked` added with default `true`
+- [x] `DiagnosticBar` masks `firebase` email (`dc******@gmail.com`) and `github` user (`pa****`) on load
+- [x] `DiagnosticBar` contains clickable eye toggle to reveal/mask
+- [x] `HostDrawer` and `SetupFirebaseModal` masked by default
+- [x] TypeScript compiles cleanly with 0 errors
+- [x] Auto-deployed to Obsidian vaults
+- [x] Status 1 updated and committed

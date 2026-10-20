@@ -847,7 +847,7 @@ export class AppsDashboardView extends ItemView {
         width: "220px",
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-accounts-cell-wrap" });
-          let isCellUnmasked = false;
+          let isCellUnmasked = !this.store.isPrivacyMasked;
 
           const renderContent = () => {
             wrap.empty();

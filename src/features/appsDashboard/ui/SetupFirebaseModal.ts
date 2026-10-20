@@ -3,6 +3,7 @@ import { BaseModal } from "../../../uiComponents";
 import type { AppDashboardStore } from "../store/AppDashboardStore";
 import type { AppScanRecord, FirebaseProjectSummary } from "../types";
 import { getNodeFs, getNodePath } from "../../../utils/nodeHelpers";
+import { maskAccountIdentifier } from "./AccountManagerModal";
 
 export class SetupFirebaseModal extends BaseModal {
   private store: AppDashboardStore;
@@ -93,7 +94,8 @@ export class SetupFirebaseModal extends BaseModal {
     const bannerTitle = banner.createDiv({ cls: "text-muted" });
     bannerTitle.textContent = "Google Firebase Authenticated CLI Session:";
     const emailText = this.store.health?.cli.firebase.userEmail || "dcalibri@gmail.com";
-    const bannerUser = banner.createEl("strong", { text: `🔥 ${emailText}` });
+    const displayEmail = maskAccountIdentifier(emailText, !this.store.isPrivacyMasked);
+    const bannerUser = banner.createEl("strong", { text: `🔥 ${displayEmail}` });
     bannerUser.style.color = "var(--text-accent)";
 
     // 2. Project Selection Setting

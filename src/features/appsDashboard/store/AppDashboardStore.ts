@@ -27,6 +27,7 @@ export class AppDashboardStore {
   public activeDeployLogs: DeployLogChunk[] = [];
   public isDeploying = false;
   public filterQuery = "";
+  public isPrivacyMasked = true;
   private activeDeployCancel?: () => void;
 
   constructor(
@@ -87,6 +88,11 @@ export class AppDashboardStore {
     for (const listener of this.listeners) {
       listener();
     }
+  }
+
+  public togglePrivacyMask(): void {
+    this.isPrivacyMasked = !this.isPrivacyMasked;
+    this.notify();
   }
 
   public updateSettings(newSettings: AppsDashboardSettings) {

@@ -134,6 +134,32 @@
         }
       }
     }
+
+    .pakcli-diag-privacy-btn {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      padding: 2px 7px;
+      border-radius: var(--radius-s, 4px);
+      background: var(--background-primary);
+      border: 1px solid var(--background-modifier-border);
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.15s ease;
+
+      &:hover {
+        background: var(--background-modifier-hover);
+        color: var(--text-normal);
+        border-color: var(--text-accent);
+      }
+
+      svg {
+        width: 12px;
+        height: 12px;
+      }
+    }
   }
 }
 

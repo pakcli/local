@@ -3,7 +3,7 @@ import type { AppDashboardStore } from "../../store/AppDashboardStore";
 import type { AppScanRecord, GitCommitRecord } from "../../types";
 import { CopyButton } from "../../../../uiComponents";
 import { SetupFirebaseModal } from "../SetupFirebaseModal";
-import { AccountManagerModal } from "../AccountManagerModal";
+import { AccountManagerModal, maskAccountIdentifier } from "../AccountManagerModal";
 import { LinkRemoteModal } from "../AppsDashboardView";
 
 export class HostDrawer {
@@ -219,7 +219,8 @@ export class HostDrawer {
     }
 
     const fbUser = this.store.health?.cli.firebase.userEmail || "Local PC";
-    const acctRow = this.createMetaRow(metaList, "Account", fbUser);
+    const fbDisplay = fbUser !== "Local PC" ? maskAccountIdentifier(fbUser, !this.store.isPrivacyMasked) : fbUser;
+    const acctRow = this.createMetaRow(metaList, "Account", fbDisplay);
     if (this.appInstance) {
       const acctBtn = acctRow.createEl("button", {
         cls: "pakcli-btn-secondary mod-small",
