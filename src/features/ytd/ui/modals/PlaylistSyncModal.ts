@@ -31,6 +31,7 @@ export class PlaylistSyncModal extends Modal {
   private profileLimit = 10;
   private isFetchingProfile = false;
   private profileResult: ProfileFetchResult | null = null;
+  private profileErrorMessage: string | null = null;
 
   constructor(app: App, plugin: PakCLIPlugin) {
     super(app);
@@ -258,6 +259,19 @@ export class PlaylistSyncModal extends Modal {
   // View 2: Creator Profile Fetcher (YouTube & Instagram)
   // =========================================================================
   private renderProfileView(container: HTMLElement): void {
+    if (this.profileErrorMessage) {
+      const errBox = container.createDiv({ cls: "pakcli-error-banner" });
+      errBox.style.padding = "10px 14px";
+      errBox.style.backgroundColor = "rgba(var(--color-red-rgb), 0.15)";
+      errBox.style.border = "1px solid var(--color-red)";
+      errBox.style.borderRadius = "6px";
+      errBox.style.marginBottom = "14px";
+      errBox.style.whiteSpace = "pre-wrap";
+      errBox.style.fontSize = "0.85em";
+      errBox.style.color = "var(--text-normal)";
+      errBox.setText(this.profileErrorMessage);
+    }
+
     new Setting(container)
       .setName("Platform")
       .setDesc("Choose platform to fetch profile from")
@@ -285,6 +299,22 @@ export class PlaylistSyncModal extends Modal {
         });
         text.inputEl.style.width = "100%";
       });
+
+        if (this.profilePlatform === "instagram") {
+      new Setting(container)
+        .setName("Instagram Session Cookie (sessionid)")
+        .setDesc("Optional: Buka instagram.com -> F12 -> Application -> Cookies -> Copy 'sessionid' untuk bypass login")
+        .addText((text) => {
+          text
+            .setPlaceholder("e.g. 1234567890%3A...")
+            .setValue(this.plugin.settings?.instagramSessionId || "")
+            .onChange(async (val) => {
+              this.plugin.settings.instagramSessionId = val.trim();
+              await this.plugin.saveSettings();
+            });
+          text.inputEl.style.width = "100%";
+        });
+    }
 
     new Setting(container)
       .setName("Max Posts to Fetch")
@@ -323,6 +353,7 @@ export class PlaylistSyncModal extends Modal {
     }
 
     this.isFetchingProfile = true;
+    this.profileErrorMessage = null;
     this.onOpen();
 
     try {
@@ -343,6 +374,7 @@ export class PlaylistSyncModal extends Modal {
       new Notice(`Fetched ${this.profileResult.posts.length} posts with previews!`);
     } catch (err: any) {
       console.error(err);
+      this.profileErrorMessage = err?.message || String(err);
       new Notice(`Error fetching profile: ${err?.message || err}`);
     } finally {
       this.isFetchingProfile = false;

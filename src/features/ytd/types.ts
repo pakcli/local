@@ -91,6 +91,7 @@ export interface YTCaptureSettings {
   ytCaptureIncludeWebEmbed?: boolean;
   ytCaptureEmbedWidth?: string;
   ytCaptureEmbedHeight?: string;
+  instagramSessionId?: string;
 }
 
 export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
@@ -108,6 +109,7 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   ytCaptureIncludeWebEmbed: true,
   ytCaptureEmbedWidth: "100%",
   ytCaptureEmbedHeight: "520",
+  instagramSessionId: "",
 };
 
 // ── yt-dlp raw metadata shape ─────────────────────────────────────────────────

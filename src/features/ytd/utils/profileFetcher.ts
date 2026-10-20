@@ -5,7 +5,8 @@ import type {
   ProfileFetchResult,
   ProfilePostItem,
 } from "../types";
-import { runCommand } from "./process";
+import { runCommand } from "./process";
+import { fetchVideoInfo } from "./ytdlp";
 import { sanitizePlaylistFilename } from "./playlistSync";
 
 /**
@@ -104,21 +105,60 @@ export async function fetchInstagramProfilePosts(
   maxPosts = 12,
   settings: YTCaptureSettings
 ): Promise<ProfileFetchResult> {
-  const username = cleanInstagramUsername(userInput);
-  const profileUrl = `https://www.instagram.com/${username}/`;
+  const trimmed = userInput.trim();
 
-  // 1. Primary: Direct Instagram Web Profile API via Obsidian requestUrl (No CORS restrictions)
+  // 0. Handle Direct Post / Reel URLs seamlessly
+  if (trimmed.includes("/p/") || trimmed.includes("/reel/") || trimmed.includes("/tv/")) {
+    try {
+      const info = await fetchVideoInfo(trimmed, settings);
+      const isVideo = Boolean((info.duration && info.duration > 0) || (info as any).is_video);
+      return {
+        platform: "instagram",
+        username: info.uploader || info.channel || "Instagram Post",
+        displayName: info.uploader || info.channel || "Instagram Post",
+        avatarUrl: info.thumbnail,
+        posts: [
+          {
+            id: info.id,
+            platform: "instagram",
+            url: trimmed,
+            title: info.title || "Instagram Post",
+            uploadDate: info.upload_date || "",
+            mediaType: isVideo ? "video" : "photo",
+            thumbnailUrl: info.thumbnail || "",
+            firstImageUrl: info.thumbnail || "",
+            author: info.uploader || "Instagram User",
+            duration: info.duration,
+          },
+        ],
+        fetchedAt: Date.now(),
+      };
+    } catch (err: any) {
+      console.warn("[ProfileFetcher] Direct post fetch failed:", err);
+    }
+  }
+
+  const username = cleanInstagramUsername(trimmed);
+  const profileUrl = `https://www.instagram.com/${username}/`;
+  const sessionId = settings?.instagramSessionId?.trim();
+
+  // 1. Primary: Direct Instagram Web Profile API (Works reliably when sessionId is set)
   try {
     const apiUrl = `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`;
+    const headers: Record<string, string> = {
+      "x-ig-app-id": "936619743392459",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Referer": profileUrl,
+    };
+    if (sessionId) {
+      headers["Cookie"] = `sessionid=${sessionId};`;
+    }
+
     const resp = await requestUrl({
       url: apiUrl,
-      headers: {
-        "x-ig-app-id": "936619743392459",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Referer": profileUrl,
-      },
+      headers,
     });
 
     const body = resp.json;
@@ -134,7 +174,6 @@ export async function fetchInstagramProfilePosts(
         if (isVideo) mediaType = "video";
         else if (isCarousel) mediaType = "carousel";
 
-        // First image or first video frame
         const firstImg =
           node.edge_sidecar_to_children?.edges?.[0]?.node?.display_url ||
           node.display_url ||
@@ -175,20 +214,25 @@ export async function fetchInstagramProfilePosts(
       };
     }
   } catch (apiErr) {
-    console.warn("[ProfileFetcher] Instagram direct API failed, attempting yt-dlp fallback:", apiErr);
+    console.warn("[ProfileFetcher] Instagram direct API failed, trying yt-dlp fallback:", apiErr);
   }
 
-  // 2. Auxiliary: yt-dlp profile extraction
+  // 2. Auxiliary: yt-dlp profile extraction (Passing session cookie if available)
   try {
-    const rawJson = await runCommand(settings.ytDlpPath || "yt-dlp", [
+    const ytdlpArgs = [
       "--flat-playlist",
       "--dump-single-json",
       "--playlist-end",
       maxPosts.toString(),
       "--no-warnings",
       "--no-colors",
-      profileUrl,
-    ]);
+    ];
+    if (sessionId) {
+      ytdlpArgs.push("--add-header", `Cookie: sessionid=${sessionId}`);
+    }
+    ytdlpArgs.push(profileUrl);
+
+    const rawJson = await runCommand(settings.ytDlpPath || "yt-dlp", ytdlpArgs);
 
     const data = JSON.parse(rawJson);
     const entries: any[] = Array.isArray(data.entries) ? data.entries.slice(0, maxPosts) : [];
@@ -213,18 +257,26 @@ export async function fetchInstagramProfilePosts(
       };
     });
 
-    return {
-      platform: "instagram",
-      username,
-      displayName: username,
-      posts,
-      fetchedAt: Date.now(),
-    };
+    if (posts.length > 0) {
+      return {
+        platform: "instagram",
+        username,
+        displayName: username,
+        posts,
+        fetchedAt: Date.now(),
+      };
+    }
   } catch (ytdlpErr) {
-    console.error("[ProfileFetcher] yt-dlp Instagram extraction failed:", ytdlpErr);
+    console.warn("[ProfileFetcher] yt-dlp Instagram extraction failed:", ytdlpErr);
   }
 
-  throw new Error(`Failed to fetch Instagram profile for '@${username}'. Profile might be private or temporarily rate-limited.`);
+  // Clear, helpful guidance instead of raw yt-dlp stack trace
+  throw new Error(
+    `Instagram requires login to view profiles (@${username}).\n\n` +
+    `💡 Cara Fix:\n` +
+    `1. Masukkan Instagram 'sessionid' cookie di pengaturan profil di bawah, ATAU\n` +
+    `2. Paste link direct Post / Reel Instagram (misal: instagram.com/p/... atau /reel/...) untuk fetch langsung.`
+  );
 }
 
 /**
