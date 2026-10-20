@@ -6,6 +6,7 @@ import { GitManagerSettings, DEFAULT_GIT_MANAGER_SETTINGS } from './features/git
 import { RawOpenerSettings, DEFAULT_RAW_OPENER_SETTINGS } from './features/rawOpener/types';
 import { GitHubFetcherSettings, DEFAULT_GITHUB_FETCHER_SETTINGS } from './features/githubFetcher/types';
 import { TaskbarSettings, DEFAULT_TASKBAR_SETTINGS } from './features/taskbar/types';
+import { AppsDashboardSettings, DEFAULT_APPS_DASHBOARD_SETTINGS } from './features/appsDashboard/types';
 
 export interface PakCLILocalSettings extends 
     SymlinkManagerSettings, 
@@ -19,6 +20,7 @@ export interface PakCLILocalSettings extends
     autoCheckDependencies?: boolean;
     gitManager?: GitManagerSettings;
     enableAssetDrag?: boolean;
+    appsDashboard?: AppsDashboardSettings;
 }
 
 export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
@@ -32,5 +34,6 @@ export const DEFAULT_LOCAL_SETTINGS: PakCLILocalSettings = {
     autoCheckDependencies: true,
     gitManager: { ...DEFAULT_GIT_MANAGER_SETTINGS },
     enableAssetDrag: true,
+    appsDashboard: { ...DEFAULT_APPS_DASHBOARD_SETTINGS },
 };
 

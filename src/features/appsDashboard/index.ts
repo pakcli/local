@@ -1,14 +1,27 @@
 import { Plugin, WorkspaceLeaf } from "obsidian";
 import { AppDashboardStore } from "./store/AppDashboardStore";
 import { AppsDashboardView, APPS_DASHBOARD_VIEW_TYPE } from "./ui/AppsDashboardView";
-import { DEFAULT_APPS_DASHBOARD_SETTINGS } from "./types";
+import {
+  DEFAULT_APPS_DASHBOARD_SETTINGS,
+  DEFAULT_FRONTMATTER_MAPPING,
+  DEFAULT_VISIBLE_COLUMNS,
+  type AppsDashboardSettings,
+} from "./types";
 
 export function registerAppsDashboard(plugin: Plugin): AppDashboardStore {
   const vaultRoot = (plugin as any).vaultRoot || "";
   const savedSettings = (plugin as any).settings?.appsDashboard;
-  const initialSettings = {
+  const initialSettings: AppsDashboardSettings = {
     ...DEFAULT_APPS_DASHBOARD_SETTINGS,
     ...(savedSettings || {}),
+    frontmatterMapping: {
+      ...DEFAULT_FRONTMATTER_MAPPING,
+      ...(savedSettings?.frontmatterMapping || {}),
+    },
+    visibleColumns:
+      Array.isArray(savedSettings?.visibleColumns) && savedSettings.visibleColumns.length > 0
+        ? savedSettings.visibleColumns
+        : [...DEFAULT_VISIBLE_COLUMNS],
   };
 
   const store = new AppDashboardStore(initialSettings, vaultRoot, async (updated) => {

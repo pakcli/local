@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard Image Preview Fix (Dual Resource/Base64) & Frontmatter Field Mapping Settings
 
-> **Feature Status**: `0` (Specification & Architecture)  
+> **Feature Status**: `1` (Verified & Completed)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop (Obsidian Desktop Plugin)  
 > **Date**: 2026-10-20  
@@ -32,15 +32,16 @@ Berdasarkan pengujian terbaru dan tangkapan layar `media_1792487551450_e6a89822.
 
 ### 2.1 Perbaikan Pemuatan Gambar (Dual Resource / Base64 Data URI)
 Untuk menjamin gambar selalu termuat 100% tanpa kendala skema protokol:
-1. **Prioritas 1: Obsidian Native Vault Resource**:
-   - Jika berkas berada di dalam vault, gunakan `app.vault.adapter.getResourcePath(relativePath)` yang menghasilkan URL resmi Obsidian (`app://obsidian.md/...`).
-2. **Prioritas 2: Node.js Buffer to Base64 Data URI**:
-   - Jika berkas di luar vault atau protokol native gagal, baca langsung file via `fs.readFileSync(fullPath)` dan konversikan ke `data:image/webp;base64,...`.
-   - Data URI berjalan 100% di semua webview tanpa batasan CORS atau skema URL.
-3. **Pembersihan Handler Error**:
-   - Cek `if (!card.querySelector(".pakcli-thumb-placeholder"))` sebelum menyisipkan placeholder agar tidak terjadi duplikasi horizontal.
+1. **Prioritas 1: Node.js Buffer to Base64 Data URI**:
+   - Langsung membaca buffer gambar via `fs.readFileSync(fullPath)` dan men-generate `data:image/webp;base64,...` (atau png/svg/jpg).
+   - Data URI berjalan 100% di Chromium/Electron tanpa batasan CORS atau skema URL eksternal.
+2. **Prioritas 2: Obsidian Vault Resource Adapter**:
+   - Fallback menggunakan `app.vault.adapter.getResourcePath(relativePath)` jika berkas dalam vault.
+3. **Pembersihan Handler Error & Lifecycle**:
+   - `showPlaceholder()` dan `hidePlaceholder()` menjaga elemen placeholder tidak terduplikasi.
+   - `imgEl.onload` otomatis menghapus placeholder ketika gambar berhasil didekode.
 4. **Dimensi Card Tetap**:
-   - `width: 256px; height: 256px; min-width: 256px; max-width: 256px;` untuk menjamin bentuk kotak sempurna.
+   - `width: 256px; height: 256px; min-width: 256px; max-width: 256px; min-height: 256px; max-height: 256px;` untuk menjamin bentuk kotak 256x256 px.
 
 ---
 
@@ -61,21 +62,22 @@ Untuk menjamin gambar selalu termuat 100% tanpa kendala skema protokol:
    }
    ```
 2. **Integrasi Scanner (`AppScanner.ts`)**:
-   - Menggunakan konfigurasi `FrontmatterFieldMapping` saat mem-parsing blok YAML frontmatter `index.md`.
+   - Menggunakan konfigurasi dinamis `FrontmatterFieldMapping` saat mem-parsing blok YAML frontmatter `index.md`.
+   - Parsing tag mendukung multiline list (`- tag`), inline array (`[tag1, tag2]`), dan baris teks koma.
 3. **UI Pengaturan di `AppsDashboardSettingsModal.ts`**:
    - Bagian **Frontmatter Field Mapping**:
-     - Setiap field memiliki input teks dengan nilai default.
-     - Tombol **`[ ↺ Reset Mapping to Defaults ]`**.
-   - Bagian **Visible Columns**:
-     - Checkbox untuk setiap kolom agar pengguna dapat mengatur kolom bawaan yang muncul di dashboard.
+     - 9 input text untuk setiap mapping field dengan placeholder dan fallback default.
+     - Tombol **`[ ↺ Reset Mapping ]`**.
+   - Bagian **Column Visibility**:
+     - Grid checkbox untuk semua kolom (Core & Catalog) dengan tombol **`[ ↺ Reset Columns ]`**.
 
 ---
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Gambar thumbnail `radiansincostan` tampil dengan benar (resolusi via resourcePath / base64 data URI).
-- [ ] **AC-2**: Placeholder gambar tidak berulang/terduplikasi jika gambar tidak ditemukan.
-- [ ] **AC-3**: Container thumbnail berukuran tepat 256x256 px dan hover overlay berfungsi normal.
-- [ ] **AC-4**: Halaman pengaturan menyediakan form konfigurasi Frontmatter Field Mapping yang lengkap.
-- [ ] **AC-5**: Mengubah nama kunci frontmatter di pengaturan tercermin saat pemindaian ulang scanner.
-- [ ] **AC-6**: Kompilasi plugin `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+- [x] **AC-1**: Gambar thumbnail `radiansincostan` tampil dengan benar (resolusi via Base64 data URI).
+- [x] **AC-2**: Placeholder gambar tidak berulang/terduplikasi jika gambar tidak ditemukan.
+- [x] **AC-3**: Container thumbnail berukuran tepat 256x256 px dan hover overlay berfungsi normal.
+- [x] **AC-4**: Halaman pengaturan menyediakan form konfigurasi Frontmatter Field Mapping yang lengkap.
+- [x] **AC-5**: Mengubah nama kunci frontmatter di pengaturan tercermin saat pemindaian ulang scanner.
+- [x] **AC-6**: Kompilasi plugin `npm --prefix local run build` berhasil dengan 0 error TypeScript.

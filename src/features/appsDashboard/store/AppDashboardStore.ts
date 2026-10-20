@@ -104,7 +104,8 @@ export class AppDashboardStore {
         this.settings.appsRootFolder,
         this.settings.scanDepth,
         this.settings.demoMode,
-        this.vaultRoot
+        this.vaultRoot,
+        this.settings.frontmatterMapping
       );
     } catch (err) {
       console.error("[AppDashboardStore] Rescan failed:", err);

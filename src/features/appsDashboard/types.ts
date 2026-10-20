@@ -109,6 +109,30 @@ export interface GitCommitRecord {
   isLive?: boolean;
 }
 
+export interface FrontmatterFieldMapping {
+  titleKey: string;
+  categoryKey: string;
+  tagsKey: string;
+  badgeKey: string;
+  imgKey: string;
+  imgLightKey: string;
+  imgDarkKey: string;
+  gitPageKey: string;
+  githubKey: string;
+}
+
+export const DEFAULT_FRONTMATTER_MAPPING: FrontmatterFieldMapping = {
+  titleKey: "title",
+  categoryKey: "category",
+  tagsKey: "tags",
+  badgeKey: "badge",
+  imgKey: "img",
+  imgLightKey: "imgLight",
+  imgDarkKey: "imgDark",
+  gitPageKey: "git-page",
+  githubKey: "github",
+};
+
 export interface AppsDashboardSettings {
   appsRootFolder: string;
   scanDepth: number;
@@ -117,6 +141,7 @@ export interface AppsDashboardSettings {
   copyFormat: "tsv" | "plain";
   demoMode: boolean;
   visibleColumns: string[];
+  frontmatterMapping: FrontmatterFieldMapping;
 }
 
 export const DEFAULT_VISIBLE_COLUMNS: string[] = [
@@ -158,4 +183,5 @@ export const DEFAULT_APPS_DASHBOARD_SETTINGS: AppsDashboardSettings = {
   copyFormat: "tsv",
   demoMode: false,
   visibleColumns: [...DEFAULT_VISIBLE_COLUMNS],
+  frontmatterMapping: { ...DEFAULT_FRONTMATTER_MAPPING },
 };

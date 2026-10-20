@@ -6,6 +6,7 @@ import type {
   FirebaseHostConfig,
   GitHubPagesHostConfig,
   AppCatalogMeta,
+  FrontmatterFieldMapping,
 } from "../types";
 import { MOCK_APPS } from "./MockData";
 
@@ -58,7 +59,8 @@ export class AppScanner {
     rootFolder: string,
     depth = 1,
     isDemoMode = false,
-    vaultRoot?: string
+    vaultRoot?: string,
+    mapping?: FrontmatterFieldMapping
   ): Promise<AppScanRecord[]> {
     if (isDemoMode) {
       return [...MOCK_APPS];
@@ -82,7 +84,7 @@ export class AppScanner {
         }
 
         const appPath = this.path.join(resolvedRoot, entry.name);
-        const record = await this.inspectAppFolder(entry.name, appPath, depth);
+        const record = await this.inspectAppFolder(entry.name, appPath, depth, mapping);
         results.push(record);
       }
     } catch (err) {
@@ -93,11 +95,16 @@ export class AppScanner {
     return results;
   }
 
-  private async inspectAppFolder(folderName: string, appPath: string, maxDepth: number): Promise<AppScanRecord> {
+  private async inspectAppFolder(
+    folderName: string,
+    appPath: string,
+    maxDepth: number,
+    mapping?: FrontmatterFieldMapping
+  ): Promise<AppScanRecord> {
     const gitInfo = this.extractGitInfo(appPath);
     const hostingInfo = this.extractHostingInfo(appPath, gitInfo);
     const monorepoInfo = this.detectMonorepo(appPath);
-    const catalogMeta = this.extractCatalogMeta(appPath);
+    const catalogMeta = this.extractCatalogMeta(appPath, mapping);
 
     return {
       id: `app_${Buffer.from(appPath).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 16)}`,
@@ -111,8 +118,18 @@ export class AppScanner {
     };
   }
 
-  private extractCatalogMeta(appPath: string): AppCatalogMeta | undefined {
+  private extractCatalogMeta(appPath: string, mapping?: FrontmatterFieldMapping): AppCatalogMeta | undefined {
     if (!this.fs || !this.path) return undefined;
+
+    const titleKey = mapping?.titleKey || "title";
+    const categoryKey = mapping?.categoryKey || "category";
+    const tagsKey = mapping?.tagsKey || "tags";
+    const badgeKey = mapping?.badgeKey || "badge";
+    const imgKey = mapping?.imgKey || "img";
+    const imgLightKey = mapping?.imgLightKey || "imgLight";
+    const imgDarkKey = mapping?.imgDarkKey || "imgDark";
+    const gitPageKey = mapping?.gitPageKey || "git-page";
+    const githubKey = mapping?.githubKey || "github";
 
     const catalog: AppCatalogMeta = {};
     let found = false;
@@ -128,24 +145,19 @@ export class AppScanner {
           found = true;
 
           // Title
-          const titleMatch = fm.match(/^title:\s*(.+)$/m);
+          const titleMatch = fm.match(new RegExp(`^(?:${titleKey}):\\s*(.+)$`, "m"));
           if (titleMatch) catalog.title = titleMatch[1].trim().replace(/^["']|["']$/g, "");
 
-          // Category (sector combined into category per user spec)
-          const catMatch = fm.match(/^category:\s*(.+)$/m);
-          const sectorMatch = fm.match(/^sector:\s*(.+)$/m);
-          if (catMatch) {
-            catalog.category = catMatch[1].trim().replace(/^["']|["']$/g, "");
-          } else if (sectorMatch) {
-            catalog.category = sectorMatch[1].trim().replace(/^["']|["']$/g, "");
-          }
+          // Category (with fallback to category / sector)
+          const catMatch = fm.match(new RegExp(`^(?:${categoryKey}|category|sector):\\s*(.+)$`, "m"));
+          if (catMatch) catalog.category = catMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // File Size
           const sizeMatch = fm.match(/^(?:file-size|fileSize):\s*(.+)$/m);
           if (sizeMatch) catalog.fileSize = sizeMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // Badge
-          const badgeMatch = fm.match(/^badge:\s*(.+)$/m);
+          const badgeMatch = fm.match(new RegExp(`^(?:${badgeKey}|badge):\\s*(.+)$`, "m"));
           if (badgeMatch) catalog.badge = badgeMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // Overview
@@ -153,7 +165,7 @@ export class AppScanner {
           if (overviewMatch) catalog.overview = overviewMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // Thumbnail / Img
-          const imgMatch = fm.match(/^(?:img|thumbnail):\s*(.+)$/m);
+          const imgMatch = fm.match(new RegExp(`^(?:${imgKey}|img|thumbnail):\\s*(.+)$`, "m"));
           if (imgMatch) {
             const rawImg = imgMatch[1].trim().replace(/^["']|["']$/g, "");
             const allWikilinks = Array.from(rawImg.matchAll(/\[\[([^\]]+)\]\]/g)).map((m) =>
@@ -162,42 +174,57 @@ export class AppScanner {
             if (allWikilinks.length > 0) {
               catalog.img = allWikilinks[0];
               for (const w of allWikilinks) {
-                if (w.includes("light")) catalog.imgLight = w;
-                if (w.includes("dark")) catalog.imgDark = w;
+                if (w.toLowerCase().includes("light")) catalog.imgLight = w;
+                if (w.toLowerCase().includes("dark")) catalog.imgDark = w;
               }
             } else {
-              catalog.img = rawImg;
+              const parts = rawImg.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+              if (parts.length > 0) {
+                catalog.img = parts[0];
+                for (const p of parts) {
+                  if (p.toLowerCase().includes("light")) catalog.imgLight = p;
+                  if (p.toLowerCase().includes("dark")) catalog.imgDark = p;
+                }
+              }
             }
           }
 
           // Explicit imgLight & imgDark
-          const lightMatch = fm.match(/^(?:imgLight|img-light):\s*(.+)$/m);
+          const lightMatch = fm.match(new RegExp(`^(?:${imgLightKey}|imgLight|img-light):\\s*(.+)$`, "m"));
           if (lightMatch) catalog.imgLight = lightMatch[1].trim().replace(/^["']|["']$/g, "");
 
-          const darkMatch = fm.match(/^(?:imgDark|img-dark):\s*(.+)$/m);
+          const darkMatch = fm.match(new RegExp(`^(?:${imgDarkKey}|imgDark|img-dark):\\s*(.+)$`, "m"));
           if (darkMatch) catalog.imgDark = darkMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // Git Page & GitHub Remote
-          const gitPageMatch = fm.match(/^(?:git-page|gitPage):\s*(.+)$/m);
+          const gitPageMatch = fm.match(new RegExp(`^(?:${gitPageKey}|gitPage|git-page):\\s*(.+)$`, "m"));
           if (gitPageMatch) catalog.gitPage = gitPageMatch[1].trim().replace(/^["']|["']$/g, "");
 
-          const githubMatch = fm.match(/^(?:github|linkGithub):\s*(.+)$/m);
+          const githubMatch = fm.match(new RegExp(`^(?:${githubKey}|github|linkGithub):\\s*(.+)$`, "m"));
           if (githubMatch) catalog.linkGithub = githubMatch[1].trim().replace(/^["']|["']$/g, "");
 
-          // Tags: supports BOTH multi-line list (- tag) AND inline array ([tag1, tag2])
-          const tagsBlockMatch = fm.match(/^tags:\s*\r?\n((?:\s*-\s*.+\r?\n?)+)/m);
+          // Tags: supports bullet list (- tag), inline array ([a, b]), comma-separated, and multi-line
+          const tagsBlockMatch = fm.match(new RegExp(`^(?:${tagsKey}|tags):\\s*\\r?\\n((?:\\s*-\\s*.+\\r?\\n?)+)`, "m"));
           if (tagsBlockMatch && tagsBlockMatch[1]) {
             const tagLines = tagsBlockMatch[1].split("\n");
             catalog.tags = tagLines
               .map((l) => l.replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""))
               .filter((t) => t.length > 0);
           } else {
-            const inlineTagsMatch = fm.match(/^tags:\s*\[(.*?)\]/m);
+            const inlineTagsMatch = fm.match(new RegExp(`^(?:${tagsKey}|tags):\\s*\\[(.*?)\\]`, "m"));
             if (inlineTagsMatch && inlineTagsMatch[1]) {
               catalog.tags = inlineTagsMatch[1]
                 .split(",")
                 .map((t) => t.trim().replace(/^["']|["']$/g, ""))
                 .filter((t) => t.length > 0);
+            } else {
+              const plainTagsMatch = fm.match(new RegExp(`^(?:${tagsKey}|tags):\\s*([^\r\n]+(?:\r?\n\\s+[^\r\n]+)*)`, "m"));
+              if (plainTagsMatch && plainTagsMatch[1]) {
+                catalog.tags = plainTagsMatch[1]
+                  .split(/[,\n]/)
+                  .map((t) => t.replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""))
+                  .filter((t) => t.length > 0);
+              }
             }
           }
         }

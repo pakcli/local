@@ -13,7 +13,7 @@ import {
   BaseModal,
   type ColumnDef,
 } from "../../../uiComponents";
-import { getNodeChildProcess, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
+import { getNodeChildProcess, getNodeFs, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
 
 class LinkRemoteModal extends BaseModal {
   private repoName = "";
@@ -140,6 +140,7 @@ export class AppsDashboardView extends ItemView {
   private table!: GenericTable<AppScanRecord>;
   private unsubscribeStore?: () => void;
   private cp = getNodeChildProcess();
+  private fs = getNodeFs();
   private os = getNodeOs();
   private path = getNodePath();
 
@@ -597,29 +598,84 @@ export class AppsDashboardView extends ItemView {
           const lightImgName = app.catalog?.imgLight || app.catalog?.img || "img-lightmode.webp";
           const darkImgName = app.catalog?.imgDark || app.catalog?.img || "img-darkmode.webp";
 
-          const resolveImgUri = (fileName: string) => {
+          const resolveImgUri = (fileName: string): string => {
             if (!fileName) return "";
-            if (fileName.startsWith("http://") || fileName.startsWith("https://")) return fileName;
-            const fullPath = this.path?.isAbsolute(fileName)
-              ? fileName
-              : this.path?.join(app.absolutePath, fileName) || fileName;
-            const normalized = fullPath.replace(/\\/g, "/");
-            return `app://local/${normalized.startsWith("/") ? normalized.slice(1) : normalized}`;
+            if (fileName.startsWith("http://") || fileName.startsWith("https://") || fileName.startsWith("data:")) {
+              return fileName;
+            }
+
+            const cleanFileName = fileName.replace(/^\[\[|\]\]$/g, "").trim();
+            const fullPath = this.path?.isAbsolute(cleanFileName)
+              ? cleanFileName
+              : this.path?.join(app.absolutePath, cleanFileName) || cleanFileName;
+
+            // 1. Direct Base64 Data URI reading via Node.js fs (desktop Obsidian fail-proof)
+            if (this.fs && this.fs.existsSync(fullPath)) {
+              try {
+                const buf = this.fs.readFileSync(fullPath);
+                const ext = (this.path?.extname(fullPath) || ".webp").toLowerCase().replace(".", "");
+                const mime =
+                  ext === "svg"
+                    ? "image/svg+xml"
+                    : ext === "png"
+                    ? "image/png"
+                    : ext === "jpg" || ext === "jpeg"
+                    ? "image/jpeg"
+                    : ext === "gif"
+                    ? "image/gif"
+                    : "image/webp";
+                return `data:${mime};base64,${buf.toString("base64")}`;
+              } catch (e) {
+                console.warn("[AppsDashboard] Failed to read image as Base64:", e);
+              }
+            }
+
+            // 2. Fallback: Obsidian Vault adapter getResourcePath
+            try {
+              const vaultAdapter = this.app.vault.adapter as any;
+              if (vaultAdapter && typeof vaultAdapter.getResourcePath === "function") {
+                const vaultRoot = vaultAdapter.getBasePath?.() || vaultAdapter.basePath || "";
+                if (vaultRoot && fullPath.startsWith(vaultRoot)) {
+                  const relToVault = fullPath.slice(vaultRoot.length).replace(/^[/\\]+/, "").replace(/\\/g, "/");
+                  return vaultAdapter.getResourcePath(relToVault);
+                }
+                return vaultAdapter.getResourcePath(fullPath);
+              }
+            } catch {
+              // fallback
+            }
+
+            return "";
           };
 
           const imgEl = card.createEl("img", {
             cls: "pakcli-thumb-img",
             attr: {
-              src: resolveImgUri(currentMode === "dark" ? darkImgName : lightImgName),
               alt: app.catalog?.title || app.folderName,
             },
           });
 
-          imgEl.onerror = () => {
+          const showPlaceholder = () => {
             imgEl.style.display = "none";
-            const placeholder = card.createDiv({ cls: "pakcli-thumb-placeholder" });
-            placeholder.createSpan({ cls: "pakcli-placeholder-icon", text: "🖼" });
-            placeholder.createSpan({ cls: "text-muted", text: "No preview image" });
+            if (!card.querySelector(".pakcli-thumb-placeholder")) {
+              const placeholder = card.createDiv({ cls: "pakcli-thumb-placeholder" });
+              placeholder.createSpan({ cls: "pakcli-placeholder-icon", text: "🖼" });
+              placeholder.createSpan({ cls: "text-muted", text: "No preview image" });
+            }
+          };
+
+          const hidePlaceholder = () => {
+            const existing = card.querySelector(".pakcli-thumb-placeholder");
+            if (existing) existing.remove();
+            imgEl.style.display = "block";
+          };
+
+          imgEl.onload = () => {
+            hidePlaceholder();
+          };
+
+          imgEl.onerror = () => {
+            showPlaceholder();
           };
 
           // Overlay (Hover controls)
@@ -642,32 +698,58 @@ export class AppsDashboardView extends ItemView {
           const toggleBar = overlay.createDiv({ cls: "pakcli-thumb-toggle-bar" });
 
           const lightBtn = toggleBar.createEl("button", {
-            cls: `pakcli-thumb-mode-btn ${currentMode === "light" ? "is-active" : ""}`,
+            cls: "pakcli-thumb-mode-btn",
             text: "☀️ Light",
             attr: { type: "button", title: "Preview light mode" },
           });
-          lightBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            currentMode = "light";
-            imgEl.src = resolveImgUri(lightImgName);
-            imgEl.style.display = "block";
-            lightBtn.addClass("is-active");
-            darkBtn.removeClass("is-active");
-          });
 
           const darkBtn = toggleBar.createEl("button", {
-            cls: `pakcli-thumb-mode-btn ${currentMode === "dark" ? "is-active" : ""}`,
+            cls: "pakcli-thumb-mode-btn",
             text: "🌙 Dark",
             attr: { type: "button", title: "Preview dark mode" },
           });
+
+          const setPreviewMode = (mode: "light" | "dark") => {
+            currentMode = mode;
+            const targetName = mode === "dark" ? darkImgName : lightImgName;
+            const uri = resolveImgUri(targetName);
+            if (uri) {
+              hidePlaceholder();
+              imgEl.src = uri;
+            } else {
+              showPlaceholder();
+            }
+
+            if (mode === "light") {
+              lightBtn.addClass("is-active");
+              darkBtn.removeClass("is-active");
+            } else {
+              darkBtn.addClass("is-active");
+              lightBtn.removeClass("is-active");
+            }
+          };
+
+          lightBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setPreviewMode("light");
+          });
+
           darkBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            currentMode = "dark";
-            imgEl.src = resolveImgUri(darkImgName);
-            imgEl.style.display = "block";
-            darkBtn.addClass("is-active");
-            lightBtn.removeClass("is-active");
+            setPreviewMode("dark");
           });
+
+          // Clicking card (except toggle buttons) opens HTML in Obsidian
+          card.addEventListener("click", (e) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest(".pakcli-thumb-toggle-bar")) {
+              e.stopPropagation();
+              this.openHtmlInObsidian(app);
+            }
+          });
+
+          // Initial load
+          setPreviewMode(currentMode);
 
           return card;
         },
