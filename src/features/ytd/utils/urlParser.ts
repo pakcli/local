@@ -5,6 +5,8 @@ export type PlatformType = "youtube" | "instagram";
 export interface ParsedMediaUrl {
   platform: PlatformType;
   videoId: string;
+  playlistId?: string;
+  isPlaylist?: boolean;
   startSeconds: number;
   originalUrl: string;
 }
@@ -12,8 +14,8 @@ export interface ParsedMediaUrl {
 export type ParsedYouTubeUrl = ParsedMediaUrl;
 
 /**
- * Parse YouTube or Instagram URL format and extract video/post ID + platform + timestamp.
- * Supports YouTube: youtu.be, youtube.com/watch, youtube.com/shorts, /embed/, /v/
+ * Parse YouTube or Instagram URL format and extract video/post ID + platform + timestamp + playlist.
+ * Supports YouTube: youtu.be, youtube.com/watch, youtube.com/shorts, /embed/, /v/, /playlist?list=...
  * Supports Instagram: instagram.com/p/, instagram.com/reel/, instagram.com/reels/, instagram.com/tv/, instagr.am
  */
 export function parseMediaUrl(input: string): ParsedMediaUrl | null {
@@ -62,6 +64,21 @@ export function parseMediaUrl(input: string): ParsedMediaUrl | null {
     }
   }
 
+  const playlistId = url.searchParams.get("list") ?? "";
+  const isPlaylist = Boolean(playlistId && playlistId.length >= 6);
+
+  if (!videoId && isPlaylist) {
+    // Pure YouTube playlist link
+    return {
+      platform: "youtube",
+      videoId: "",
+      playlistId,
+      isPlaylist: true,
+      startSeconds: 0,
+      originalUrl: raw,
+    };
+  }
+
   if (!videoId || videoId.length < 3) return null;
 
   // Timestamp: ?t=4731 or ?t=1h18m51s or ?t=94s or ?start=94
@@ -72,26 +89,40 @@ export function parseMediaUrl(input: string): ParsedMediaUrl | null {
       hmsMatch &&
       (hmsMatch[1] ||
         hmsMatch[2] ||
-        (hmsMatch[3] &&
-          (tParam.includes("h") || tParam.includes("m") || tParam.includes("s"))))
+        (hmsMatch[3] && !/^\d+$/.test(tParam)))
     ) {
-      const hours = parseInt(hmsMatch[1] || "0", 10);
-      const minutes = parseInt(hmsMatch[2] || "0", 10);
-      const seconds = parseInt(hmsMatch[3] || "0", 10);
-      startSeconds = hours * 3600 + minutes * 60 + seconds;
+      const h = parseInt(hmsMatch[1] ?? "0", 10) || 0;
+      const m = parseInt(hmsMatch[2] ?? "0", 10) || 0;
+      const s = parseInt(hmsMatch[3] ?? "0", 10) || 0;
+      startSeconds = h * 3600 + m * 60 + s;
     } else {
-      const numeric = parseInt(tParam.replace(/[^0-9]/g, ""), 10);
-      startSeconds = isNaN(numeric) ? 0 : numeric;
+      const parsed = parseInt(tParam, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        startSeconds = parsed;
+      }
     }
   }
 
   return {
     platform,
     videoId,
+    playlistId: isPlaylist ? playlistId : undefined,
+    isPlaylist,
     startSeconds,
-    originalUrl: raw.startsWith("http") ? raw : `https://${raw}`,
+    originalUrl: raw,
   };
 }
+
+/** Check if given URL is YouTube platform */
+export function isYouTubeUrl(url: string): boolean {
+  return /youtu\.?be/i.test(url);
+}
+
+/** Check if given URL is Instagram platform */
+export function isInstagramUrl(url: string): boolean {
+  return /instagram\.com|instagr\.am/i.test(url);
+}
+
 
 export function parseYouTubeUrl(input: string): ParsedYouTubeUrl | null {
   return parseMediaUrl(input);
@@ -113,4 +144,3 @@ export function secondsToTimestamp(s: number): string {
   }
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
-

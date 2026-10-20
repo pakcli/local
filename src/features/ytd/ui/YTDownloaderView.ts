@@ -28,6 +28,9 @@ import {
   getQualityFromHeight,
 } from "../utils/ytdlp";
 import { InfoModal } from "./InfoModal";
+import { PlaylistQueueView } from "./components/PlaylistQueueView";
+import { PlaylistSyncModal } from "./modals/PlaylistSyncModal";
+import { fetchRemotePlaylist, calculatePlaylistDelta } from "../utils/playlistSync";
 import { parseSubtitleFile, extractClipTranscript, formatTranscriptForMarkdown } from "../utils/transcript";
 import { parseYtDlpProgress } from "../utils/progressParser";
 import { buildNotesMarkdown, buildMediaBaseName, formatTime, extractVideoDuration } from "../utils/fileHelpers";
@@ -55,6 +58,8 @@ export class YTDownloaderView extends ItemView {
   private currentPreview: VideoPreview | null = null;
   private currentTaskId: string | null = null;
   private recentDownloadsCollapsed: boolean = false;
+  private playlistContainerEl!: HTMLElement;
+  private activePlaylistQueueView: PlaylistQueueView | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: PakCLIPlugin) {
     super(leaf);
@@ -156,6 +161,16 @@ export class YTDownloaderView extends ItemView {
       type: "button",
     });
     tableTab.addEventListener("click", () => this.switchTab("table"));
+
+    const syncTab = this.tabsNavEl.createEl("button", {
+      cls: "ytec-tab-btn",
+      text: "🔄 Playlist & Profile Sync",
+      type: "button",
+      title: "Sync YouTube Playlist (0x re-download) or Fetch Creator Profiles",
+    });
+    syncTab.addEventListener("click", () => {
+      new PlaylistSyncModal(this.app, this.plugin).open();
+    });
   }
 
   private switchTab(tab: "download" | "table"): void {
@@ -220,6 +235,8 @@ export class YTDownloaderView extends ItemView {
       this.form.setPreview(this.currentPreview);
       this.updateFormDownloadedQualities();
     }
+
+    this.playlistContainerEl = tabContainer.createDiv({ cls: "ytec-playlist-container" });
 
     // 3. Top Debug Panel
     this.debugPanel = new DebugPanel(tabContainer);
@@ -326,6 +343,18 @@ export class YTDownloaderView extends ItemView {
   private async handleUrlChanged(url: string): Promise<void> {
     const parsed = parseMediaUrl(url);
     if (!parsed) return;
+
+    if (parsed.isPlaylist && parsed.playlistId) {
+      void this.handlePlaylistDetected(parsed.playlistId, url);
+      return;
+    } else {
+      if (this.activePlaylistQueueView) {
+        this.activePlaylistQueueView.destroy();
+        this.activePlaylistQueueView = null;
+      }
+      if (this.form) this.form.getContainerEl().style.display = "";
+    }
+
     if (this.currentPreview && this.currentPreview.original_url === url) return;
 
     if (this.autoFetchTimeout) {
@@ -337,6 +366,41 @@ export class YTDownloaderView extends ItemView {
         void this.handleFetchOnly(this.form.getState());
       }
     }, 700);
+  }
+
+  
+  private async handlePlaylistDetected(playlistId: string, url: string): Promise<void> {
+    if (this.activePlaylistQueueView) {
+      this.activePlaylistQueueView.destroy();
+      this.activePlaylistQueueView = null;
+    }
+    if (this.form) {
+      this.form.getContainerEl().style.display = "none";
+    }
+    new Notice("⚡ YouTube Playlist detected! Analyzing delta...");
+
+    try {
+      const remote = await fetchRemotePlaylist(playlistId, this.plugin.settings);
+      const outFolder = `${this.plugin.settings.ytCaptureOutputFolder || "YT Captures"}/Playlists`;
+      const targetSub = `${outFolder}/${remote.playlistTitle}`;
+      const delta = await calculatePlaylistDelta(this.app, remote.items, remote, targetSub);
+
+      this.activePlaylistQueueView = new PlaylistQueueView(
+        this.playlistContainerEl,
+        this.app,
+        this.plugin,
+        {
+          delta,
+          targetFolder: outFolder,
+          onSyncComplete: () => {
+            void this.refreshData(true);
+          },
+        }
+      );
+    } catch (err) {
+      new Notice("Playlist analysis failed: " + (err && err.message ? err.message : String(err)));
+      if (this.form) this.form.getContainerEl().style.display = "";
+    }
   }
 
   private async handleFetchOnly(formState: DownloadFormState): Promise<void> {

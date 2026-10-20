@@ -26,6 +26,7 @@ import { CaptureModal as YTCaptureModal } from './features/ytd/ui/CaptureModal';
 import { YTDownloaderView, YT_DOWNLOADER_VIEW_TYPE } from './features/ytd/ui/YTDownloaderView';
 import { renderYTCaptureSettings } from './features/ytd/settings';
 import { runYTCaptureStartupCheck } from './features/ytd/utils/healthCheck';
+import { PlaylistSyncModal } from './features/ytd/ui/modals/PlaylistSyncModal';
 
 // CopyPaste Manager Imports
 import { CopyPasteManager } from './features/copypaste/CopyPasteManager';

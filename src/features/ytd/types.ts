@@ -231,3 +231,99 @@ export type TableFilter = "youtube" | "instagram" | "both";
 export type TableViewMode = "flat" | "grouped";
 export type TableSort = "quality_fps" | "time" | "recent";
 
+
+
+// ==========================================
+// Playlist Sync & Incremental Delta Types
+// ==========================================
+
+export type PlaylistSyncItemStatus =
+  | "new"
+  | "existing_unchanged"
+  | "existing_moved"
+  | "removed";
+
+export interface PlaylistSyncItem {
+  videoId: string;
+  title: string;
+  duration?: number | string;
+  thumbnailUrl: string;
+  originalIndex: number; // 1-based index in remote playlist
+  previousIndex?: number; // 1-based index in previous local state
+  localFilePath?: string;
+  localThumbnailPath?: string;
+  status: PlaylistSyncItemStatus;
+  uploadDate?: string;
+  url: string;
+  author?: string;
+}
+
+export interface PlaylistSyncHistoryEntry {
+  date: string;
+  count: number;
+  videoIds: string[];
+}
+
+export interface PlaylistSyncState {
+  playlistId: string;
+  playlistTitle: string;
+  channelTitle?: string;
+  channelUrl?: string;
+  lastSync: number;
+  history: PlaylistSyncHistoryEntry[];
+  items: Record<
+    string,
+    {
+      videoId: string;
+      title: string;
+      position: number;
+      localFilePath?: string;
+      localThumbnailPath?: string;
+      downloadedAt: number;
+    }
+  >;
+}
+
+export interface PlaylistDeltaResult {
+  playlistId: string;
+  playlistTitle: string;
+  channelTitle: string;
+  totalRemoteCount: number;
+  items: PlaylistSyncItem[];
+  newItems: PlaylistSyncItem[];
+  movedItems: PlaylistSyncItem[];
+  unchangedItems: PlaylistSyncItem[];
+  removedItems: PlaylistSyncItem[];
+}
+
+// ==========================================
+// Media Profile Fetcher Types (YT & IG)
+// ==========================================
+
+export interface ProfilePostItem {
+  id: string;
+  platform: "youtube" | "instagram";
+  url: string;
+  title: string;
+  uploadDate?: string;
+  mediaType: "video" | "photo" | "carousel";
+  thumbnailUrl: string;
+  firstImageUrl?: string;
+  author: string;
+  authorAvatar?: string;
+  likes?: number;
+  comments?: number;
+  views?: number;
+  duration?: string | number;
+}
+
+export interface ProfileFetchResult {
+  platform: "youtube" | "instagram";
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  bio?: string;
+  totalFollowers?: number | string;
+  posts: ProfilePostItem[];
+  fetchedAt: number;
+}

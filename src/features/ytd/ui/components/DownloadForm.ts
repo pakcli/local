@@ -455,5 +455,8 @@ export class DownloadForm {
     } else {
       this.containerEl.removeClass("is-loading");
     }
+  }
+  getContainerEl(): HTMLElement {
+    return this.containerEl;
   }
 }
