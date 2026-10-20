@@ -6,7 +6,7 @@ import { DiagnosticBar } from "./components/DiagnosticBar";
 import { HostDrawer } from "./components/HostDrawer";
 import { AppsDashboardSettingsModal } from "./AppsDashboardSettingsModal";
 import { SetupFirebaseModal } from "./SetupFirebaseModal";
-import { AccountManagerModal, maskAccountIdentifier } from "./AccountManagerModal";
+import { AccountManagerModal, maskAccountIdentifier, maskSensitiveUrl } from "./AccountManagerModal";
 import {
   GenericTable,
   SearchFilterBar,
@@ -52,6 +52,14 @@ export class LinkRemoteModal extends BaseModal {
       .replace(/[^\w\s-]/g, "")
       .trim()
       .replace(/\s+/g, "-");
+
+    // If existing remote URL is supplied, parse owner and repo name dynamically
+    if (existingRemoteUrl) {
+      const m = existingRemoteUrl.match(/github\.com[/:]([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)/i);
+      if (m && m[1]) this.prefix = m[1];
+      if (m && m[2]) this.repoName = m[2].replace(/\.git$/i, "");
+    }
+
     this.remoteUrl = existingRemoteUrl || `https://github.com/${this.prefix}/${this.repoName}.git`;
   }
 
@@ -70,7 +78,8 @@ export class LinkRemoteModal extends BaseModal {
       curBox.style.fontSize = "0.82rem";
 
       curBox.createDiv({ cls: "text-muted", text: "Current Remote URL:" });
-      const curUrlEl = curBox.createEl("strong", { text: this.existingRemoteUrl });
+      const curUrlEl = curBox.createEl("strong", { text: maskSensitiveUrl(this.existingRemoteUrl, false) });
+      curUrlEl.title = this.existingRemoteUrl;
       curUrlEl.style.fontFamily = "var(--font-monospace)";
 
       const switchBtn = curBox.createEl("button", {
@@ -87,15 +96,30 @@ export class LinkRemoteModal extends BaseModal {
       });
     }
 
-    // 1. Repo Name with Check Button
+    // 1. Owner / Organization Setting
+    new Setting(bodyEl)
+      .setName("GitHub Owner / Username")
+      .setDesc("GitHub user or org holding this repository (e.g. fadhlisl, pakcli).")
+      .addText((text) => {
+        text.setValue(this.prefix).onChange((val) => {
+          this.prefix = val.trim();
+          this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
+          if (urlInput) urlInput.setValue(this.remoteUrl);
+          updatePreview();
+        });
+        text.inputEl.style.width = "180px";
+      });
+
+    // 2. Repo Name with Check Button
     new Setting(bodyEl)
       .setName("Repository Name")
-      .setDesc(`GitHub repository slug under user '${this.prefix}'.`)
+      .setDesc(`GitHub repository slug.`)
       .addText((text) => {
         text.setValue(this.repoName).onChange((val) => {
           this.repoName = val.trim();
           this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
           if (urlInput) urlInput.setValue(this.remoteUrl);
+          updatePreview();
         });
         text.inputEl.style.width = "180px";
       })
@@ -107,7 +131,7 @@ export class LinkRemoteModal extends BaseModal {
 
     this.checkStatusEl = bodyEl.createDiv({ cls: "pakcli-check-status-row text-muted" });
 
-    // 2. Full Remote URL
+    // 3. Full Remote URL
     new Setting(bodyEl)
       .setName("Remote Origin URL")
       .setDesc("Full Git remote URL that will be configured as 'origin'.")
@@ -119,10 +143,14 @@ export class LinkRemoteModal extends BaseModal {
         text.inputEl.style.width = "280px";
       });
 
-    // 3. GitHub Pages Domain Preview
+    // 4. GitHub Pages Domain Preview
     const previewBox = bodyEl.createDiv({ cls: "pakcli-gh-preview-box" });
-    previewBox.createSpan({ cls: "text-muted", text: "GitHub Pages domain: " });
-    previewBox.createEl("strong", { text: `https://${this.prefix}.github.io/${this.repoName}` });
+    const updatePreview = () => {
+      previewBox.empty();
+      previewBox.createSpan({ cls: "text-muted", text: "GitHub Pages domain: " });
+      previewBox.createEl("strong", { text: `https://${this.prefix}.github.io/${this.repoName}` });
+    };
+    updatePreview();
   }
 
   private validateRepoName() {
@@ -385,7 +413,8 @@ export class AppsDashboardView extends ItemView {
         sortable: true,
         tsvValue: (app) => app.absolutePath,
         render: (app) => {
-          return createSpan({ cls: "text-muted pakcli-truncate", text: app.absolutePath });
+          const displayPath = maskSensitiveUrl(app.absolutePath, !this.store.isPrivacyMasked);
+          return createSpan({ cls: "text-muted pakcli-truncate", text: displayPath });
         },
       },
       {
@@ -400,8 +429,11 @@ export class AppsDashboardView extends ItemView {
 
           // 1. Has Remote URL
           if (app.git.remoteUrl) {
-            const urlText = wrap.createSpan({ cls: "pakcli-repo-link-text", text: app.git.remoteUrl });
-            urlText.title = app.git.remoteUrl;
+            const displayUrl = maskSensitiveUrl(app.git.remoteUrl, !this.store.isPrivacyMasked);
+            const urlText = wrap.createSpan({ cls: "pakcli-repo-link-text", text: displayUrl });
+            urlText.title = this.store.isPrivacyMasked
+              ? "Masked (2 letters). Click 👁️ in header to reveal"
+              : app.git.remoteUrl;
 
             // Config / Switch Remote Button
             const cfgBtn = wrap.createEl("button", {
@@ -497,10 +529,15 @@ export class AppsDashboardView extends ItemView {
           if (app.hosting.firebase?.configured) {
             const fbRow = wrap.createDiv({ cls: "pakcli-host-row" });
             fbRow.createSpan({ cls: "pakcli-provider-badge is-fb", text: "fb" });
-            fbRow.createSpan({
+            const fbHostRaw = `${app.hosting.firebase.siteId}.web.app`;
+            const fbHostDisplay = maskSensitiveUrl(fbHostRaw, !this.store.isPrivacyMasked);
+            const fbSpan = fbRow.createSpan({
               cls: "pakcli-host-url",
-              text: `${app.hosting.firebase.siteId}.web.app`,
+              text: fbHostDisplay,
             });
+            fbSpan.title = this.store.isPrivacyMasked
+              ? "Masked for privacy. Click 👁️ in header to reveal"
+              : fbHostRaw;
 
             new CopyButton(fbRow, {
               text: app.hosting.firebase.liveUrl,
@@ -534,10 +571,15 @@ export class AppsDashboardView extends ItemView {
           if (app.hosting.githubPages?.configured) {
             const ghRow = wrap.createDiv({ cls: "pakcli-host-row" });
             ghRow.createSpan({ cls: "pakcli-provider-badge is-gh", text: "gh" });
-            ghRow.createSpan({
+            const ghPagesRaw = app.hosting.githubPages.url.replace("https://", "");
+            const ghPagesDisplay = maskSensitiveUrl(ghPagesRaw, !this.store.isPrivacyMasked);
+            const ghSpan = ghRow.createSpan({
               cls: "pakcli-host-url",
-              text: app.hosting.githubPages.url.replace("https://", ""),
+              text: ghPagesDisplay,
             });
+            ghSpan.title = this.store.isPrivacyMasked
+              ? "Masked for privacy (2 letters). Click 👁️ in header to reveal"
+              : ghPagesRaw;
 
             new CopyButton(ghRow, {
               text: app.hosting.githubPages.url,
@@ -918,9 +960,12 @@ export class AppsDashboardView extends ItemView {
             app.catalog?.linkLive ||
             (app.hosting.firebase?.configured ? app.hosting.firebase.liveUrl : undefined);
           if (link) {
+            const displayTitle = this.store.isPrivacyMasked
+              ? "Open live site (Click 👁️ in header to reveal full URL)"
+              : `Open ${link}`;
             const btn = wrap.createEl("button", {
               cls: "pakcli-icon-btn clickable-icon",
-              attr: { type: "button", title: `Open ${link}` },
+              attr: { type: "button", title: displayTitle },
             });
             setIcon(btn, "external-link");
             btn.addEventListener("click", (e) => {

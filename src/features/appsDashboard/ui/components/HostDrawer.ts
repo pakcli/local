@@ -3,7 +3,7 @@ import type { AppDashboardStore } from "../../store/AppDashboardStore";
 import type { AppScanRecord, GitCommitRecord } from "../../types";
 import { CopyButton } from "../../../../uiComponents";
 import { SetupFirebaseModal } from "../SetupFirebaseModal";
-import { AccountManagerModal, maskAccountIdentifier } from "../AccountManagerModal";
+import { AccountManagerModal, maskAccountIdentifier, maskSensitiveUrl } from "../AccountManagerModal";
 import { LinkRemoteModal } from "../AppsDashboardView";
 
 export class HostDrawer {
@@ -191,7 +191,8 @@ export class HostDrawer {
     const metaList = body.createDiv({ cls: "pakcli-drawer-meta-list" });
 
     this.createMetaRow(metaList, "Status", statusText);
-    this.createMetaRow(metaList, "Source", app.absolutePath);
+    const displaySource = maskSensitiveUrl(app.absolutePath, !this.store.isPrivacyMasked);
+    this.createMetaRow(metaList, "Source", displaySource);
     const targetRow = this.createMetaRow(
       metaList,
       "Target",
@@ -235,7 +236,9 @@ export class HostDrawer {
       });
     }
 
-    const remoteUrlVal = app.git.remoteUrl || (app.git.isRepo ? "local (no remote)" : "uninitialized");
+    const remoteUrlVal = app.git.remoteUrl
+      ? maskSensitiveUrl(app.git.remoteUrl, !this.store.isPrivacyMasked)
+      : (app.git.isRepo ? "local (no remote)" : "uninitialized");
     const remoteRow = this.createMetaRow(metaList, "Remote Repo", remoteUrlVal);
     if (this.appInstance) {
       const cfgRepoBtn = remoteRow.createEl("button", {

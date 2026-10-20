@@ -19,6 +19,20 @@ export function maskAccountIdentifier(str: string, unmask = false): string {
   return `${str.slice(0, 2)}${"*".repeat(Math.min(str.length - 2, 6))}`;
 }
 
+export function maskSensitiveUrl(url: string, unmask = false): string {
+  if (!url || unmask) return url;
+  let res = url.replace(/(github\.com[/:])([a-zA-Z0-9_-]+)(\/)/gi, (_m, p1, owner, p3) => {
+    return `${p1}${maskAccountIdentifier(owner, false)}${p3}`;
+  });
+  res = res.replace(/([a-zA-Z0-9_-]+)(\.github\.io)/gi, (_m, owner, domain) => {
+    return `${maskAccountIdentifier(owner, false)}${domain}`;
+  });
+  res = res.replace(/([/\\][Uu]sers[/\\])([^/\\]+)([/\\])/g, (_m, p1, user, p3) => {
+    return `${p1}${maskAccountIdentifier(user, false)}${p3}`;
+  });
+  return res;
+}
+
 export class AccountManagerModal extends BaseModal {
   private store: AppDashboardStore;
   private targetApp?: AppScanRecord;
