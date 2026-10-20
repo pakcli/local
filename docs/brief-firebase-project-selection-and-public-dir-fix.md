@@ -1,4 +1,4 @@
-# 📌 Master Brief: Firebase Project Selection, Dynamic Account Detection (GitHub/Firebase) & Config Editor
+# 📌 Master Brief: Unified Accounts Column (GitHub & Google), 2-Letter Masking with Expose Toggle, Local PC Account Switcher & Firebase Project Selector
 
 > **Feature Status**: `0` (Specification & Architecture)  
 > **Target Module**: `local` (`pakcli-local`)  
@@ -7,89 +7,102 @@
 
 ---
 
-## 1. Problem Statement & Root Cause
+## 1. Problem Statement & User Requirements
 
-Saat pengguna mencoba men-deploy aplikasi `radiansincostan` ke Firebase Hosting, proses deployment gagal dengan pesan kesalahan:
-```text
-Error: Failed to get Firebase project radiansincostan. Please make sure the project exists and your account has permission to access it.
-Deployment failed with exit code 2
+### 1.1 Masalah Sebelumnya:
+1. **Deployment Firebase Gagal (Exit Code 2)**:
+   - Plugin secara sepihak menetapkan folder `radiansincostan` sebagai Project ID dan `dist` sebagai direktori publik. Proyek ini tidak ada di akun Google Firebase pengguna, sehingga deployment gagal.
+2. **Ketiadaan Visibilitas Akun**:
+   - Pengguna tidak dapat melihat akun GitHub dan Google Firebase mana yang saat ini terhubung dan mengelola setiap aplikasi.
+
+### 1.2 Kebutuhan Fitur Baru dari Pengguna:
+1. **Kolom Akun Terpadu ("Accounts" Column)**:
+   - Satu kolom di dashboard table yang menampilkan akun **GitHub** dan akun **Google Firebase** secara bersamaan.
+2. **Proteksi Privasi Sensor 2 Huruf + Tombol Expose (`👁️`)**:
+   - Secara default disensor: hanya **2 huruf pertama** yang terlihat, sisanya digantikan dengan bintang `**`.
+     - Contoh GitHub: `pakcli` ➔ `pa****`
+     - Contoh Google: `dcalibri@gmail.com` ➔ `dc******@gmail.com`
+   - Tombol **Expose** (`👁️`) di sampingnya untuk membuka/menutup sensor (unmask/mask toggle) secara instan.
+3. **Tombol Config / Switch Account Lokal PC (Tanpa Login Browser)**:
+   - Tombol **`[ ⚙️ / ⇄ ]`** di samping cell akun untuk mengganti atau menetapkan (*assign*) akun ke aplikasi tersebut.
+   - **Hanya menampilkan akun yang SUDAH login di PC saat ini**:
+     - Google/Firebase: Terdeteksi akun `dcalibri@gmail.com` (aktif) dan `pakcli4000@gmail.com`. Dapat dialihkan via `firebase login:use <email>` tanpa membuka browser pop-up.
+     - GitHub: Terdeteksi akun `pakcli` via CLI/keyring. Dapat di-assign ke konfigurasi git repo lokal (`git config user.name`/`user.email`) tanpa browser auth.
+   - **Zero Browser Authentication**: Tidak ada dialog OAuth di browser web, 100% menggunakan session yang sudah tersedia di PC.
+4. **Modal Konfigurasi Firebase (`SetupFirebaseModal`)**:
+   - Memilih Project ID nyata dari akun pengguna (misal: `pakcli`, `coba-obs`, dll.) via `firebase projects:list --json`.
+   - Menetapkan public directory secara cerdas (`.` untuk root index.html, atau `dist` jika ada subfolder dist).
+
+---
+
+## 2. Arsitektur Komponen & Data Flow
+
+### 2.1 Backend / CLI Bridge (`CliBridge.ts`)
+1. **`getSystemAccountsInfo()`**:
+   - Membaca akun Google Firebase yang login di PC via `firebase login:list`:
+     - Email aktif (e.g. `dcalibri@gmail.com`).
+     - Email cadangan/tersedia di PC (e.g. `pakcli4000@gmail.com`).
+   - Membaca akun GitHub yang login di PC via `gh api user --jq .login` / `gh auth status` / `git config`:
+     - Username (e.g. `pakcli`).
+     - Email (e.g. `276874584+pakcli@users.noreply.github.com`).
+2. **`switchFirebaseAccount(email: string)`**:
+   - Menjalankan `firebase login:use <email>` secara headless (zero browser auth).
+3. **`listFirebaseProjects()`**:
+   - Menjalankan `firebase projects:list --json` untuk mendapatkan daftar ID proyek milik akun yang sedang aktif.
+
+---
+
+### 2.2 Model & Types (`types.ts`)
+```ts
+export interface SystemAccountsInfo {
+  firebase: {
+    activeEmail?: string;
+    availableEmails: string[];
+  };
+  github: {
+    username?: string;
+    email?: string;
+  };
+}
 ```
-
-### 1.1 Akar Masalah (Root Cause):
-1. **Hardcoded Project ID Berdasarkan Folder Name**:
-   - Kode di `AppsDashboardView.ts` dan `HostDrawer.ts` sebelumnya mengeksekusi:
-     ```ts
-     const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
-     await this.store.setupFirebaseForApp(app, siteId, "dist");
-     ```
-   - Hal ini membuat berkas `.firebaserc` otomatis berisi `default: radiansincostan`, padahal di Firebase Console pengguna tidak memiliki project bernama tersebut.
-2. **Hardcoded `"dist"` Public Directory**:
-   - Parameter `publicDir` di-hardcode ke `"dist"`.
-   - Pada aplikasi static zero-build (seperti `radiansincostan`), berkas `index.html` berada langsung di root folder aplikasi (`.`), bukan di dalam subfolder `dist/`. Men-deploy ke `dist` yang tidak ada akan menghasilkan error atau halaman kosong 404.
-3. **Hardcoded Akun / Username**:
-   - Sebelumnya username GitHub di-hardcode ke `"fadhlisl"`, padahal akun aktif di sistem saat ini adalah `pakcli` (terdeteksi via `gh api user` / `git config user.name`).
-   - Email akun Google Firebase belum dicek secara dinamis dari sistem lokal (akun aktif: `dcalibri@gmail.com` via `firebase login:list`).
-4. **Ketiadaan UI Pemilihan Project & Konfigurasi Ulang**:
-   - Tidak ada modal konfirmasi untuk memilih project Firebase yang aktif.
-   - Tidak ada tombol "Edit Config" di `HostDrawer` untuk mengubah project jika sudah terlanjur tertulis nama yang salah di `.firebaserc`.
+- Menambahkan kolom `"accounts"` ke `ALL_AVAILABLE_COLUMNS` dan `DEFAULT_VISIBLE_COLUMNS`.
 
 ---
 
-## 2. Arsitektur & Rencana Solusi (Action Plan)
-
-### 2.1 Deteksi Akun Dinamis dari Sistem Lokal (`CliBridge.checkHealth`)
-1. **GitHub Username & Email**:
-   - Mengambil username aktif via CLI:
-     1. `gh api user --jq .login` (menghasilkan misal `pakcli`).
-     2. Fallback: `git config user.name` dan `git config user.email`.
-   - Menggunakan nilai ini di `LinkRemoteModal` secara dinamis (menggantikan hardcoded string).
-2. **Google Firebase User Email**:
-   - Mengambil email aktif via `firebase login:list`.
-   - Menampilkan email aktif (`dcalibri@gmail.com`) pada `DiagnosticBar` dan `SetupFirebaseModal`.
-
----
-
-### 2.2 Modal Pemilihan Firebase (`SetupFirebaseModal`)
-Ketika pengguna mengklik **"Setup Firebase Hosting"** (baik dari menu baris `+ Host ▾` maupun dari tombol setup di `HostDrawer`):
-1. **Daftar Project Firebase Akun Pengguna**:
-   - Memanggil `firebase projects:list --json` melalui `CliBridge.listFirebaseProjects()`.
-   - Menampilkan dropdown daftar project nyata di akun pengguna (misal: `pakcli`, `coba-obs`, dll.).
-   - Menyediakan input teks manual jika pengguna ingin mengetikkan Project ID kustom.
-   - Menampilkan info akun Google yang sedang aktif (`dcalibri@gmail.com`).
-   - Tombol **`[ 🔄 Refresh Projects ]`** untuk memperbarui daftar project secara live dari CLI.
-2. **Deteksi Otomatis Public Directory**:
-   - Jika terdapat folder `dist/` atau `build/`, otomatis pilih `dist` atau `build`.
-   - Jika berkas `index.html` ada di root folder aplikasi, otomatis pilih `.` (Root Folder).
-   - Pengguna tetap dapat mengedit nama folder publik secara bebas.
-3. **Simpan Konfigurasi**:
-   - Menulis `.firebaserc` dengan Project ID yang dipilih.
-   - Menulis `firebase.json` dengan `public` directory yang sesuai.
-   - Me-refresh `HostDrawer` dan status record aplikasi secara reaktif.
+### 2.3 UI Table Column: "Accounts" (`AppsDashboardView.ts`)
+- **Tampilan Cell**:
+  ```text
+  ┌──────────────────────────────────────────────┐
+  │ 🐙 pa****                                    │
+  │ 🔥 dc******@gmail.com                        │
+  │ [ 👁️ Reveal ]  [ ⚙️ Assign / Switch ]        │
+  └──────────────────────────────────────────────┘
+  ```
+- **Fungsi Sensor (`maskAccountIdentifier`)**:
+  - `pakcli` ➔ `pa****`
+  - `dcalibri@gmail.com` ➔ `dc******@gmail.com`
+  - Klik `👁️` ➔ toggle state tampilan cell antara tersensor dan terbuka.
+- **Tombol `[ ⚙️ ]` (Assign / Switch Account Modal)**:
+  - Membuka modal `AccountAssignmentModal`:
+    - Dropdown / pilihan akun Google yang sudah login di PC (`dcalibri@gmail.com` vs `pakcli4000@gmail.com`).
+    - Akun GitHub lokal (`pakcli`).
+    - Tombol simpan dan assign ke aplikasi saat ini.
 
 ---
 
-### 2.3 Tombol Edit Konfigurasi di `HostDrawer`
-1. Pada kartu hosting Firebase di `HostDrawer`:
-   - Tambahkan tombol **`[ ⚙️ Edit Config ]`** di samping nama Project ID.
-   - Mengklik tombol ini akan membuka `SetupFirebaseModal` yang sudah terisi dengan konfigurasi saat ini, sehingga pengguna dapat dengan mudah mengganti project (misal dari `radiansincostan` ke `pakcli`) tanpa perlu mengedit berkas tersembunyi secara manual.
-
----
-
-### 2.4 Smart Deployment Diagnostics
-1. Pada `CliBridge.streamDeploy()`:
-   - Jika stdout/stderr Firebase menghasilkan:
-     `Failed to get Firebase project ...`
-   - Berikan catatan panduan otomatis di log streaming:
-     `💡 Hint: Project tersebut tidak ditemukan di akun Firebase Anda. Klik tombol [⚙️ Edit Config] di panel Host Drawer untuk memilih project yang valid (misal: pakcli).`
+### 2.4 Modal Konfigurasi Firebase (`SetupFirebaseModal`)
+- Menampilkan pilihan Project ID dari daftar project di akun aktif (`pakcli`, `coba-obs`, dll.).
+- Memilih public directory (otomatis mendeteksi root `.` atau `dist/`).
+- Tombol simpan menulis `.firebaserc` dan `firebase.json` yang valid.
 
 ---
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Username GitHub dan email Firebase dicek secara dinamis dari CLI sistem lokal (`gh`/`git` dan `firebase login:list`).
-- [ ] **AC-2**: Mengklik "Setup Firebase Hosting" menampilkan modal interaktif `SetupFirebaseModal`, bukan langsung menulis folderName secara sepihak.
-- [ ] **AC-3**: Modal menampilkan daftar project Firebase nyata dari akun pengguna via CLI (`firebase projects:list`), dengan opsi fallback teks.
-- [ ] **AC-4**: Public directory mendeteksi secara cerdas apakah aplikasi menggunakan root `.` atau `dist/`.
-- [ ] **AC-5**: Tersedia tombol `[ ⚙️ Edit Config ]` di Host Drawer untuk mengganti project / direktori publik kapan saja.
-- [ ] **AC-6**: Deployment berhasil ke project yang valid (misal `pakcli`) tanpa exit code 2.
-- [ ] **AC-7**: Kompilasi `npm --prefix local run build` lulus dengan 0 error TypeScript.
+- [ ] **AC-1**: Terdapat kolom baru **Accounts** yang menampilkan akun GitHub dan akun Google Firebase dalam 1 cell.
+- [ ] **AC-2**: Nilai akun disensor secara default (hanya 2 huruf pertama yang tampil, sisanya `****`).
+- [ ] **AC-3**: Terdapat tombol **Expose/Reveal (`👁️`)** yang dapat menyalakan/mematikan sensor per baris.
+- [ ] **AC-4**: Terdapat tombol **Config/Switch (`⚙️`)** di samping cell untuk memilih akun yang sudah login di PC.
+- [ ] **AC-5**: Pergantian akun berjalan 100% lokal di PC tanpa membuka auth di browser (`firebase login:use`).
+- [ ] **AC-6**: `SetupFirebaseModal` memungkinkan pemilihan project Firebase nyata (`pakcli`, dll.) dan auto-deteksi direktori publik (`.` untuk `radiansincostan`).
+- [ ] **AC-7**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
