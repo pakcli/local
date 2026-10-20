@@ -6,6 +6,7 @@
 .idea
 
 # npm
+node_modules/
 node_modules
 
 # Don't include the compiled main.js file in the repo.
@@ -18,11 +19,26 @@ main.js
 # obsidian
 data.json
 
-# Exclude macOS Finder (System Explorer) View States
+# Exclude OS Files
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets & Environment
+.env
+.env.*
+*.local
+
+# Caches
+.cache/
+.firebase/
+.firebase/hosting..cache
 
 # Local publisher configuration
 .publish-config.json
+
 # Build output directory
 dist/
 dist/**

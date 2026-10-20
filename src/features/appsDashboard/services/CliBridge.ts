@@ -100,6 +100,77 @@ export class CliBridge {
     }
   }
 
+  /**
+   * Ensures that standard ignore patterns exist in the target app's .gitignore.
+   * If .gitignore does not exist, it creates one with recommended defaults.
+   * If it already exists, any missing patterns are appended to prevent accidental leaks.
+   */
+  public ensureGitignore(appPath: string): void {
+    if (!this.fs || !this.path) return;
+    try {
+      const gitignorePath = this.path.join(appPath, ".gitignore");
+      const requiredPatterns = [
+        "node_modules/",
+        "dist/",
+        ".DS_Store",
+        "Thumbs.db",
+        "*.log",
+        ".env",
+        ".cache/",
+        ".firebase/hosting..cache",
+        ".firebase/",
+      ];
+
+      if (!this.fs.existsSync(gitignorePath)) {
+        const content = [
+          "# Dependencies",
+          "node_modules/",
+          "",
+          "# Production Builds",
+          "dist/",
+          "build/",
+          "",
+          "# System Files",
+          ".DS_Store",
+          "Thumbs.db",
+          "",
+          "# Logs",
+          "*.log",
+          "",
+          "# Environment & Secrets",
+          ".env",
+          ".env.*",
+          "*.local",
+          "",
+          "# Caches",
+          ".cache/",
+          ".firebase/hosting..cache",
+          ".firebase/",
+          "",
+        ].join("\n");
+        this.fs.writeFileSync(gitignorePath, content, "utf8");
+      } else {
+        const existing = this.fs.readFileSync(gitignorePath, "utf8");
+        const lines = existing.split(/\r?\n/).map((l: string) => l.trim());
+        const missing: string[] = [];
+
+        for (const pat of requiredPatterns) {
+          if (!lines.includes(pat)) {
+            missing.push(pat);
+          }
+        }
+
+        if (missing.length > 0) {
+          const prefix = existing.endsWith("\n") ? "" : "\n";
+          const appendContent = prefix + "\n# Auto-added essential ignore patterns\n" + missing.join("\n") + "\n";
+          this.fs.appendFileSync(gitignorePath, appendContent, "utf8");
+        }
+      }
+    } catch (err) {
+      console.warn("[CliBridge] ensureGitignore warning:", err);
+    }
+  }
+
   public async initGitRepo(appPath: string): Promise<{ success: boolean; message: string }> {
     if (!this.cp?.exec) {
       return { success: false, message: "Node child_process API not available." };
@@ -109,22 +180,8 @@ export class CliBridge {
       // 1. git init
       await this.execAsync("git init", appPath);
 
-      // 2. create .gitignore if not present
-      if (this.fs && this.path) {
-        const gitignorePath = this.path.join(appPath, ".gitignore");
-        if (!this.fs.existsSync(gitignorePath)) {
-          const defaultIgnore = [
-            "node_modules/",
-            "dist/",
-            ".DS_Store",
-            "Thumbs.db",
-            "*.log",
-            ".env",
-            ".cache/",
-          ].join("\n");
-          this.fs.writeFileSync(gitignorePath, defaultIgnore, "utf8");
-        }
-      }
+      // 2. ensure .gitignore exists and contains all required patterns
+      this.ensureGitignore(appPath);
 
       // 3. git add & initial commit
       await this.execAsync("git add -A", appPath);
@@ -631,6 +688,9 @@ export class CliBridge {
         }
       } catch {}
     }
+
+    // 2. Ensure .gitignore has node_modules/, dist/, .cache/, .firebase/hosting..cache, etc.
+    this.ensureGitignore(appPath);
 
     isCancelled = false;
     let currentProc: any = null;
