@@ -49,7 +49,11 @@ import { GitHubFetcherManager, GitHubBatchFetcherModal, renderGitHubFetcherSetti
 import { applyTaskbarIcon, saveAppearanceIconToArtifacts, registerSubwindowLifecycleWatcher } from './features/taskbar/taskbar';
 import { renderTaskbarSettings } from './features/taskbar/settings';
 
+// Apps Dashboard & Static Hosting Manager Imports
+import { registerAppsDashboard, AppDashboardStore } from './features/appsDashboard';
+
 export default class PakCLILocalPlugin extends Plugin {
+	appsDashboardStore!: AppDashboardStore;
 	declare settings: PakCLILocalSettings;
 	syncManager!: SyncManager;
 	copyPasteManager!: CopyPasteManager;
@@ -301,6 +305,9 @@ export default class PakCLILocalPlugin extends Plugin {
 		if (this.settings.autoCheckDependencies !== false) {
 			window.setTimeout(() => runYTCaptureStartupCheck(this.settings), 2500);
 		}
+
+		// 17. Register Apps Dashboard & Static Hosting Manager
+		this.appsDashboardStore = registerAppsDashboard(this);
 
 		console.log('[PakCLI Local] Loaded successfully.');
 	}

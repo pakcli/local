@@ -1,0 +1,176 @@
+import type { AppScanRecord, HealthStatusResponse, GitCommitRecord } from "../types";
+
+export const MOCK_HEALTH_STATUS: HealthStatusResponse = {
+  server: {
+    status: "connected",
+    version: "1.0.0",
+    uptimeSeconds: 3600,
+    port: 4747,
+  },
+  cli: {
+    firebase: { installed: true, version: "13.8.0", userEmail: "dev@company.com" },
+    git: { installed: true, version: "2.44.0" },
+    gh: { installed: true, version: "2.47.0" },
+  },
+};
+
+export const MOCK_APPS: AppScanRecord[] = [
+  {
+    id: "app_portfolio",
+    folderName: "portfolio",
+    absolutePath: "~/apps/portfolio",
+    isMonorepoRoot: false,
+    git: {
+      isRepo: true,
+      currentBranch: "main",
+      remoteUrl: "github.com/me/portfolio",
+      isClean: true,
+      uncommittedCount: 0,
+      aheadCount: 0,
+      behindCount: 0,
+    },
+    hosting: {
+      firebase: {
+        configured: true,
+        siteId: "portfolio-x",
+        project: "my-portfolio-proj",
+        publicDir: "dist",
+        liveUrl: "https://portfolio-x.web.app",
+        status: "live",
+        lastDeployTimestamp: Date.now() - 2 * 24 * 3600 * 1000,
+        lastDeployHash: "a3f9c21",
+      },
+      githubPages: {
+        configured: true,
+        branch: "gh-pages",
+        url: "https://me.github.io/portfolio",
+        enabled: true,
+      },
+    },
+  },
+  {
+    id: "app_landing_toko",
+    folderName: "landing-toko",
+    absolutePath: "~/apps/landing-toko",
+    isMonorepoRoot: false,
+    git: {
+      isRepo: true,
+      currentBranch: "main",
+      remoteUrl: "github.com/me/landing-toko",
+      isClean: false,
+      uncommittedCount: 3,
+      aheadCount: 1,
+      behindCount: 0,
+    },
+    hosting: {
+      firebase: {
+        configured: true,
+        siteId: "toko-abc",
+        project: "toko-ecommerce-prod",
+        publicDir: "public",
+        liveUrl: "https://toko-abc.web.app",
+        status: "live",
+        lastDeployTimestamp: Date.now() - 5 * 24 * 3600 * 1000,
+        lastDeployHash: "7be10d4",
+      },
+      githubPages: {
+        configured: false,
+        branch: "",
+        url: "",
+        enabled: false,
+      },
+    },
+  },
+  {
+    id: "app_catatan",
+    folderName: "catatan",
+    absolutePath: "~/apps/catatan",
+    isMonorepoRoot: false,
+    git: {
+      isRepo: false,
+      isClean: true,
+      uncommittedCount: 0,
+      aheadCount: 0,
+      behindCount: 0,
+    },
+    hosting: {},
+  },
+  {
+    id: "app_monorepo_saas",
+    folderName: "monorepo-saas",
+    absolutePath: "~/apps/monorepo-saas",
+    isMonorepoRoot: true,
+    monorepoPackages: ["web", "api", "docs"],
+    git: {
+      isRepo: true,
+      currentBranch: "develop",
+      remoteUrl: "github.com/company/saas-platform",
+      isClean: true,
+      uncommittedCount: 0,
+      aheadCount: 2,
+      behindCount: 0,
+    },
+    hosting: {
+      firebase: {
+        configured: true,
+        siteId: "saas-web",
+        project: "company-saas-staging",
+        publicDir: "packages/web/dist",
+        liveUrl: "https://saas-web.web.app",
+        status: "live",
+        lastDeployTimestamp: Date.now() - 1 * 24 * 3600 * 1000,
+        lastDeployHash: "4c9e81b",
+      },
+    },
+  },
+  {
+    id: "app_legacy_site",
+    folderName: "legacy-client-site",
+    absolutePath: "~/apps/legacy-client-site",
+    isMonorepoRoot: false,
+    git: {
+      isRepo: true,
+      currentBranch: "master",
+      remoteUrl: "github.com/client/legacy-site",
+      isClean: false,
+      uncommittedCount: 12,
+      aheadCount: 0,
+      behindCount: 4,
+    },
+    hosting: {
+      githubPages: {
+        configured: true,
+        branch: "master /docs",
+        url: "https://client.github.io/legacy-site",
+        enabled: true,
+      },
+    },
+  },
+];
+
+export const MOCK_COMMITS: GitCommitRecord[] = [
+  {
+    hash: "a3f9c21882d90b4112678829efab837192837261",
+    shortHash: "a3f9c21",
+    message: "fix(nav): responsive mobile menu and links",
+    date: "2 days ago",
+    author: "Developer <dev@company.com>",
+    isLive: true,
+  },
+  {
+    hash: "7be10d4810293847291039847291038472910384",
+    shortHash: "7be10d4",
+    message: "feat: add contact form & email webhook integration",
+    date: "5 days ago",
+    author: "Developer <dev@company.com>",
+    isLive: false,
+  },
+  {
+    hash: "1c88e02847291038472910384729103847291038",
+    shortHash: "1c88e02",
+    message: "chore: initial portfolio release setup",
+    date: "3 weeks ago",
+    author: "Developer <dev@company.com>",
+    isLive: false,
+  },
+];

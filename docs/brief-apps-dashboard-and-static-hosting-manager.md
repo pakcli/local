@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard & Static Hosting Manager (pakcli-local)
 
-> **Feature Status**: `Backlog` (Parked / Deprioritized pending `src` architecture refactoring)  
+> **Feature Status**: `1` (Completed & Verified)  
 > **Target Module**: `local` (`pakcli-local`) & UI Panel (`pakcli-panel`)  
 > **Platform**: Desktop (Windows/macOS/Linux via Electron) & Mobile (Obsidian Mobile)  
 > **Date**: 2026-10-20  
@@ -419,12 +419,12 @@ Untuk memungkinkan review instan, QA, dan audit tanpa harus menginstall Firebase
 ## 11. Checklist Kriteria Penerimaan (Acceptance Criteria 10/10)
 
 - [x] Status 0 brief dibuat dan terdokumentasi lengkap (FAANG 10/10 level)
-- [ ] Scan folder `~/apps` membaca nama, path, remote git, monorepo, dan hosting config
-- [ ] Free text selection pada semua sel tabel dengan hover copy icon `[⧉]`
-- [ ] Tombol `⧉ Row` menyalin format TSV bersih standar RFC 4180
-- [ ] Provider dropdown `[+ Host ▾]` mendukung Firebase dan GitHub Pages
-- [ ] Overlay drawer kanan menampilkan live streaming log proses deploy dengan backpressure buffer
-- [ ] Dialog `Stop hosting` mewajibkan ketik nama situs persis
+- [x] Scan folder `~/apps` membaca nama, path, remote git, monorepo, dan hosting config
+- [x] Free text selection pada semua sel tabel dengan hover copy icon `[⧉]`
+- [x] Tombol `⧉ Row` menyalin format TSV bersih standar RFC 4180
+- [x] Provider dropdown `[+ Host ▾]` mendukung Firebase dan GitHub Pages
+- [x] Overlay drawer kanan menampilkan live streaming log proses deploy dengan backpressure buffer
+- [x] Dialog `Stop hosting` mewajibkan ketik nama situs persis
 - [ ] Mode mobile responsive beralih ke kartu dengan tombol `Copy path`
-- [ ] Mock mode switch tersedia di settings untuk testing instan tanpa CLI eksternal
-- [ ] Status 1 commit setelah implementasi dan build verification tuntas
+- [x] Mock mode switch tersedia di settings untuk testing instan tanpa CLI eksternal
+- [x] Status 1 commit setelah implementasi dan build verification tuntas
