@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard & Static Hosting Manager (pakcli-local)
 
-> **Feature Status**: `0` (Draft / Specification & Architecture)  
+> **Feature Status**: `Backlog` (Parked / Deprioritized pending `src` architecture refactoring)  
 > **Target Module**: `local` (`pakcli-local`) & UI Panel (`pakcli-panel`)  
 > **Platform**: Desktop (Windows/macOS/Linux via Electron) & Mobile (Obsidian Mobile)  
 > **Date**: 2026-10-20  
