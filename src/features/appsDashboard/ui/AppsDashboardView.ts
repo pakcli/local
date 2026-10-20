@@ -25,6 +25,16 @@ export class LinkRemoteModal extends BaseModal {
   private onUnlink?: () => void;
   private checkStatusEl?: HTMLElement;
   private existingRemoteUrl?: string;
+  private store?: AppDashboardStore;
+  private targetApp?: AppScanRecord;
+  private checkDebounceTimer?: any;
+  private repoExistsState: "idle" | "checking" | "exists" | "not_found" = "idle";
+  private isRepoPrivate = false;
+  private activeProcessCancel?: () => void;
+  private logBoxEl?: HTMLElement;
+  private cancelBtnEl?: HTMLButtonElement;
+  private createActionBtnEl?: HTMLButtonElement;
+  private onKeyHandler?: (e: KeyboardEvent) => void;
 
   constructor(
     app: App,
@@ -32,18 +42,22 @@ export class LinkRemoteModal extends BaseModal {
     onConfirm: (url: string) => void,
     existingPrefix?: string,
     existingRemoteUrl?: string,
-    onUnlink?: () => void
+    onUnlink?: () => void,
+    store?: AppDashboardStore,
+    targetApp?: AppScanRecord
   ) {
     super(app, {
       title: existingRemoteUrl ? "Configure GitHub Remote" : "Link GitHub Remote Repository",
       subtitle: `Configure Git remote repository for "${defaultTitle}".`,
       badgeText: "Git",
       badgeCls: "is-info",
-      width: "520px",
+      width: "560px",
     });
     this.onConfirm = onConfirm;
     this.onUnlink = onUnlink;
     this.existingRemoteUrl = existingRemoteUrl;
+    this.store = store;
+    this.targetApp = targetApp;
     if (existingPrefix) this.prefix = existingPrefix;
 
     // Clean slug from title
@@ -61,6 +75,38 @@ export class LinkRemoteModal extends BaseModal {
     }
 
     this.remoteUrl = existingRemoteUrl || `https://github.com/${this.prefix}/${this.repoName}.git`;
+  }
+
+  async onOpen() {
+    super.onOpen();
+
+    // Global keyboard listener to intercept Ctrl+C and halt running creation execution
+    this.onKeyHandler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey && e.key.toLowerCase() === "c") || e.key === "Escape") {
+        if (this.activeProcessCancel) {
+          e.preventDefault();
+          e.stopPropagation();
+          new Notice("🛑 Ctrl+C triggered: Stopping process execution...");
+          this.activeProcessCancel();
+          this.activeProcessCancel = undefined;
+        }
+      }
+    };
+    window.addEventListener("keydown", this.onKeyHandler);
+
+    // Live existence check on modal open
+    void this.checkExistenceLive();
+  }
+
+  onClose() {
+    if (this.onKeyHandler) {
+      window.removeEventListener("keydown", this.onKeyHandler);
+    }
+    if (this.activeProcessCancel) {
+      this.activeProcessCancel();
+      this.activeProcessCancel = undefined;
+    }
+    super.onClose();
   }
 
   renderBody(bodyEl: HTMLElement): void {
@@ -93,6 +139,7 @@ export class LinkRemoteModal extends BaseModal {
         this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
         if (urlInput) urlInput.setValue(this.remoteUrl);
         new Notice(`Set target URL to ${this.remoteUrl}`);
+        this.triggerDebouncedCheck();
       });
     }
 
@@ -106,6 +153,7 @@ export class LinkRemoteModal extends BaseModal {
           this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
           if (urlInput) urlInput.setValue(this.remoteUrl);
           updatePreview();
+          this.triggerDebouncedCheck();
         });
         text.inputEl.style.width = "180px";
       });
@@ -120,16 +168,48 @@ export class LinkRemoteModal extends BaseModal {
           this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
           if (urlInput) urlInput.setValue(this.remoteUrl);
           updatePreview();
+          this.triggerDebouncedCheck();
         });
         text.inputEl.style.width = "180px";
       })
       .addButton((btn) => {
-        btn.setButtonText("Check").onClick(() => {
-          this.validateRepoName();
+        btn.setButtonText("Live Check").onClick(() => {
+          void this.checkExistenceLive();
         });
       });
 
     this.checkStatusEl = bodyEl.createDiv({ cls: "pakcli-check-status-row text-muted" });
+    this.checkStatusEl.style.marginBottom = "10px";
+
+    // Action button area for creating repo or stopping execution
+    const actionRow = bodyEl.createDiv({ cls: "pakcli-remote-action-row" });
+    actionRow.style.display = "flex";
+    actionRow.style.gap = "8px";
+    actionRow.style.marginBottom = "12px";
+
+    this.createActionBtnEl = actionRow.createEl("button", {
+      cls: "pakcli-btn-secondary mod-small",
+      text: "🚀 Create on GitHub (via gh CLI)",
+      attr: { type: "button", title: "Create new repository on GitHub and push local commits" },
+    });
+    this.createActionBtnEl.style.display = "none";
+    this.createActionBtnEl.addEventListener("click", () => {
+      void this.startCreateRepoProcess(bodyEl);
+    });
+
+    this.cancelBtnEl = actionRow.createEl("button", {
+      cls: "pakcli-btn-secondary mod-warning mod-small",
+      text: "⏹️ Stop / Cancel (Ctrl+C)",
+      attr: { type: "button", title: "Interrupt and stop execution" },
+    });
+    this.cancelBtnEl.style.display = "none";
+    this.cancelBtnEl.addEventListener("click", () => {
+      if (this.activeProcessCancel) {
+        new Notice("🛑 Stopped execution (Ctrl+C).");
+        this.activeProcessCancel();
+        this.activeProcessCancel = undefined;
+      }
+    });
 
     // 3. Full Remote URL
     new Setting(bodyEl)
@@ -139,6 +219,11 @@ export class LinkRemoteModal extends BaseModal {
         urlInput = text;
         text.setValue(this.remoteUrl).onChange((val) => {
           this.remoteUrl = val.trim();
+          const m = this.remoteUrl.match(/github\.com[/:]([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)/i);
+          if (m && m[1]) this.prefix = m[1];
+          if (m && m[2]) this.repoName = m[2].replace(/\.git$/i, "");
+          updatePreview();
+          this.triggerDebouncedCheck();
         });
         text.inputEl.style.width = "280px";
       });
@@ -153,22 +238,149 @@ export class LinkRemoteModal extends BaseModal {
     updatePreview();
   }
 
-  private validateRepoName() {
+  private triggerDebouncedCheck() {
+    if (this.checkDebounceTimer) {
+      clearTimeout(this.checkDebounceTimer);
+    }
+    this.checkDebounceTimer = setTimeout(() => {
+      void this.checkExistenceLive();
+    }, 400);
+  }
+
+  private async checkExistenceLive() {
     if (!this.checkStatusEl) return;
     this.checkStatusEl.empty();
-    if (!this.repoName) {
-      this.checkStatusEl.setText("❌ Repo name cannot be empty.");
-      this.checkStatusEl.className = "pakcli-check-status-row is-error";
+
+    if (!this.repoName || !this.prefix) {
+      this.repoExistsState = "idle";
+      this.checkStatusEl.setText("⚠️ Please specify both GitHub owner and repository name.");
+      this.checkStatusEl.className = "pakcli-check-status-row text-muted";
+      if (this.createActionBtnEl) this.createActionBtnEl.style.display = "none";
       return;
     }
-    const isValidSlug = /^[a-zA-Z0-9_-]+$/.test(this.repoName);
+
+    const isValidSlug = /^[a-zA-Z0-9_.-]+$/.test(this.repoName);
     if (!isValidSlug) {
-      this.checkStatusEl.setText("❌ Invalid characters. Use alphanumeric, dashes, or underscores.");
+      this.repoExistsState = "idle";
+      this.checkStatusEl.setText("❌ Invalid repository name format. Use alphanumeric, dashes, or underscores.");
       this.checkStatusEl.className = "pakcli-check-status-row is-error";
+      if (this.createActionBtnEl) this.createActionBtnEl.style.display = "none";
       return;
     }
-    this.checkStatusEl.setText(`✔ Valid name format: "${this.repoName}". Ready to link.`);
-    this.checkStatusEl.className = "pakcli-check-status-row is-success";
+
+    this.repoExistsState = "checking";
+    this.checkStatusEl.className = "pakcli-check-status-row text-muted";
+    this.checkStatusEl.setText(`🔄 Checking GitHub for 'https://github.com/${this.prefix}/${this.repoName}'...`);
+
+    if (!this.store) {
+      this.checkStatusEl.setText(`✔ Valid name format: "${this.repoName}". Ready to link.`);
+      this.checkStatusEl.className = "pakcli-check-status-row is-success";
+      this.repoExistsState = "idle";
+      return;
+    }
+
+    const checkRes = await this.store.checkGitHubRepoExists(this.prefix, this.repoName);
+    this.checkStatusEl.empty();
+
+    if (checkRes.exists) {
+      this.repoExistsState = "exists";
+      this.isRepoPrivate = checkRes.isPrivate ?? false;
+      const vis = this.isRepoPrivate ? "Private" : "Public";
+      this.checkStatusEl.className = "pakcli-check-status-row is-success";
+      this.checkStatusEl.createSpan({
+        text: `✔ Repository EXISTS on GitHub: ${this.prefix}/${this.repoName} (${vis})`,
+      });
+      const linkEl = this.checkStatusEl.createEl("a", {
+        text: " [View on GitHub ↗]",
+        href: `https://github.com/${this.prefix}/${this.repoName}`,
+      });
+      linkEl.style.marginLeft = "6px";
+      linkEl.style.color = "var(--text-accent)";
+      linkEl.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.open(`https://github.com/${this.prefix}/${this.repoName}`, "_blank");
+      });
+      if (this.createActionBtnEl) this.createActionBtnEl.style.display = "none";
+    } else {
+      this.repoExistsState = "not_found";
+      this.checkStatusEl.className = "pakcli-check-status-row is-error";
+      const warnBox = this.checkStatusEl.createDiv();
+      warnBox.createDiv({
+        text: `❌ Repository NOT FOUND on GitHub (404 Not Found): https://github.com/${this.prefix}/${this.repoName}`,
+        cls: "mod-warning",
+      });
+      const note = warnBox.createDiv({ cls: "text-muted" });
+      note.style.fontSize = "0.78rem";
+      note.style.marginTop = "3px";
+      note.setText("Warning: Opening this in browser will show 'Page Not Found'. Create it below or verify owner/repo spelling.");
+
+      if (this.createActionBtnEl) this.createActionBtnEl.style.display = "inline-flex";
+    }
+  }
+
+  private async startCreateRepoProcess(bodyEl: HTMLElement) {
+    if (!this.targetApp || !this.store) {
+      new Notice("Cannot create repo: App record or store not available.");
+      return;
+    }
+
+    if (this.activeProcessCancel) {
+      new Notice("Process already running.");
+      return;
+    }
+
+    if (!this.logBoxEl) {
+      this.logBoxEl = bodyEl.createDiv({ cls: "pakcli-terminal-log-box" });
+      this.logBoxEl.style.marginTop = "12px";
+      this.logBoxEl.style.padding = "8px 12px";
+      this.logBoxEl.style.background = "var(--background-primary-alt)";
+      this.logBoxEl.style.border = "1px solid var(--background-modifier-border)";
+      this.logBoxEl.style.borderRadius = "4px";
+      this.logBoxEl.style.fontFamily = "var(--font-monospace)";
+      this.logBoxEl.style.fontSize = "0.75rem";
+      this.logBoxEl.style.maxHeight = "160px";
+      this.logBoxEl.style.overflowY = "auto";
+      this.logBoxEl.style.whiteSpace = "pre-wrap";
+    }
+
+    this.logBoxEl.empty();
+    this.logBoxEl.style.display = "block";
+    if (this.cancelBtnEl) this.cancelBtnEl.style.display = "inline-flex";
+    if (this.createActionBtnEl) this.createActionBtnEl.disabled = true;
+
+    const appendLog = (text: string) => {
+      if (!this.logBoxEl) return;
+      this.logBoxEl.setText(this.logBoxEl.getText() + text);
+      this.logBoxEl.scrollTop = this.logBoxEl.scrollHeight;
+    };
+
+    const runner = this.store.createGitHubRepo(
+      this.targetApp.absolutePath,
+      this.prefix,
+      this.repoName,
+      false, // public
+      appendLog
+    );
+
+    this.activeProcessCancel = runner.cancel;
+
+    try {
+      const res = await runner.promise;
+      this.activeProcessCancel = undefined;
+      if (this.cancelBtnEl) this.cancelBtnEl.style.display = "none";
+      if (this.createActionBtnEl) this.createActionBtnEl.disabled = false;
+
+      new Notice(res.message);
+      if (res.success) {
+        this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
+        await this.checkExistenceLive();
+      }
+    } catch (err: any) {
+      this.activeProcessCancel = undefined;
+      if (this.cancelBtnEl) this.cancelBtnEl.style.display = "none";
+      if (this.createActionBtnEl) this.createActionBtnEl.disabled = false;
+      new Notice(`Failed to create repository: ${err?.message || err}`);
+    }
   }
 
   renderFooter(footerEl: HTMLElement): void {
@@ -198,6 +410,19 @@ export class LinkRemoteModal extends BaseModal {
     confirmBtn.addEventListener("click", () => {
       if (!this.remoteUrl) {
         new Notice("Please enter a valid remote URL");
+        return;
+      }
+      if (this.repoExistsState === "not_found") {
+        new ConfirmModal(this.app, {
+          title: "Link non-existent repository?",
+          message: `The repository 'https://github.com/${this.prefix}/${this.repoName}' was NOT found on GitHub (404). If you link it now, it will not exist until created. Do you want to proceed and link anyway?`,
+          confirmLabel: "Link Anyway",
+          isDanger: true,
+          onConfirm: () => {
+            this.onConfirm(this.remoteUrl);
+            this.close();
+          },
+        }).open();
         return;
       }
       this.onConfirm(this.remoteUrl);
@@ -457,7 +682,9 @@ export class AppsDashboardView extends ItemView {
                 async () => {
                   const res = await this.store.unlinkRemoteForApp(app);
                   new Notice(res.message);
-                }
+                },
+                this.store,
+                app
               ).open();
             });
 
@@ -495,7 +722,11 @@ export class AppsDashboardView extends ItemView {
                   const res = await this.store.linkRemoteForApp(app, url);
                   new Notice(res.message);
                 },
-                ghUser
+                ghUser,
+                undefined,
+                undefined,
+                this.store,
+                app
               ).open();
             });
             return wrap;
@@ -1115,7 +1346,11 @@ export class AppsDashboardView extends ItemView {
           this.store.selectApp(app);
           this.hostDrawer.open(app);
         },
-        ghUser
+        ghUser,
+        undefined,
+        undefined,
+        this.store,
+        app
       ).open();
       return;
     }

@@ -266,7 +266,9 @@ export class HostDrawer {
             const res = await this.store.unlinkRemoteForApp(app);
             new Notice(res.message);
             this.render(this.store.selectedApp || app);
-          }
+          },
+          this.store,
+          app
         ).open();
       });
     }

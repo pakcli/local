@@ -1,3 +1,4 @@
+import { requestUrl } from "obsidian";
 import { getNodeChildProcess, getNodeFs, getNodePath } from "../../../utils/nodeHelpers";
 import type {
   HealthStatusResponse,
@@ -177,6 +178,140 @@ export class CliBridge {
     } catch (err: any) {
       return { success: false, message: `Failed to unlink remote: ${err?.message || err}` };
     }
+  }
+
+  public async checkGitHubRepoExists(
+    owner: string,
+    repo: string
+  ): Promise<{ exists: boolean; isPrivate?: boolean; htmlUrl?: string; error?: string }> {
+    const cleanOwner = owner.trim();
+    const cleanRepo = repo.trim();
+    if (!cleanOwner || !cleanRepo) {
+      return { exists: false, error: "Owner and repo name are required" };
+    }
+
+    // 1. First attempt: Native Obsidian requestUrl to GitHub REST API (Fast, no-token public check)
+    try {
+      if (typeof requestUrl === "function") {
+        const resp = await requestUrl({
+          url: `https://api.github.com/repos/${cleanOwner}/${cleanRepo}`,
+          headers: { "User-Agent": "Obsidian-PakCLI" },
+          throw: false,
+        });
+
+        if (resp.status === 200) {
+          return {
+            exists: true,
+            isPrivate: resp.json?.private ?? false,
+            htmlUrl: resp.json?.html_url ?? `https://github.com/${cleanOwner}/${cleanRepo}`,
+          };
+        }
+      }
+    } catch {}
+
+    // 2. Second attempt: Check via gh CLI (detects private repositories of the active user)
+    if (this.cp?.exec) {
+      try {
+        const ghOut = await this.execAsync(`gh repo view "${cleanOwner}/${cleanRepo}" --json isPrivate,url`);
+        const parsed = JSON.parse(ghOut.trim());
+        return {
+          exists: true,
+          isPrivate: parsed?.isPrivate ?? false,
+          htmlUrl: parsed?.url ?? `https://github.com/${cleanOwner}/${cleanRepo}`,
+        };
+      } catch {
+        return { exists: false };
+      }
+    }
+
+    return { exists: false };
+  }
+
+  public createGitHubRepo(
+    appPath: string,
+    owner: string,
+    repo: string,
+    isPrivate = false,
+    onLog: (line: string) => void
+  ): { promise: Promise<{ success: boolean; message: string }>; cancel: () => void } {
+    let proc: any;
+    let isCancelled = false;
+
+    const promise = new Promise<{ success: boolean; message: string }>((resolve) => {
+      if (!this.cp?.spawn) {
+        resolve({ success: false, message: "Node child_process not available." });
+        return;
+      }
+
+      const targetSlug = `${owner}/${repo}`;
+      const visFlag = isPrivate ? "--private" : "--public";
+      onLog(`🚀 Creating GitHub repository '${targetSlug}'...\n`);
+      onLog(`> gh repo create ${targetSlug} ${visFlag} --source=. --remote=origin --push\n\n`);
+
+      proc = this.cp.spawn(
+        "gh",
+        ["repo", "create", targetSlug, visFlag, "--source=.", "--remote=origin", "--push"],
+        { cwd: appPath, shell: true }
+      );
+
+      proc.stdout?.on("data", (data: any) => {
+        onLog(data.toString());
+      });
+
+      proc.stderr?.on("data", (data: any) => {
+        onLog(data.toString());
+      });
+
+      proc.on("close", (exitCode: number) => {
+        if (isCancelled) {
+          resolve({
+            success: false,
+            message: "Repository creation was cancelled by user (Ctrl+C).",
+          });
+        } else if (exitCode === 0) {
+          onLog(`\n✔ Repository created and pushed: https://github.com/${targetSlug}\n`);
+          resolve({
+            success: true,
+            message: `✔ Repository created and pushed: https://github.com/${targetSlug}`,
+          });
+        } else {
+          onLog(`\n❌ Process exited with code ${exitCode}\n`);
+          resolve({
+            success: false,
+            message: `gh repo create failed with code ${exitCode}. See log for details.`,
+          });
+        }
+      });
+
+      proc.on("error", (err: any) => {
+        if (isCancelled) {
+          resolve({
+            success: false,
+            message: "Repository creation was cancelled by user.",
+          });
+        } else {
+          onLog(`\n❌ Spawn error: ${err.message || err}\n`);
+          resolve({ success: false, message: `Error: ${err.message || err}` });
+        }
+      });
+    });
+
+    const cancel = () => {
+      isCancelled = true;
+      onLog("\n🛑 Execution halted: Ctrl+C triggered (canceled by user). Terminating process...\n");
+      try {
+        if (proc && proc.pid) {
+          const isWin = process.platform === "win32";
+          if (isWin) {
+            this.cp.exec(`taskkill /pid ${proc.pid} /t /f`, () => {});
+          } else {
+            proc.kill("SIGINT");
+          }
+        }
+      } catch {}
+    };
+
+    return { promise, cancel };
   }
 
   public async setupFirebaseHosting(

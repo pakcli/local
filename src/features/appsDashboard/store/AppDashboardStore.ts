@@ -227,6 +227,23 @@ export class AppDashboardStore {
     return res;
   }
 
+  public async checkGitHubRepoExists(
+    owner: string,
+    repo: string
+  ): Promise<{ exists: boolean; isPrivate?: boolean; htmlUrl?: string; error?: string }> {
+    return this.bridge.checkGitHubRepoExists(owner, repo);
+  }
+
+  public createGitHubRepo(
+    appPath: string,
+    owner: string,
+    repo: string,
+    isPrivate = false,
+    onLog: (line: string) => void
+  ): { promise: Promise<{ success: boolean; message: string }>; cancel: () => void } {
+    return this.bridge.createGitHubRepo(appPath, owner, repo, isPrivate, onLog);
+  }
+
   public async setupFirebaseForApp(
     app: AppScanRecord,
     siteId: string,
