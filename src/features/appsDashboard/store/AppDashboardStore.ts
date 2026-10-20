@@ -1,10 +1,11 @@
 import { AppScanner } from "../services/AppScanner";
 import { CliBridge } from "../services/CliBridge";
-import type {
+import {
   AppScanRecord,
   HealthStatusResponse,
   DeployLogChunk,
   AppsDashboardSettings,
+  DEFAULT_VISIBLE_COLUMNS,
 } from "../types";
 
 export type StoreListener = () => void;
@@ -14,6 +15,8 @@ export class AppDashboardStore {
   private bridge = new CliBridge();
   private listeners: Set<StoreListener> = new Set();
   private settings: AppsDashboardSettings;
+  private vaultRoot?: string;
+  private onSaveSettings?: (settings: AppsDashboardSettings) => Promise<void> | void;
 
   public apps: AppScanRecord[] = [];
   public health: HealthStatusResponse | null = null;
@@ -24,8 +27,53 @@ export class AppDashboardStore {
   public filterQuery = "";
   private activeDeployCancel?: () => void;
 
-  constructor(settings: AppsDashboardSettings) {
-    this.settings = settings;
+  constructor(
+    settings: AppsDashboardSettings,
+    vaultRoot?: string,
+    onSaveSettings?: (settings: AppsDashboardSettings) => Promise<void> | void
+  ) {
+    this.settings = {
+      ...settings,
+      visibleColumns: settings.visibleColumns && settings.visibleColumns.length > 0
+        ? settings.visibleColumns
+        : [...DEFAULT_VISIBLE_COLUMNS],
+    };
+    this.vaultRoot = vaultRoot;
+    this.onSaveSettings = onSaveSettings;
+  }
+
+  public setVaultRoot(vaultRoot?: string) {
+    this.vaultRoot = vaultRoot;
+  }
+
+  public getSettings(): AppsDashboardSettings {
+    return { ...this.settings };
+  }
+
+  public get visibleColumns(): string[] {
+    return this.settings.visibleColumns && this.settings.visibleColumns.length > 0
+      ? this.settings.visibleColumns
+      : [...DEFAULT_VISIBLE_COLUMNS];
+  }
+
+  public setVisibleColumns(cols: string[]) {
+    this.settings.visibleColumns = cols;
+    this.onSaveSettings?.(this.settings);
+    this.notify();
+  }
+
+  public toggleColumn(colId: string) {
+    const current = new Set(this.visibleColumns);
+    if (current.has(colId)) {
+      if (current.size > 1) {
+        current.delete(colId);
+      }
+    } else {
+      current.add(colId);
+    }
+    this.settings.visibleColumns = Array.from(current);
+    this.onSaveSettings?.(this.settings);
+    this.notify();
   }
 
   public subscribe(listener: StoreListener): () => void {
@@ -40,7 +88,9 @@ export class AppDashboardStore {
   }
 
   public updateSettings(newSettings: AppsDashboardSettings) {
-    this.settings = newSettings;
+    this.settings = { ...newSettings };
+    this.onSaveSettings?.(this.settings);
+    this.notify();
     void this.rescan();
   }
 
@@ -53,7 +103,8 @@ export class AppDashboardStore {
       this.apps = await this.scanner.scanDirectory(
         this.settings.appsRootFolder,
         this.settings.scanDepth,
-        this.settings.demoMode
+        this.settings.demoMode,
+        this.vaultRoot
       );
     } catch (err) {
       console.error("[AppDashboardStore] Rescan failed:", err);
@@ -76,15 +127,19 @@ export class AppDashboardStore {
 
   public getFilteredApps(): AppScanRecord[] {
     if (!this.filterQuery) return this.apps;
+    const q = this.filterQuery;
     return this.apps.filter((app) => {
-      const q = this.filterQuery;
-      return (
-        app.folderName.toLowerCase().includes(q) ||
-        app.absolutePath.toLowerCase().includes(q) ||
-        (app.git.remoteUrl && app.git.remoteUrl.toLowerCase().includes(q)) ||
-        (app.hosting.firebase && app.hosting.firebase.siteId.toLowerCase().includes(q)) ||
-        (app.hosting.githubPages && app.hosting.githubPages.url.toLowerCase().includes(q))
-      );
+      if (app.folderName.toLowerCase().includes(q)) return true;
+      if (app.absolutePath.toLowerCase().includes(q)) return true;
+      if (app.git.remoteUrl && app.git.remoteUrl.toLowerCase().includes(q)) return true;
+      if (app.hosting.firebase && app.hosting.firebase.siteId.toLowerCase().includes(q)) return true;
+      if (app.hosting.githubPages && app.hosting.githubPages.url.toLowerCase().includes(q)) return true;
+      if (app.catalog?.title && app.catalog.title.toLowerCase().includes(q)) return true;
+      if (app.catalog?.category && app.catalog.category.toLowerCase().includes(q)) return true;
+      if (app.catalog?.badge && app.catalog.badge.toLowerCase().includes(q)) return true;
+      if (app.catalog?.tags && app.catalog.tags.some((t) => t.toLowerCase().includes(q))) return true;
+      if (app.catalog?.overview && app.catalog.overview.toLowerCase().includes(q)) return true;
+      return false;
     });
   }
 

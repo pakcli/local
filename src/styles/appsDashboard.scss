@@ -140,6 +140,42 @@
 /* 2. Toolbar & Table Area */
 .pakcli-dashboard-toolbar {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  .pakcli-toolbar-search-wrap {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .pakcli-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .pakcli-btn-columns-menu,
+  .pakcli-btn-settings {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 5px 10px;
+    border-radius: var(--radius-s, 4px);
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--background-modifier-hover);
+      border-color: var(--interactive-accent);
+    }
+  }
 }
 
 .pakcli-dashboard-table-wrapper {
@@ -254,6 +290,7 @@
 .pakcli-row-action-wrap {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 
   .pakcli-btn-open-folder {
@@ -268,6 +305,103 @@
       background: var(--background-modifier-hover);
     }
   }
+
+  .pakcli-btn-row-copy {
+    font-size: 0.72rem;
+    padding: 3px 7px;
+  }
+}
+
+/* Catalog Metadata Columns */
+.pakcli-catalog-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pakcli-badge-category {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.pakcli-badge-version {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.pakcli-filesize {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.pakcli-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+
+  .pakcli-tag-pill {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &.is-more {
+      font-weight: 600;
+      color: var(--interactive-accent);
+    }
+  }
+}
+
+.pakcli-overview-text {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.pakcli-thumb-cell-wrap {
+  display: flex;
+  align-items: center;
+
+  .pakcli-thumb-icon {
+    font-size: 1.1rem;
+    cursor: default;
+  }
+}
+
+.pakcli-livelink-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.pakcli-truncate {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
 }
 
 /* 3. Right Overlay Host Drawer */

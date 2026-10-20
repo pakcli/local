@@ -21,9 +21,10 @@ export class DiagnosticBar {
 
     const leftCol = row1.createDiv({ cls: "pakcli-diag-left" });
     leftCol.createSpan({ cls: "pakcli-diag-title", text: "APPS DASHBOARD" });
+    const folderPath = this.store.getSettings().appsRootFolder || "root/apps/";
     leftCol.createSpan({
       cls: "pakcli-diag-folder text-muted",
-      text: `Folder: ~/apps (${this.store.apps.length} apps)`,
+      text: `Folder: ${folderPath} (${this.store.apps.length} apps)`,
     });
 
     const rightCol = row1.createDiv({ cls: "pakcli-diag-right" });

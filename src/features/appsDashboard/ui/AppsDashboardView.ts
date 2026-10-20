@@ -1,8 +1,10 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice, Menu } from "obsidian";
 import type { AppScanRecord } from "../types";
+import { ALL_AVAILABLE_COLUMNS, DEFAULT_VISIBLE_COLUMNS } from "../types";
 import { AppDashboardStore } from "../store/AppDashboardStore";
 import { DiagnosticBar } from "./components/DiagnosticBar";
 import { HostDrawer } from "./components/HostDrawer";
+import { AppsDashboardSettingsModal } from "./AppsDashboardSettingsModal";
 import {
   GenericTable,
   SearchFilterBar,
@@ -10,7 +12,7 @@ import {
   CopyButton,
   type ColumnDef,
 } from "../../../uiComponents";
-import { getNodeChildProcess, getNodeOs } from "../../../utils/nodeHelpers";
+import { getNodeChildProcess, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
 
 export const APPS_DASHBOARD_VIEW_TYPE = "pakcli-apps-dashboard-view";
 
@@ -22,6 +24,7 @@ export class AppsDashboardView extends ItemView {
   private unsubscribeStore?: () => void;
   private cp = getNodeChildProcess();
   private os = getNodeOs();
+  private path = getNodePath();
 
   constructor(leaf: WorkspaceLeaf, store: AppDashboardStore) {
     super(leaf);
@@ -45,7 +48,7 @@ export class AppsDashboardView extends ItemView {
     containerEl.empty();
     containerEl.addClass("pakcli-apps-dashboard-root");
 
-    // Main layout wrapper: Left content (Header + Table) + Right Drawer (Overlay)
+    // Main layout wrapper: Left content (Header + Toolbar + Table) + Right Drawer (Overlay)
     const layoutWrapper = containerEl.createDiv({ cls: "pakcli-dashboard-layout-wrapper" });
     const mainContent = layoutWrapper.createDiv({ cls: "pakcli-dashboard-main-content" });
 
@@ -54,11 +57,12 @@ export class AppsDashboardView extends ItemView {
       this.openSettingsPrompt();
     });
 
-    // 2. Toolbar: Search Filter & Quick Actions
+    // 2. Toolbar: Search Filter & Column Visibility Toggle
     const toolbar = mainContent.createDiv({ cls: "pakcli-dashboard-toolbar" });
 
-    new SearchFilterBar(toolbar, {
-      placeholder: "Search folder, repo, or hosting site... (Press / to focus)",
+    const searchWrap = toolbar.createDiv({ cls: "pakcli-toolbar-search-wrap" });
+    new SearchFilterBar(searchWrap, {
+      placeholder: "Search folder, title, tags, repo, or host... (Press / to focus)",
       enableSlashFocus: true,
       onSearchChange: (query) => {
         this.store.setFilterQuery(query);
@@ -66,14 +70,38 @@ export class AppsDashboardView extends ItemView {
       },
     });
 
-    // 3. Generic Table View (Free Selection, TSV Row Copy, Hover Copy)
+    const toolbarActions = toolbar.createDiv({ cls: "pakcli-toolbar-actions" });
+
+    // Column Visibility Dropdown Button [ 👁 Columns ▾ ]
+    const colMenuBtn = toolbarActions.createEl("button", {
+      cls: "pakcli-btn-columns-menu",
+      text: "👁 Columns ▾",
+      attr: { type: "button", title: "Toggle visible columns" },
+    });
+    colMenuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.openColumnVisibilityMenu(e);
+    });
+
+    // Settings Button [ ⚙ Settings ]
+    const settingsBtn = toolbarActions.createEl("button", {
+      cls: "pakcli-btn-settings",
+      text: "⚙ Settings",
+      attr: { type: "button", title: "Configure folder path and scan settings" },
+    });
+    settingsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.openSettingsPrompt();
+    });
+
+    // 3. Generic Table View (Single Actions column, enableRowTsvCopy: false to prevent duplicate column)
     const tableContainer = mainContent.createDiv({ cls: "pakcli-dashboard-table-wrapper" });
     this.table = new GenericTable<AppScanRecord>(tableContainer, {
-      columns: this.getTableColumns(),
+      columns: this.getActiveColumnDefs(),
       items: this.store.getFilteredApps(),
       rowKey: (app) => app.id,
-      enableRowTsvCopy: true,
-      emptyMessage: "~ No apps found in ~/apps. Click [ ⟳ Rescan ] or enable Demo Mode in Settings ~",
+      enableRowTsvCopy: false, // Prevents duplicate Action column
+      emptyMessage: "~ No apps found. Configure root/apps/ in Settings or enable Demo Mode ~",
     });
 
     // 4. Right Overlay Host Drawer
@@ -84,6 +112,7 @@ export class AppsDashboardView extends ItemView {
     // Subscribe to store updates
     this.unsubscribeStore = this.store.subscribe(() => {
       this.diagnosticBar.render();
+      this.table.setColumns(this.getActiveColumnDefs());
       this.table.setItems(this.store.getFilteredApps());
       if (this.store.selectedApp) {
         this.hostDrawer.render(this.store.selectedApp);
@@ -94,13 +123,81 @@ export class AppsDashboardView extends ItemView {
     void this.store.rescan();
   }
 
-  private getTableColumns(): ColumnDef<AppScanRecord>[] {
+  private openColumnVisibilityMenu(e: MouseEvent) {
+    const menu = new Menu();
+    const visibleSet = new Set(this.store.visibleColumns);
+
+    // Section 1: Core Columns
+    menu.addItem((item) => {
+      item.setTitle("— Core Columns —").setDisabled(true);
+    });
+
+    for (const col of ALL_AVAILABLE_COLUMNS.filter((c) => c.category === "core")) {
+      menu.addItem((item) => {
+        item
+          .setTitle(col.label)
+          .setChecked(visibleSet.has(col.id))
+          .onClick(() => {
+            this.store.toggleColumn(col.id);
+            this.refreshTable();
+          });
+      });
+    }
+
+    menu.addSeparator();
+
+    // Section 2: Catalog Metadata Columns
+    menu.addItem((item) => {
+      item.setTitle("— Catalog Metadata —").setDisabled(true);
+    });
+
+    for (const col of ALL_AVAILABLE_COLUMNS.filter((c) => c.category === "catalog")) {
+      menu.addItem((item) => {
+        item
+          .setTitle(col.label)
+          .setChecked(visibleSet.has(col.id))
+          .onClick(() => {
+            this.store.toggleColumn(col.id);
+            this.refreshTable();
+          });
+      });
+    }
+
+    menu.addSeparator();
+
+    // Reset to default
+    menu.addItem((item) => {
+      item
+        .setTitle("↺ Reset to Default (5 cols)")
+        .setIcon("reset")
+        .onClick(() => {
+          this.store.setVisibleColumns([...DEFAULT_VISIBLE_COLUMNS]);
+          this.refreshTable();
+        });
+    });
+
+    menu.showAtMouseEvent(e);
+  }
+
+  private refreshTable() {
+    this.table.setColumns(this.getActiveColumnDefs());
+    this.table.setItems(this.store.getFilteredApps());
+  }
+
+  private getActiveColumnDefs(): ColumnDef<AppScanRecord>[] {
+    const visible = new Set(this.store.visibleColumns);
+    const allDefs = this.getAllColumnDefinitions();
+    return allDefs.filter((col) => visible.has(col.key));
+  }
+
+  private getAllColumnDefinitions(): ColumnDef<AppScanRecord>[] {
     return [
       {
         key: "folderName",
         title: "Folder",
         width: "160px",
         sortable: true,
+        tsvValue: (app) => app.folderName,
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-folder-cell-wrap" });
           wrap.createSpan({ cls: "pakcli-folder-name", text: app.folderName });
@@ -111,19 +208,20 @@ export class AppsDashboardView extends ItemView {
         },
       },
       {
-        key: "absolutePath",
+        key: "path",
         title: "Path",
-        width: "220px",
+        width: "200px",
         copyable: true,
         sortable: true,
+        tsvValue: (app) => app.absolutePath,
         render: (app) => {
-          return createSpan({ cls: "text-muted", text: app.absolutePath });
+          return createSpan({ cls: "text-muted pakcli-truncate", text: app.absolutePath });
         },
       },
       {
         key: "githubRepo",
         title: "GitHub Repo",
-        width: "240px",
+        width: "220px",
         copyable: true,
         sortable: true,
         tsvValue: (app) => app.git.remoteUrl || "",
@@ -133,7 +231,6 @@ export class AppsDashboardView extends ItemView {
             const urlText = wrap.createSpan({ cls: "pakcli-repo-link-text", text: app.git.remoteUrl });
             urlText.title = app.git.remoteUrl;
 
-            // External link button
             const extBtn = wrap.createEl("button", {
               cls: "pakcli-icon-btn clickable-icon",
               attr: { type: "button", title: "Open in browser" },
@@ -152,7 +249,7 @@ export class AppsDashboardView extends ItemView {
       {
         key: "staticHost",
         title: "Static Host",
-        width: "280px",
+        width: "260px",
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-host-cell-wrap" });
 
@@ -160,7 +257,7 @@ export class AppsDashboardView extends ItemView {
           if (app.hosting.firebase?.configured) {
             const fbRow = wrap.createDiv({ cls: "pakcli-host-row" });
             fbRow.createSpan({ cls: "pakcli-provider-badge is-fb", text: "fb" });
-            const hostLink = fbRow.createSpan({
+            fbRow.createSpan({
               cls: "pakcli-host-url",
               text: `${app.hosting.firebase.siteId}.web.app`,
             });
@@ -181,7 +278,6 @@ export class AppsDashboardView extends ItemView {
               window.open(app.hosting.firebase?.liveUrl, "_blank");
             });
 
-            // Settings button opens HostDrawer
             const configBtn = fbRow.createEl("button", {
               cls: "pakcli-icon-btn clickable-icon",
               attr: { type: "button", title: "Configure deployment" },
@@ -251,11 +347,146 @@ export class AppsDashboardView extends ItemView {
         },
       },
       {
+        key: "title",
+        title: "Title",
+        width: "180px",
+        sortable: true,
+        copyable: true,
+        tsvValue: (app) => app.catalog?.title || app.folderName,
+        render: (app) => {
+          return createSpan({
+            cls: "pakcli-catalog-title",
+            text: app.catalog?.title || app.folderName,
+          });
+        },
+      },
+      {
+        key: "category",
+        title: "Category",
+        width: "130px",
+        sortable: true,
+        copyable: true,
+        tsvValue: (app) => app.catalog?.category || "",
+        render: (app) => {
+          const cat = app.catalog?.category;
+          if (!cat) return createSpan({ cls: "text-muted", text: "-" });
+          return createSpan({ cls: "pakcli-badge-category", text: cat });
+        },
+      },
+      {
+        key: "badge",
+        title: "Badge",
+        width: "110px",
+        sortable: true,
+        copyable: true,
+        tsvValue: (app) => app.catalog?.badge || "",
+        render: (app) => {
+          const b = app.catalog?.badge;
+          if (!b) return createSpan({ cls: "text-muted", text: "-" });
+          return createSpan({ cls: "pakcli-badge-version", text: b });
+        },
+      },
+      {
+        key: "fileSize",
+        title: "Size",
+        width: "90px",
+        sortable: true,
+        copyable: true,
+        tsvValue: (app) => app.catalog?.fileSize || "",
+        render: (app) => {
+          const s = app.catalog?.fileSize;
+          return createSpan({ cls: s ? "pakcli-filesize" : "text-muted", text: s || "-" });
+        },
+      },
+      {
+        key: "tags",
+        title: "Tags",
+        width: "180px",
+        tsvValue: (app) => app.catalog?.tags?.join(", ") || "",
+        render: (app) => {
+          const wrap = createDiv({ cls: "pakcli-tags-wrap" });
+          const tags = app.catalog?.tags || [];
+          if (tags.length === 0) {
+            wrap.createSpan({ cls: "text-muted", text: "-" });
+            return wrap;
+          }
+          for (const t of tags.slice(0, 3)) {
+            wrap.createSpan({ cls: "pakcli-tag-pill", text: t });
+          }
+          if (tags.length > 3) {
+            wrap.createSpan({ cls: "pakcli-tag-pill is-more", text: `+${tags.length - 3}` });
+          }
+          return wrap;
+        },
+      },
+      {
+        key: "overview",
+        title: "Overview",
+        width: "220px",
+        copyable: true,
+        tsvValue: (app) => app.catalog?.overview || "",
+        render: (app) => {
+          const text = app.catalog?.overview || "";
+          const span = createSpan({ cls: "pakcli-overview-text text-muted", text: text || "-" });
+          if (text) span.title = text;
+          return span;
+        },
+      },
+      {
+        key: "thumbnail",
+        title: "Thumb",
+        width: "80px",
+        render: (app) => {
+          const wrap = createDiv({ cls: "pakcli-thumb-cell-wrap" });
+          const img = app.catalog?.img || app.catalog?.thumbnail;
+          if (img) {
+            const thumb = wrap.createSpan({ cls: "pakcli-thumb-icon", text: "🖼" });
+            thumb.title = img;
+          } else {
+            wrap.createSpan({ cls: "text-muted", text: "-" });
+          }
+          return wrap;
+        },
+      },
+      {
+        key: "liveLink",
+        title: "Live Link",
+        width: "100px",
+        render: (app) => {
+          const wrap = createDiv({ cls: "pakcli-livelink-wrap" });
+          const link =
+            app.catalog?.linkLive ||
+            (app.hosting.firebase?.configured ? app.hosting.firebase.liveUrl : undefined);
+          if (link) {
+            const btn = wrap.createEl("button", {
+              cls: "pakcli-icon-btn clickable-icon",
+              attr: { type: "button", title: `Open ${link}` },
+            });
+            setIcon(btn, "external-link");
+            btn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              if (link.startsWith("http://") || link.startsWith("https://")) {
+                window.open(link, "_blank");
+              } else {
+                const target = this.path?.join(app.absolutePath, link) || app.absolutePath;
+                this.openInOsExplorer(target);
+              }
+            });
+          } else {
+            wrap.createSpan({ cls: "text-muted", text: "-" });
+          }
+          return wrap;
+        },
+      },
+      {
         key: "actions",
-        title: "Action",
-        width: "140px",
+        title: "Actions",
+        width: "190px",
+        align: "right",
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-row-action-wrap" });
+
+          // 1. Open Folder button
           const openFolderBtn = wrap.createEl("button", {
             cls: "pakcli-btn-open-folder",
             text: "Open folder →",
@@ -265,10 +496,41 @@ export class AppsDashboardView extends ItemView {
             e.stopPropagation();
             this.openInOsExplorer(app.absolutePath);
           });
+
+          // 2. Row TSV Copy button (merged cleanly into this single action column)
+          new CopyButton(wrap, {
+            text: () => this.generateRowTsv(app),
+            label: "Row",
+            title: "Copy row as TSV (Spreadsheet ready)",
+            iconOnly: false,
+            className: "pakcli-btn-row-copy",
+          });
+
           return wrap;
         },
       },
     ];
+  }
+
+  private generateRowTsv(app: AppScanRecord): string {
+    const cols = this.getActiveColumnDefs();
+    const values = cols
+      .filter((c) => c.key !== "actions")
+      .map((c) => {
+        let val = "";
+        if (c.tsvValue) {
+          val = c.tsvValue(app);
+        } else if (c.key in app) {
+          val = String((app as any)[c.key] || "");
+        } else if (app.catalog && c.key in app.catalog) {
+          val = String((app.catalog as any)[c.key] || "");
+        }
+        if (val.includes("\t") || val.includes("\n") || val.includes('"') || val.includes("\r")) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      });
+    return values.join("\t");
   }
 
   private openHostProviderMenu(e: MouseEvent, app: AppScanRecord) {
@@ -321,18 +583,7 @@ export class AppsDashboardView extends ItemView {
   }
 
   private openSettingsPrompt() {
-    new ConfirmModal(this.app, {
-      title: "Apps Dashboard Settings",
-      message: "Toggle Demo Mode or configure scan depth. Demo Mode provides 5 sample projects for testing.",
-      confirmLabel: "Toggle Demo Mode",
-      cancelLabel: "Close",
-      onConfirm: () => {
-        const current = (this.store as any).settings?.demoMode ?? false;
-        (this.store as any).settings.demoMode = !current;
-        void this.store.rescan();
-        new Notice(`Demo Mode ${!current ? "Enabled (Loaded 5 test apps)" : "Disabled (Live scan)"}`);
-      },
-    }).open();
+    new AppsDashboardSettingsModal(this.app, this.store).open();
   }
 
   async onClose() {

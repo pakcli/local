@@ -4,7 +4,21 @@ import { AppsDashboardView, APPS_DASHBOARD_VIEW_TYPE } from "./ui/AppsDashboardV
 import { DEFAULT_APPS_DASHBOARD_SETTINGS } from "./types";
 
 export function registerAppsDashboard(plugin: Plugin): AppDashboardStore {
-  const store = new AppDashboardStore(DEFAULT_APPS_DASHBOARD_SETTINGS);
+  const vaultRoot = (plugin as any).vaultRoot || "";
+  const savedSettings = (plugin as any).settings?.appsDashboard;
+  const initialSettings = {
+    ...DEFAULT_APPS_DASHBOARD_SETTINGS,
+    ...(savedSettings || {}),
+  };
+
+  const store = new AppDashboardStore(initialSettings, vaultRoot, async (updated) => {
+    if ((plugin as any).settings) {
+      (plugin as any).settings.appsDashboard = updated;
+      if (typeof (plugin as any).saveSettings === "function") {
+        await (plugin as any).saveSettings();
+      }
+    }
+  });
 
   // 1. Register View
   plugin.registerView(

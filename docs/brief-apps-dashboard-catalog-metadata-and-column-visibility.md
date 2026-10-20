@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard Catalog Metadata, Column Visibility & Vault-Relative Path
 
-> **Feature Status**: `0` (Specification & Architecture)  
+> **Feature Status**: `1` (Completed & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Date**: 2026-10-20  
 
@@ -11,8 +11,17 @@
 Pada implementasi Apps Dashboard awal:
 1. **Header "Action" Duplikat:** Terdapat dua kolom berdampingan berlabel `Action` (satu berisi tombol `[ Open folder → ]`, satu lagi berisi tombol `[ ⧉ Row ]` bawaan `GenericTable`). Hal ini membingungkan dan merusak estetika tabel.
 2. **Path Terikat Hardcoded `~/apps`:** Saat ini scanner mencari di `~/apps`. User menginginkan path aplikasi **relatif terhadap Vault Root** dengan default **`root/apps/`** (atau `apps/`).
-3. **Belum Mendukung Metadata Katalog (`index.md` / `_catalog.json`):** Folder aplikasi modern (seperti `d:\0pro\template\catalog-website-style-retro_GITHUB\apps\radiansincostan\`) memiliki file `index.md` dengan frontmatter YAML kaya (`title`, `sector`, `category`, `scope`, `file-size`, `tags`, `overview`, `badge`, `img`) serta file `index_catalog.json` dan `index.html`.
-4. **Kolom Kaku (Belum Ada Toggle Visibility):** Semua kolom saat ini tampil paten. User menginginkan **setiap kolom dapat di-toggle visibilitasnya** secara bebas, dengan kolom default sesuai tampilan saat ini.
+3. **Belum Mendukung Metadata Katalog (`index.md` / `_catalog.json`):** Folder aplikasi modern (seperti `d:\0pro\template\catalog-website-style-retro_GITHUB\apps\radiansincostan\`) memiliki file `index.md` dengan frontmatter YAML kaya (`title`, `category`, `file-size`, `tags`, `overview`, `badge`, `img`) serta file `index_catalog.json` dan `index.html`.
+4. **Instruksi Khusus User Mengenai Frontmatter:**
+   - **Sector & Category:** Omit separate `sector` and `scope` columns; map directly to **`category`** only.
+   - **Tags Format:** Mendukung format multi-line list:
+     ```yaml
+     tags:
+       - ArabicQuran
+       - agent-rules
+     ```
+     serta inline `tags: [a, b]`.
+5. **Kolom Kaku (Belum Ada Toggle Visibility):** Semua kolom saat ini tampil paten. User menginginkan **setiap kolom dapat di-toggle visibilitasnya** secara bebas, dengan 5 kolom default (`Folder`, `Path`, `GitHub Repo`, `Static Host`, `Actions`).
 
 ---
 
@@ -50,54 +59,79 @@ Scanner (`AppScanner.ts`) otomatis membaca metadata dari setiap subfolder aplika
 ```ts
 export interface AppCatalogMeta {
   title?: string;        // e.g. "📐 Unit Circle Resolver"
-  sector?: string;       // e.g. "edu"
-  category?: string;     // e.g. "MATH & CANVAS"
-  scope?: string[];      // e.g. ["edu"]
+  category?: string;     // e.g. "MATH & CANVAS" (sector fallback)
   fileSize?: string;     // e.g. "6.8 KB"
-  tags?: string[];       // e.g. ["SVG Arc", "Math Engine", "Zero-Backend"]
+  tags?: string[];       // e.g. ["ArabicQuran", "agent-rules"]
   overview?: string;     // e.g. "Interactive trigonometric unit circle calculator..."
   badge?: string;        // e.g. "v2.4"
-  img?: string;          // e.g. "[[img-lightmode.webp]], [[img-darkmode.webp]]"
+  img?: string;          // e.g. "img-lightmode.webp"
   thumbnail?: string;    // e.g. "apps/radiansincostan/img.webp"
-  imgLight?: string;     // e.g. "apps/radiansincostan/img-lightmode.webp"
-  imgDark?: string;      // e.g. "apps/radiansincostan/img-darkmode.webp"
-  linkLive?: string;     // e.g. "apps/radiansincostan/index.html"
-  linkPlayground?: string; // e.g. "apps/radiansincostan/index_playground.html"
+  linkLive?: string;     // e.g. "index.html"
+  linkPlayground?: string; // e.g. "index_playground.html"
   linkGithub?: string;   // e.g. "https://github.com/..."
 }
 ```
 
 #### Aturan Parser `AppScanner.ts`:
 1. Jika ada `index.md`, ekstrak blok YAML frontmatter antara `---` dan `---` menggunakan regex YAML parser ringan tanpa dependensi eksternal.
-2. Jika ada `index_catalog.json` atau `_catalog.json`, baca data JSON sebagai fallback/pelengkap.
-3. Simpan hasil parsing ke `app.catalog`.
+2. `sector` digabung ke `category` sesuai arahan user.
+3. Multi-line tags `- tag` dan inline tags `[...]` diparse secara lengkap dan akurat.
+4. Jika ada `index_catalog.json` atau `_catalog.json`, baca data JSON sebagai fallback/pelengkap.
+5. Simpan hasil parsing ke `app.catalog`.
 
 ---
 
 ### 2.4 Sistem Toggle Visibilitas Kolom (`[ 👁 Columns ▾ ]`)
 
-Di baris toolbar (sebelah kanan search bar), tambahkan tombol dropdown **`[ 👁 Columns ▾ ]`**:
+Di baris toolbar (sebelah kanan search bar), terdapat tombol dropdown **`[ 👁 Columns ▾ ]`**:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│ [ Search folder, repo, or hosting site... __________________ ]         │
-│ [ 👁 Columns ▾ ]   [ ⟳ Rescan ]   [ ⚙ Settings ]                       │
+│ [ Search folder, title, tags, repo, or host... ______________ ]         │
+│ [ 👁 Columns ▾ ]   [ ⚙ Settings ]                                      │
 └────────────────────────────────────────────────────────────────────────┘
         │ klik [ 👁 Columns ▾ ]
         ▼
 ┌──────────────────────────────────────────────┐
-│  Visible Columns:                            │
+│  — Core Columns —                            │
 │  [✓] Folder                                  │
 │  [✓] Path                                    │
 │  [✓] GitHub Repo                             │
 │  [✓] Static Host                             │
 │  [✓] Actions                                 │
 │  ──────────────────────────────────────────  │
-│  Catalog Metadata Columns:                   │
-│  [ ] Title (📐 Unit Circle...)               │
-│  [ ] Category (MATH & CANVAS)                │
-│  [ ] Sector (edu)                            │
-│  [ ] Badge (v2.4)                            │
+│  — Catalog Metadata —                        │
+│  [ ] Title                                   │
+│  [ ] Category                                │
+│  [ ] Badge                                   │
+│  [ ] File Size                               │
+│  [ ] Tags                                    │
+│  [ ] Overview                                │
+│  [ ] Thumbnail                               │
+│  [ ] Live Link                               │
+│  ──────────────────────────────────────────  │
+│  ↺ Reset to Default (5 cols)                 │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Hasil Verifikasi & Pengujian
+
+1. **Unit Test Parsing Regex (`trash-bin/test-catalog-scanner.js`)**:
+   - Multi-line tags (`tags:\n  - ArabicQuran\n  - agent-rules`): **PASS**
+   - Inline tags (`tags: [alpha, beta, gamma]`): **PASS**
+   - Fallback `sector` -> `category`: **PASS**
+   - Real Catalog File (`d:\0pro\template\catalog-website-style-retro_GITHUB\apps\radiansincostan\index.md`): **PASS**
+2. **Build Verification**:
+   - `npm --prefix local run build`: Exit code 0, 0 compiler errors.
+   - Post-build bundle auto-deployed to:
+     - `D:\1sot\MAIN-DIGITAL-LIBRARY\MAIN-DIGITAL-LIBRARY\.obsidian\plugins\pakcli-local`
+     - `D:\1sot\MAIN-DIGITAL-LIBRARY\SAMPLE-DEMO-THEME-PLUGIN\.obsidian\plugins\pakcli-local`
+3. **UI / Action Col Fix**:
+   - Single unified `Actions` column with `[ Open folder → ]` and `[ ⧉ Row ]`. Duplicate header eliminated.
+   - `[ 👁 Columns ▾ ]` and `[ ⚙ Settings ]` fully operational.
+
 │  [ ] File Size (6.8 KB)                      │
 │  [ ] Tags (SVG Arc, Math Engine)             │
 │  [ ] Overview (Description)                  │

@@ -216,6 +216,12 @@ export class GenericTable<T> {
 		return str;
 	}
 
+	public setColumns(newColumns: ColumnDef<T>[]) {
+		this.options.columns = [...newColumns];
+		this.renderHeader();
+		this.renderRows();
+	}
+
 	public setItems(newItems: T[]) {
 		this.items = [...newItems];
 		if (this.sortColumnKey) {
