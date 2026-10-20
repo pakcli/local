@@ -60,6 +60,7 @@ export class YTDownloaderView extends ItemView {
   private recentDownloadsCollapsed: boolean = false;
   private playlistContainerEl!: HTMLElement;
   private activePlaylistQueueView: PlaylistQueueView | null = null;
+  private sessionFetches: VideoPreview[] = [];
 
   constructor(leaf: WorkspaceLeaf, plugin: PakCLIPlugin) {
     super(leaf);
@@ -101,6 +102,7 @@ export class YTDownloaderView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.hero?.destroy();
     this.debugPanel?.destroy();
     this.recentTable?.destroy();
     this.fullTable?.destroy();
@@ -210,7 +212,7 @@ export class YTDownloaderView extends ItemView {
   private renderDownloadTab(): void {
     const tabContainer = this.contentElContainer.createDiv({ cls: "ytec-tab-content ytec-tab-download" });
 
-    // 1. Hero with blurred thumbnail bg + clean URL input
+    // 1. Hero with blurred thumbnail bg + clean URL input + History button
     this.hero = new DownloadHero(tabContainer, {
       onUrlChange: (url) => this.handleUrlChanged(url),
       onEnter: () => {
@@ -221,6 +223,10 @@ export class YTDownloaderView extends ItemView {
         width: this.plugin.settings.ytCaptureEmbedWidth || "100%",
         height: this.plugin.settings.ytCaptureEmbedHeight || "520",
       }),
+      getHistoryItems: () => this.getCombinedHistoryItems(),
+      onSelectHistoryItem: (preview) => this.loadPreviewFromHistory(preview),
+      onDirectDownloadHistoryItem: (preview) => this.directDownloadFromHistory(preview),
+      onClearHistory: () => this.clearHistoryFetches(),
     });
 
     // 2. Controls & 2 Action buttons (Fetch Only | Fetch & Download) + Info button
@@ -287,8 +293,8 @@ export class YTDownloaderView extends ItemView {
         this.hero.setUrl(url);
         this.handleFetchOnly(this.form.getState());
       },
-      onDownloadOtherQuality: (url, quality, fps, start, end) => {
-        this.startDownloadPipeline({
+      onDownloadOtherQuality: (url, quality, fps, start, end, meta) => {
+        this.enqueueDownload({
           url,
           quality,
           fps,
@@ -297,7 +303,14 @@ export class YTDownloaderView extends ItemView {
           isFull: start === 0 && end === 0,
           presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
           folder: this.plugin.settings.ytCaptureOutputFolder || "YT Captures",
+          title: meta?.title,
+          thumbnail: meta?.thumbnail,
+          channel: meta?.channel,
+          duration: meta?.duration,
         });
+      },
+      onRetryTask: (taskId) => {
+        this.handleRetryTask(taskId);
       },
     });
   }
@@ -321,8 +334,8 @@ export class YTDownloaderView extends ItemView {
         this.switchTab("download");
         this.handleFetchOnly(this.form.getState());
       },
-      onDownloadOtherQuality: (url, quality, fps, start, end) => {
-        this.startDownloadPipeline({
+      onDownloadOtherQuality: (url, quality, fps, start, end, meta) => {
+        this.enqueueDownload({
           url,
           quality,
           fps,
@@ -331,7 +344,14 @@ export class YTDownloaderView extends ItemView {
           isFull: start === 0 && end === 0,
           presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
           folder: this.plugin.settings.ytCaptureOutputFolder || "YT Captures",
+          title: meta?.title,
+          thumbnail: meta?.thumbnail,
+          channel: meta?.channel,
+          duration: meta?.duration,
         });
+      },
+      onRetryTask: (taskId) => {
+        this.handleRetryTask(taskId);
       },
     });
   }
@@ -395,6 +415,22 @@ export class YTDownloaderView extends ItemView {
           onSyncComplete: () => {
             void this.refreshData(true);
           },
+          onQueueDownload: (item) => {
+            this.enqueueDownload({
+              url: item.url,
+              quality: item.quality,
+              fps: item.fps,
+              start: item.start,
+              end: item.end,
+              isFull: item.isFull,
+              folder: item.folder,
+              presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
+              title: item.title,
+              thumbnail: item.thumbnail,
+              channel: item.channel,
+              duration: item.duration,
+            });
+          },
         }
       );
     } catch (err) {
@@ -450,6 +486,7 @@ export class YTDownloaderView extends ItemView {
       this.hero.setPreview(preview);
       this.form.setPreview(preview);
       this.updateFormDownloadedQualities();
+      this.recordRecentFetch(preview);
 
       // Create a "Fetches Only" task in taskManager
       const taskId = "fetch_" + Date.now();
@@ -552,7 +589,7 @@ export class YTDownloaderView extends ItemView {
     });
   }
 
-  private async startDownloadPipeline(params: {
+  private downloadQueue: Array<{
     url: string;
     quality: VideoQuality;
     fps: VideoFps;
@@ -563,61 +600,207 @@ export class YTDownloaderView extends ItemView {
     folder: string;
     forceResolution?: boolean;
     preview?: VideoPreview | null;
-  }): Promise<void> {
-    const { url, quality, fps, start, end, isFull, presetId, folder, forceResolution } = params;
-    const preview = params.preview || this.currentPreview;
+    title?: string;
+    thumbnail?: string;
+    channel?: string;
+    duration?: number;
+    taskId: string;
+    abortController: AbortController;
+  }> = [];
+  private isProcessingQueue = false;
 
+  private enqueueDownload(params: {
+    url: string;
+    quality: VideoQuality;
+    fps: VideoFps;
+    start: number;
+    end: number;
+    isFull: boolean;
+    presetId: string;
+    folder: string;
+    forceResolution?: boolean;
+    preview?: VideoPreview | null;
+    title?: string;
+    thumbnail?: string;
+    channel?: string;
+    duration?: number;
+  }): string {
     const taskId = "task_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
     this.currentTaskId = taskId;
     this.debugPanel?.setCurrentTaskId(taskId);
 
     const abortController = new AbortController();
 
+    const displayTitle = params.preview?.title || params.title || "Downloading Video...";
+    const displayThumb = params.preview?.thumbnail || params.thumbnail || "";
+    const displayChannel = params.preview?.channel || params.channel || "";
+    const displayDur = params.preview?.duration || params.duration || 0;
+    const platform = params.preview?.platform || (params.url.includes("instagram.com") ? "instagram" : "youtube");
+
     const task: DownloadTask = {
       id: taskId,
-      url,
-      title: preview?.title || "Downloading Video...",
-      channel: preview?.channel || "",
-      thumbnail: preview?.thumbnail || "",
-      platform: preview?.platform || (url.includes("instagram.com") ? "instagram" : "youtube"),
-      quality,
-      fps,
-      timeRange: { start, end, isFull },
-      duration: preview?.duration || 0,
-      status: "deps",
+      url: params.url,
+      title: displayTitle,
+      channel: displayChannel,
+      thumbnail: displayThumb,
+      platform,
+      quality: params.quality,
+      fps: params.fps,
+      timeRange: { start: params.start, end: params.end, isFull: params.isFull },
+      duration: displayDur,
+      status: "queued",
       currentStep: "deps",
-      progress: { percent: 0, downloaded: "0MB", total: "--", speed: "--", eta: "--", rawMsg: "Verifying dependencies..." },
-      logs: [`Initiating download pipeline for ${url}`],
-      forceResolution,
+      progress: {
+        percent: 0,
+        downloaded: "0MB",
+        total: "--",
+        speed: "--",
+        eta: "--",
+        rawMsg: "Queued · Waiting in line...",
+      },
+      logs: [`Queued download for: ${params.url}`],
+      forceResolution: params.forceResolution,
       createdAt: Date.now(),
       abortFn: () => abortController.abort(),
     };
 
     taskManager.addTask(task);
 
-    // Run async pipeline in background
-    (async () => {
-      try {
-        const fs = getNodeFs();
-        const os = getNodeOs();
-        if (!fs || !os) throw new Error("Node file system is not available on this platform.");
+    this.downloadQueue.push({
+      ...params,
+      taskId,
+      abortController,
+    });
 
-        // Step 1: Deps
-        taskManager.log(taskId, "Verifying yt-dlp & ffmpeg binaries...");
-        taskManager.setStep(taskId, "fetch", "fetching");
+    void this.processDownloadQueue();
 
-        // Step 2: Fetch if not already available
-        let activePreview = preview;
-        if (!activePreview || activePreview.original_url !== url) {
-          taskManager.log(taskId, "Fetching stream metadata via yt-dlp...");
-          const info = await fetchVideoInfo(url, this.plugin.settings);
-          const totalDur = extractVideoDuration(info);
-          activePreview = {
-            video_id: info.id,
-            original_url: url,
-            platform: task.platform,
-            title: info.title || "Untitled Video",
-            channel: info.channel || info.uploader || "",
+    return taskId;
+  }
+
+  private async processDownloadQueue(): Promise<void> {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    try {
+      while (this.downloadQueue.length > 0) {
+        const item = this.downloadQueue.shift();
+        if (!item) continue;
+
+        const currentTask = taskManager.getTask(item.taskId);
+        if (!currentTask || currentTask.status === "cancelled") {
+          continue;
+        }
+
+        await this.runDownloadPipeline(item);
+      }
+    } finally {
+      this.isProcessingQueue = false;
+    }
+  }
+
+  private handleRetryTask(taskId: string): void {
+    const oldTask = taskManager.getTask(taskId);
+    if (!oldTask) return;
+    oldTask.isRetried = true;
+
+    this.enqueueDownload({
+      url: oldTask.url,
+      quality: oldTask.quality,
+      fps: oldTask.fps,
+      start: oldTask.timeRange.start,
+      end: oldTask.timeRange.end,
+      isFull: oldTask.timeRange.isFull,
+      presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
+      folder: this.plugin.settings.ytCaptureOutputFolder || "YT Captures",
+      forceResolution: oldTask.forceResolution,
+      title: oldTask.title,
+      thumbnail: oldTask.thumbnail,
+      channel: oldTask.channel,
+      duration: oldTask.duration,
+    });
+  }
+
+  private startDownloadPipeline(params: {
+    url: string;
+    quality: VideoQuality;
+    fps: VideoFps;
+    start: number;
+    end: number;
+    isFull: boolean;
+    presetId: string;
+    folder: string;
+    forceResolution?: boolean;
+    preview?: VideoPreview | null;
+  }): void {
+    this.enqueueDownload(params);
+  }
+
+  private async runDownloadPipeline(item: {
+    url: string;
+    quality: VideoQuality;
+    fps: VideoFps;
+    start: number;
+    end: number;
+    isFull: boolean;
+    presetId: string;
+    folder: string;
+    forceResolution?: boolean;
+    preview?: VideoPreview | null;
+    title?: string;
+    thumbnail?: string;
+    channel?: string;
+    duration?: number;
+    taskId: string;
+    abortController: AbortController;
+  }): Promise<void> {
+    const { url, quality, fps, start, end, isFull, presetId, folder, forceResolution, taskId, abortController } = item;
+    try {
+      const fs = getNodeFs();
+      const os = getNodeOs();
+      if (!fs || !os) throw new Error("Node file system is not available on this platform.");
+
+      // Step 1: Deps
+      taskManager.setStep(taskId, "deps", "deps");
+      taskManager.log(taskId, "Verifying yt-dlp & ffmpeg binaries...");
+      taskManager.setStep(taskId, "fetch", "fetching");
+
+      // Step 2: Fetch if not already available
+      let activePreview = item.preview;
+      if (!activePreview && item.title && item.duration !== undefined) {
+        const parsed = parseMediaUrl(url);
+        activePreview = {
+          video_id: parsed?.videoId || "",
+          original_url: url,
+          platform: url.includes("instagram.com") ? "instagram" : "youtube",
+          title: item.title,
+          channel: item.channel || "",
+          channel_url: "",
+          thumbnail: item.thumbnail || "",
+          start,
+          end: end > 0 ? end : (item.duration || 10),
+          duration: item.duration,
+          has_transcript: false,
+          video_duration: item.duration,
+          upload_date: "",
+          view_count: 0,
+          tags: [],
+          description: "",
+          quality,
+          fps,
+          media_type: "video",
+        };
+      }
+
+      if (!activePreview || activePreview.original_url !== url) {
+        taskManager.log(taskId, "Fetching stream metadata via yt-dlp...");
+        const info = await fetchVideoInfo(url, this.plugin.settings);
+        const totalDur = extractVideoDuration(info);
+        activePreview = {
+          video_id: info.id,
+          original_url: url,
+          platform: url.includes("instagram.com") ? "instagram" : "youtube",
+          title: info.title || "Untitled Video",
+          channel: info.channel || info.uploader || "",
             channel_url: info.channel_url || info.uploader_url || "",
             thumbnail: info.thumbnail || "",
             start,
@@ -997,7 +1180,6 @@ export class YTDownloaderView extends ItemView {
           new Notice(`⚠️ Download failed: ${err.message || String(err)}`);
         }
       }
-    })();
   }
 
   private updateFormDownloadedQualities(): void {
@@ -1069,5 +1251,115 @@ export class YTDownloaderView extends ItemView {
         this.leaf.detach();
       }
     }
+  }
+
+  // ── History Fetches & Instant Re-Download ───────────────────────────────
+
+  private recordRecentFetch(preview: VideoPreview): void {
+    if (!preview || !preview.original_url) return;
+
+    // 1. Session list
+    this.sessionFetches = this.sessionFetches.filter(
+      (p) => p.original_url !== preview.original_url && p.video_id !== preview.video_id
+    );
+    this.sessionFetches.unshift(preview);
+
+    // 2. Persisted settings list
+    if (!this.plugin.settings.recentFetches) {
+      this.plugin.settings.recentFetches = [];
+    }
+    this.plugin.settings.recentFetches = this.plugin.settings.recentFetches.filter(
+      (p) => p.original_url !== preview.original_url && p.video_id !== preview.video_id
+    );
+    this.plugin.settings.recentFetches.unshift(preview);
+    if (this.plugin.settings.recentFetches.length > 30) {
+      this.plugin.settings.recentFetches = this.plugin.settings.recentFetches.slice(0, 30);
+    }
+    void this.plugin.saveSettings();
+  }
+
+  private getCombinedHistoryItems(): VideoPreview[] {
+    const map = new Map<string, VideoPreview>();
+
+    // 1. In-session fetches (highest priority)
+    for (const item of this.sessionFetches) {
+      const key = (item.original_url || "").toLowerCase().trim();
+      if (key && !map.has(key)) map.set(key, item);
+    }
+
+    // 2. Persisted recent fetches
+    const persisted = this.plugin.settings.recentFetches || [];
+    for (const item of persisted) {
+      const key = (item.original_url || "").toLowerCase().trim();
+      if (key && !map.has(key)) map.set(key, item);
+    }
+
+    // 3. Vault capture note cache (ytHistoryCache)
+    const cache = this.plugin.settings.ytHistoryCache?.items || {};
+    for (const h of Object.values(cache)) {
+      if (!h.url) continue;
+      const key = h.url.toLowerCase().trim();
+      if (!map.has(key)) {
+        map.set(key, {
+          video_id: h.videoId || "",
+          original_url: h.url,
+          platform: h.platform || "youtube",
+          title: h.title,
+          channel: h.channel || "",
+          channel_url: "",
+          thumbnail: h.thumbnail || "",
+          start: 0,
+          end: 0,
+          duration: 0,
+          video_duration: 0,
+          has_transcript: false,
+          upload_date: h.uploadDate || "",
+          view_count: 0,
+          tags: [],
+          description: "",
+          quality: (h.resolution as VideoQuality) || "1080p",
+          fps: "auto",
+          media_type: "video",
+        });
+      }
+    }
+
+    return Array.from(map.values()).slice(0, 30);
+  }
+
+  private loadPreviewFromHistory(preview: VideoPreview): void {
+    this.hero.setUrl(preview.original_url);
+    this.currentPreview = preview;
+    this.hero.setPreview(preview);
+    this.form.setPreview(preview);
+    this.updateFormDownloadedQualities();
+    new Notice(`⚡ Loaded "${preview.title.slice(0, 26)}..." from history (Ready to DL without fetch!)`);
+  }
+
+  private directDownloadFromHistory(preview: VideoPreview): void {
+    this.loadPreviewFromHistory(preview);
+    this.enqueueDownload({
+      url: preview.original_url,
+      quality: preview.quality || this.plugin.settings.ytCaptureQuality || "1080p",
+      fps: preview.fps || "auto",
+      start: 0,
+      end: preview.duration || 0,
+      isFull: true,
+      presetId: this.plugin.settings.activePresetId || "yt_evidence_standard",
+      folder: this.plugin.settings.ytCaptureOutputFolder || "YT Captures",
+      title: preview.title,
+      thumbnail: preview.thumbnail,
+      channel: preview.channel,
+      duration: preview.duration,
+      preview,
+    });
+    new Notice(`⬇ Direct download queued for: "${preview.title.slice(0, 26)}..."`);
+  }
+
+  private clearHistoryFetches(): void {
+    this.sessionFetches = [];
+    this.plugin.settings.recentFetches = [];
+    void this.plugin.saveSettings();
+    new Notice("🗑 Recent fetches history cleared.");
   }
 }

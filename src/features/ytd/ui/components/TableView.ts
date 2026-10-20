@@ -14,13 +14,28 @@ import { DebugPanel } from "./DebugPanel";
 import { getIncrementalCaptureHistory, type CaptureHistoryItem } from "../../utils/historyCache";
 import { formatTime } from "../../utils/fileHelpers";
 
+export interface DownloadItemMetadata {
+  title?: string;
+  thumbnail?: string;
+  channel?: string;
+  duration?: number;
+}
+
 export interface TableViewOptions {
   mode: TableViewMode; // "flat" or "grouped"
   isRecentOnly?: boolean; // Tab 1 vs Tab 2
   showAddBar?: boolean; // Tab 2 inline [+ Add New Download]
   onAddNewDownload?: (url: string) => void;
-  onDownloadOtherQuality?: (url: string, quality: VideoQuality, fps: VideoFps, start: number, end: number) => void;
+  onDownloadOtherQuality?: (
+    url: string,
+    quality: VideoQuality,
+    fps: VideoFps,
+    start: number,
+    end: number,
+    meta?: DownloadItemMetadata
+  ) => void;
   onRefreshItem?: (url: string) => void;
+  onRetryTask?: (taskId: string) => void;
 }
 
 export class TableView {
@@ -410,7 +425,13 @@ export class TableView {
       const pipelineTd = pipelineTr.createEl("td", { attr: { colspan: "5" } });
       PipelineRow.render(pipelineTd, row.liveTask, {
         onCancel: (id) => taskManager.cancelTask(id),
-        onRetry: (id) => taskManager.retryTask(id),
+        onRetry: (id) => {
+          if (this.options.onRetryTask) {
+            this.options.onRetryTask(id);
+          } else {
+            taskManager.retryTask(id);
+          }
+        },
       });
     }
 
@@ -593,7 +614,13 @@ export class TableView {
         qSelect.value as VideoQuality,
         "auto",
         0,
-        0
+        0,
+        {
+          title: row.title,
+          thumbnail: row.thumbnail,
+          channel: row.liveTask?.channel,
+          duration: row.liveTask?.duration,
+        }
       );
       new Notice(`Queued download for ${qSelect.value}`);
     });

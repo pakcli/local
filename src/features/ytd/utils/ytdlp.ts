@@ -18,14 +18,20 @@ export async function fetchVideoInfo(
   url: string,
   settings: YTCaptureSettings
 ): Promise<YtDlpInfo> {
+  const isInstagram = url.includes("instagram.com") || url.includes("instagr.am");
   const baseArgs = [
     "--dump-json",
     "--skip-download",
     "--no-playlist",
     "--no-colors",
     "--no-live-from-start",
-    url,
   ];
+
+  if (!isInstagram) {
+    baseArgs.push("--extractor-args", "youtube:player_client=ios,android,mweb");
+  }
+
+  baseArgs.push(url);
 
   let stdout = "";
   try {
@@ -80,8 +86,16 @@ export async function fetchVideoInfo(
       };
     }
 
-    // If live event ended error or extractor error, retry with player_client fallback
-    if (msg.toLowerCase().includes("live event has ended") || msg.toLowerCase().includes("this live event has ended")) {
+    // If bot check, 429, or live event ended, retry with mobile player_client fallback
+    const isBotOr429 =
+      msg.toLowerCase().includes("sign in to confirm you're not a bot") ||
+      msg.toLowerCase().includes("bot") ||
+      msg.toLowerCase().includes("429");
+    const isLiveEnded =
+      msg.toLowerCase().includes("live event has ended") ||
+      msg.toLowerCase().includes("this live event has ended");
+
+    if (!isInstagram && (isBotOr429 || isLiveEnded)) {
       try {
         stdout = await runCommand(settings.ytDlpPath, [
           "--dump-json",
@@ -90,11 +104,15 @@ export async function fetchVideoInfo(
           "--no-colors",
           "--no-live-from-start",
           "--extractor-args",
-          "youtube:player_client=android,ios,mweb,web",
+          "youtube:player_client=ios,android",
           url,
         ]);
       } catch {
-        throw new Error("This live stream has ended and YouTube is still processing the recording. Please wait a few minutes and try again.");
+        throw new Error(
+          isLiveEnded
+            ? "This live stream has ended and YouTube is still processing the recording. Please wait a few minutes."
+            : "YouTube requires verification. Please retry in a few moments."
+        );
       }
     } else {
       throw err;
@@ -163,6 +181,7 @@ export async function downloadClip(
 
   if (!isInstagram) {
     args.push("--no-live-from-start");
+    args.push("--extractor-args", "youtube:player_client=ios,android,mweb");
 
     const isFullDuration = isFull || (start === 0 && end === 0);
     if (!isFullDuration && (start > 0 || end > 0)) {
@@ -198,14 +217,34 @@ export async function downloadClip(
     await runCommand(settings.ytDlpPath, args, { onOutput: onProgress });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
-    if (!isInstagram && (msg.toLowerCase().includes("live event has ended") || msg.toLowerCase().includes("this live event has ended"))) {
+    const isBotChallenge =
+      msg.toLowerCase().includes("sign in to confirm you're not a bot") ||
+      msg.toLowerCase().includes("confirm you're not a bot") ||
+      msg.toLowerCase().includes("bot") ||
+      msg.toLowerCase().includes("429");
+    const isLiveEnded =
+      msg.toLowerCase().includes("live event has ended") ||
+      msg.toLowerCase().includes("this live event has ended");
+
+    if (!isInstagram && (isBotChallenge || isLiveEnded)) {
       try {
         const retryArgs = [...args];
-        retryArgs.unshift("--extractor-args", "youtube:player_client=android_vr,web");
+        const extIdx = retryArgs.indexOf("--extractor-args");
+        if (extIdx !== -1) {
+          retryArgs[extIdx + 1] = "youtube:player_client=ios,android";
+        } else {
+          retryArgs.unshift("--extractor-args", "youtube:player_client=ios,android");
+        }
+
+        const fmtIdx = retryArgs.indexOf("-f");
+        if (fmtIdx !== -1) {
+          retryArgs[fmtIdx + 1] = `${formatStr}/best/b/18`;
+        }
+
         await runCommand(settings.ytDlpPath, retryArgs, { onOutput: onProgress });
-      } catch {
+      } catch (retryErr: any) {
         throw new Error(
-          "This live stream has ended and YouTube is still processing the video. Please wait a few minutes and try again."
+          `YouTube download requires authentication or player client bypass: ${retryErr?.message || retryErr}`
         );
       }
     } else {

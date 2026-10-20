@@ -1101,6 +1101,212 @@
   color: var(--text-normal);
 }
 
+/* ── Hero History Button & Dropdown ────────────────────────── */
+.ytec-hero-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  margin-left: 8px;
+  user-select: none;
+}
+
+.ytec-hero-history-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.ytec-hero-history-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.ytec-hero-history-btn.is-active svg {
+  color: var(--text-on-accent) !important;
+}
+
+.ytec-hero-history-btn .ytec-history-btn-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ytec-hero-history-btn .ytec-history-btn-chevron svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.65;
+}
+
+/* ── Inline History Accordion ── */
+.ytec-history-dropdown {
+  width: 100%;
+  margin-top: 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 400px;
+  animation: ytecFadeDown 0.15s ease-out;
+}
+
+.ytec-history-dropdown.is-hidden {
+  display: none !important;
+}
+
+.ytec-history-dropdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ytec-history-clear-btn {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.ytec-history-clear-btn:hover {
+  color: var(--color-red, #ff4d4f);
+  border-color: var(--color-red, #ff4d4f);
+}
+
+.ytec-history-dropdown-list {
+  overflow-y: auto;
+  max-height: 320px;
+  padding: 4px 0;
+}
+
+.ytec-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  border-bottom: 1px solid var(--background-modifier-border-subtle, rgba(255, 255, 255, 0.04));
+}
+
+.ytec-history-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ytec-history-thumb {
+  position: relative;
+  width: 48px;
+  height: 34px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--background-secondary-alt);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ytec-history-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ytec-history-thumb-dur {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 1px 3px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.ytec-history-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ytec-history-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ytec-history-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ytec-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ytec-history-btn-load,
+.ytec-history-btn-dl {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  transition: all 0.1s ease;
+}
+
+.ytec-history-btn-load:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.ytec-history-btn-dl:hover {
+  background: var(--color-green, #48c774);
+  color: #fff;
+  border-color: var(--color-green, #48c774);
+}
+
+.ytec-history-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
 .ytec-hero-meta.is-hidden {
   display: none;
 }

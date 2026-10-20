@@ -92,6 +92,7 @@ export interface YTCaptureSettings {
   ytCaptureEmbedWidth?: string;
   ytCaptureEmbedHeight?: string;
   instagramSessionId?: string;
+  recentFetches?: VideoPreview[];
 }
 
 export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
@@ -110,6 +111,7 @@ export const DEFAULT_YTCAPTURE_SETTINGS: YTCaptureSettings = {
   ytCaptureEmbedWidth: "100%",
   ytCaptureEmbedHeight: "520",
   instagramSessionId: "",
+  recentFetches: [],
 };
 
 // ── yt-dlp raw metadata shape ─────────────────────────────────────────────────

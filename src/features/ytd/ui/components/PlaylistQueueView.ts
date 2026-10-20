@@ -15,11 +15,26 @@ import {
 import { ScopedClipTrimmer, type ClipRange } from "./ScopedClipTrimmer";
 import { taskManager } from "../../utils/taskManager";
 
+export interface PlaylistQueueDownloadItem {
+  url: string;
+  title: string;
+  thumbnail: string;
+  channel: string;
+  quality: VideoQuality;
+  fps: VideoFps;
+  start: number;
+  end: number;
+  isFull: boolean;
+  folder: string;
+  duration: number;
+}
+
 export interface PlaylistQueueViewOptions {
   delta: PlaylistDeltaResult;
   targetFolder: string;
   onClose?: () => void;
   onSyncComplete?: (noteFile: TFile) => void;
+  onQueueDownload?: (item: PlaylistQueueDownloadItem) => void;
 }
 
 interface ItemQueueState {
@@ -410,39 +425,57 @@ export class PlaylistQueueView {
           reorderedCount = res.movedCount;
         }
 
-        // 2. Queue selected new downloads via taskManager
+        // 2. Queue selected new downloads via onQueueDownload or fallback
         const newSelected = this.queueStates.filter((s) => s.selected && s.item.status === "new");
         for (const q of newSelected) {
           const dur = typeof q.item.duration === "number" ? q.item.duration : 0;
-          const task: DownloadTask = {
-            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          const payload: PlaylistQueueDownloadItem = {
             url: q.item.url,
             title: q.item.title,
             channel: this.delta.channelTitle,
             thumbnail: q.item.thumbnailUrl,
-            platform: "youtube",
             quality: q.quality,
             fps: "auto",
-            timeRange: {
-              start: q.clipRange?.start || 0,
-              end: q.clipRange?.end || dur,
-              isFull: !q.clipRange || q.clipRange.isFull,
-            },
+            start: q.clipRange?.start || 0,
+            end: q.clipRange?.end || dur,
+            isFull: !q.clipRange || q.clipRange.isFull,
+            folder: folder,
             duration: dur,
-            status: "queued",
-            currentStep: "deps",
-            progress: {
-              percent: 0,
-              downloaded: "0 MB",
-              total: "0 MB",
-              speed: "0 MB/s",
-              eta: "--:--",
-              rawMsg: "Queued",
-            },
-            logs: [],
-            createdAt: Date.now(),
           };
-          taskManager.addTask(task);
+
+          if (this.options.onQueueDownload) {
+            this.options.onQueueDownload(payload);
+          } else {
+            const task: DownloadTask = {
+              id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              url: q.item.url,
+              title: q.item.title,
+              channel: this.delta.channelTitle,
+              thumbnail: q.item.thumbnailUrl,
+              platform: "youtube",
+              quality: q.quality,
+              fps: "auto",
+              timeRange: {
+                start: q.clipRange?.start || 0,
+                end: q.clipRange?.end || dur,
+                isFull: !q.clipRange || q.clipRange.isFull,
+              },
+              duration: dur,
+              status: "queued",
+              currentStep: "deps",
+              progress: {
+                percent: 0,
+                downloaded: "0 MB",
+                total: "0 MB",
+                speed: "0 MB/s",
+                eta: "--:--",
+                rawMsg: "Queued",
+              },
+              logs: [],
+              createdAt: Date.now(),
+            };
+            taskManager.addTask(task);
+          }
         }
 
         // 3. Generate or update Obsidian Markdown Note
@@ -461,6 +494,8 @@ export class PlaylistQueueView {
         new Notice(`Sync failed: ${err?.message || err}`);
       } finally {
         btnSync.disabled = false;
+        const count = this.queueStates.filter((s) => s.selected).length;
+        btnSync.setText(`⚡ Run Smart Sync (${count} New + ${this.delta.movedItems.length} Reordered)`);
       }
     });
 

@@ -57,7 +57,7 @@ export class PipelineRow {
       }
     });
 
-    // Progress stats when actively downloading
+    // Progress stats when actively downloading, queued, or preparing
     if (task.status === "downloading") {
       const statsEl = rowEl.createDiv({ cls: "ytec-pipeline-stats" });
       const percent = Math.min(100, Math.max(0, task.progress.percent || 0));
@@ -72,12 +72,35 @@ export class PipelineRow {
         cls: "ytec-pipeline-stats-text",
         text: `${percent.toFixed(0)}% · ${task.progress.speed || "--"} · ETA ${task.progress.eta || "--"}`,
       });
+    } else if (task.status === "queued") {
+      const statsEl = rowEl.createDiv({ cls: "ytec-pipeline-stats" });
+      statsEl.createSpan({
+        cls: "ytec-pipeline-stats-text ytec-queued-text",
+        text: `⏳ Queued · Waiting for download slot...`,
+      });
+    } else if (task.status === "fetching") {
+      const statsEl = rowEl.createDiv({ cls: "ytec-pipeline-stats" });
+      statsEl.createSpan({
+        cls: "ytec-pipeline-stats-text ytec-fetching-text",
+        text: `⚡ Fetching stream info...`,
+      });
+    } else if (task.status === "deps") {
+      const statsEl = rowEl.createDiv({ cls: "ytec-pipeline-stats" });
+      statsEl.createSpan({
+        cls: "ytec-pipeline-stats-text ytec-deps-text",
+        text: `🔧 Preparing downloader...`,
+      });
     }
 
     // Cancel and Retry Controls
     const actionsEl = rowEl.createDiv({ cls: "ytec-pipeline-actions" });
 
-    if (task.status === "downloading" || task.status === "fetching" || task.status === "deps") {
+    if (
+      task.status === "downloading" ||
+      task.status === "fetching" ||
+      task.status === "deps" ||
+      task.status === "queued"
+    ) {
       const cancelBtn = actionsEl.createEl("button", {
         cls: "ytec-pipeline-btn ytec-btn-cancel",
         text: "✕ Cancel",
@@ -121,6 +144,10 @@ export class PipelineRow {
 
     if (task.status === "done") {
       return "done";
+    }
+
+    if (task.status === "queued") {
+      return "pending";
     }
 
     if (task.currentStep === step) {
