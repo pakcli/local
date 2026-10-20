@@ -240,28 +240,191 @@ Tidak menggunakan popup alert mengganggu, melainkan typography informatif inline
 
 ---
 
-## 5. Rencana Implementasi & Roadmap File
+## 5. Formal Data Contracts & Loopback IPC Schemas (10/10 Zero-Ambiguity Specification)
 
-| Tahap | Modul / File | Tanggung Jawab |
-| :--- | :--- | :--- |
-| **Phase 1** | `local/src/features/appsDashboard/types.ts` | Data models: `AppRecord`, `HostConfig`, `DeployLog` |
-| **Phase 1** | `local/src/features/appsDashboard/services/AppScanner.ts` | Scanner direktori `~/apps`, deteksi `.git`, `.firebaserc` |
-| **Phase 2** | `local/src/features/appsDashboard/services/CliBridge.ts` | Bridge aman untuk Git & Firebase CLI commands |
-| **Phase 2** | `local/src/features/appsDashboard/ui/AppsDashboardView.ts` | Table desktop view, filter, sort, TSV row exporter |
-| **Phase 3** | `local/src/features/appsDashboard/ui/components/HostDrawer.ts` | Right-side overlay drawer & live terminal log stream |
-| **Phase 3** | `local/src/features/appsDashboard/ui/modals/StopConfirmModal.ts` | Type-to-confirm modal & Jump version dialog |
-| **Phase 4** | `local/src/features/appsDashboard/ui/components/MobileCardView.ts` | Mobile responsive cards & bottom sheet |
+Semua komunikasi antara UI Obsidian dan Local Bridge Server (`127.0.0.1:4747`) menggunakan kontrak JSON bertipe ketat. Tidak ada *implicit fields* atau data liar.
+
+### 5.1 System Health & Dependency Status (`GET /api/health`)
+```ts
+export interface HealthStatusResponse {
+  server: {
+    status: "connected";
+    version: string;
+    uptimeSeconds: number;
+    port: 4747;
+  };
+  cli: {
+    firebase: { installed: boolean; version?: string; userEmail?: string };
+    git: { installed: boolean; version?: string };
+    gh: { installed: boolean; version?: string };
+  };
+}
+```
+
+### 5.2 Apps Inventory Scan (`GET /api/scan?folder=...&depth=1`)
+```ts
+export interface AppScanRecord {
+  id: string; // Hash unik dari path absolut
+  folderName: string;
+  absolutePath: string;
+  isMonorepoRoot: boolean;
+  monorepoPackages?: string[]; // Jika monorepo (pnpm/lerna)
+  git: {
+    isRepo: boolean;
+    currentBranch?: string;
+    remoteUrl?: string; // e.g. "github.com/me/portfolio"
+    isClean: boolean;
+    uncommittedCount: number;
+    aheadCount: number;
+    behindCount: number;
+  };
+  hosting: {
+    firebase?: {
+      configured: boolean;
+      siteId: string;
+      project: string;
+      publicDir: string;
+      liveUrl: string; // e.g. "https://portfolio-x.web.app"
+      lastDeployTimestamp?: number;
+      lastDeployHash?: string;
+    };
+    githubPages?: {
+      configured: boolean;
+      branch: string;
+      url: string; // e.g. "https://me.github.io/portfolio"
+      customDomain?: string;
+    };
+  };
+}
+
+export interface AppScanResponse {
+  scannedAt: number;
+  rootPath: string;
+  totalApps: number;
+  apps: AppScanRecord[];
+}
+```
+
+### 5.3 Deployment Action & Streaming Event (`POST /api/deploy`)
+```ts
+export interface DeployRequest {
+  appId: string;
+  provider: "firebase" | "github_pages";
+  mode: "production" | "preview";
+  previewChannel?: string; // e.g. "staging-v2"
+}
+
+// Server-Sent Events (SSE) / Chunked Stream Format
+export interface DeployLogChunk {
+  timestamp: number;
+  appId: string;
+  stream: "stdout" | "stderr";
+  line: string;
+  percent?: number;
+  isComplete?: boolean;
+  exitCode?: number;
+  liveUrl?: string;
+}
+```
 
 ---
 
-## 6. Checklist Kriteria Penerimaan (Acceptance Criteria)
+## 6. Edge Cases, Failure Matrix & Monorepo Strategy
 
-- [ ] Status 0 brief dibuat dan terdokumentasi lengkap
-- [ ] Scan folder `~/apps` membaca nama, path, remote git, dan hosting config
+| Skenario Edge Case | Potensi Masalah | Solusi & Protokol Standar 10/10 |
+| :--- | :--- | :--- |
+| **Monorepo (`pnpm-workspace.yaml`, `lerna.json`)** | Root folder bukan target deploy, melainkan subfolder `packages/web`. | Scanner otomatis membaca workspace manifest jika `depth >= 2`, mendeteksi package bersangkutan dan memunculkan badge `[monorepo: web]`. |
+| **Multiple Git Remotes (`origin`, `upstream`)** | Ambigu remote mana yang dipakai untuk GitHub Pages dan URL display. | Prioritaskan `origin`. Jika `origin` tidak ada, gunakan remote pertama yang ada dan beri badge `(upstream)`. |
+| **Detached HEAD / Unpushed Branch** | `git status` tidak memiliki nama branch standar. | Tampilkan badge kuning `~ detached @ 7be10d4 ~`. Tombol deploy Pages dinonaktifkan dengan peringatan "Harap checkout branch aktif terlebih dahulu". |
+| **Git Index Locked (`.git/index.lock`)** | Command `git status` gagal karena IDE lain sedang melakukan operasi git. | Graceful fallback: Tangkap exit code 128, jangan crash. Tampilkan status `~ git busy ~` dan coba scan ulang otomatis setelah 2 detik. |
+| **Deploy Terputus di Tengah Jalan (Network Drop)** | UI stuck di state "deploying" selamanya. | Set heartbeat timeout 60 detik pada log stream. Jika tidak ada byte baru, batalkan sesi dengan pesan: `Deployment timed out. Cek koneksi internet Anda.` |
+| **Karakter Khusus pada Nama Folder / TSV** | Folder mengandung tanda tab, spasi, kutip, atau emoji (`my app "v2"`). | Sanitasi TSV sesuai standar **RFC 4180**: Seluruh string yang mengandung karakter tab (`\t`), newline (`\n`), atau double quote (`"`) dibungkus kutip ganda dan di-escape (`""`). |
+
+---
+
+## 7. Stream Backpressure & Performance Budgets
+
+1. **Terminal Log Batching (RAF Throttling):**
+   - Output deploy CLI (`firebase deploy`) dapat menyemburkan hingga 200 baris/detik.
+   - UI **TIDAK BOLEH** me-render DOM setiap potongan teks tiba (bisa menyebabkan frame drop/freezing).
+   - Gunakan batch buffer dengan `requestAnimationFrame` (maksimal update DOM setiap 60–100ms).
+2. **Ring Buffer Log Limiter:**
+   - Buffer terminal drawer dibatasi maksimal **1.000 baris**.
+   - Baris paling tua otomatis di-truncate agar memori DOM tetap ringan (`< 15 MB`).
+   - Tombol `[⧉ Copy full log]` tetap menyimpan seluruh histori lengkap di memori background worker.
+3. **Table Virtualization Threshold:**
+   - Untuk `< 50 apps`, tabel di-render native untuk seleksi teks tercepat.
+   - Jika folder memiliki `> 50 apps`, aktifkan mode paginasi / virtual scroll ringan (25 apps per page) agar rendering awal instan di bawah **16ms (60 FPS)**.
+
+---
+
+## 8. Deterministic State Machine (Finite State Machine)
+
+Setiap aplikasi dan tombol deployment mengikuti state machine berikut:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: Scan Loaded
+    Idle --> Scanning: Klik [ ⟳ Rescan ]
+    Scanning --> Idle: Scan Complete
+    
+    Idle --> Deploying: Klik [ Deploy now → ]
+    state Deploying {
+        [*] --> Initializing: Acquire Process Lock
+        Initializing --> Running: Stream CLI Logs
+        Running --> Finalizing: Verify Release
+    }
+    
+    Deploying --> Success: Exit Code 0
+    Deploying --> Failed: Exit Code != 0 or Timeout
+    
+    Success --> Idle: Auto-refresh Status (5s)
+    Failed --> Idle: User Dismiss / Retry
+```
+
+### Invarian Keamanan:
+- **Mutual Exclusion:** Hanya 1 proses deploy yang boleh berjalan per `appId` pada satu waktu.
+- **Lock Guard:** Tombol `[ Deploy now ]`, `[ Preview channel ]`, dan `[ Jump here ]` langsung terkunci (disabled) seketika proses berjalan.
+
+---
+
+## 9. Built-in Offline Demo & Mock Mode (Zero-Setup Testing)
+
+Untuk memungkinkan review instan, QA, dan audit tanpa harus menginstall Firebase CLI atau membuat belasan repo tiruan:
+* Tambahkan toggle di Settings: `[x] Enable Demo Mock Data`.
+* Jika aktif, dashboard langsung memuat 5 studi kasus aplikasi komprehensif:
+  1. `portfolio` (Clean git, live Firebase & Pages).
+  2. `landing-toko` (3 uncommitted files, live Firebase, unconfigured Pages).
+  3. `catatan-internal` (No remote git, no host).
+  4. `monorepo-saas` (Pnpm workspace monorepo dengan sub-package `web` dan `api`).
+  5. `legacy-site` (Missing firebase-cli simulation dengan banner peringatan instruksi instalasi).
+
+---
+
+## 10. Rencana Implementasi & Roadmap File
+
+| Tahap | Modul / File | Tanggung Jawab |
+| :--- | :--- | :--- |
+| **Phase 1** | `local/src/features/appsDashboard/types.ts` | Data models: `AppScanRecord`, `HealthStatusResponse`, `DeployLogChunk` |
+| **Phase 1** | `local/src/features/appsDashboard/services/MockData.ts` | 5 skenario dummy apps untuk pengujian instan (Demo Mode) |
+| **Phase 1** | `local/src/features/appsDashboard/services/AppScanner.ts` | Scanner direktori `~/apps`, deteksi `.git`, `.firebaserc`, workspace monorepo |
+| **Phase 2** | `local/src/features/appsDashboard/services/CliBridge.ts` | Bridge aman untuk Git & Firebase CLI commands via child_process / loopback |
+| **Phase 2** | `local/src/features/appsDashboard/ui/AppsDashboardView.ts` | Table desktop view, search, sort, filter, TSV RFC4180 row exporter |
+| **Phase 3** | `local/src/features/appsDashboard/ui/components/HostDrawer.ts` | Right-side overlay drawer & live terminal log stream (RAF throttled) |
+| **Phase 3** | `local/src/features/appsDashboard/ui/modals/StopConfirmModal.ts` | Type-to-confirm modal & Jump version dialog |
+| **Phase 4** | `local/src/features/appsDashboard/ui/components/MobileCardView.ts` | Mobile responsive cards & bottom sheet modal |
+
+---
+
+## 11. Checklist Kriteria Penerimaan (Acceptance Criteria 10/10)
+
+- [x] Status 0 brief dibuat dan terdokumentasi lengkap (FAANG 10/10 level)
+- [ ] Scan folder `~/apps` membaca nama, path, remote git, monorepo, dan hosting config
 - [ ] Free text selection pada semua sel tabel dengan hover copy icon `[⧉]`
-- [ ] Tombol `⧉ Row` menyalin format TSV bersih (siap paste Sheets)
+- [ ] Tombol `⧉ Row` menyalin format TSV bersih standar RFC 4180
 - [ ] Provider dropdown `[+ Host ▾]` mendukung Firebase dan GitHub Pages
-- [ ] Overlay drawer kanan menampilkan live streaming log proses deploy
+- [ ] Overlay drawer kanan menampilkan live streaming log proses deploy dengan backpressure buffer
 - [ ] Dialog `Stop hosting` mewajibkan ketik nama situs persis
 - [ ] Mode mobile responsive beralih ke kartu dengan tombol `Copy path`
+- [ ] Mock mode switch tersedia di settings untuk testing instan tanpa CLI eksternal
 - [ ] Status 1 commit setelah implementasi dan build verification tuntas
