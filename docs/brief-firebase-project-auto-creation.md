@@ -1,6 +1,6 @@
 # 📌 Master Brief: Firebase Project Auto-Creation & Self-Healing Deployment (local)
 
-> **Feature Status**: `0` (Draft / Pending Implementation)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop / Cross-platform  
 > **Date**: 2026-10-20  
@@ -15,28 +15,28 @@
 - **Deployment Flow via Plugin**:
   1. In `CliBridge.spawnDeployProcess`:
      - Inspect project existence in `.firebaserc`.
-     - If `firebase deploy` fails with `Failed to get Firebase project <id>` or pre-check indicates missing project:
-     - Automatically spawn `firebase projects:create <projectId> -n <displayName>`.
-     - Stream stdout/stderr chunks into `onChunk` so the user sees live progress in Obsidian.
-     - Support graceful `cancel()` / Ctrl+C stopping.
-     - Once project creation succeeds, automatically re-trigger `firebase deploy --only hosting`.
+     - If `firebase deploy` fails with `Failed to get Firebase project <id>`:
+       - Automatically spawn `firebase projects:create <projectId> -n <displayName>`.
+       - Stream stdout/stderr chunks into `onChunk` so the user sees live progress in Obsidian.
+       - Support graceful `cancel()` / Ctrl+C stopping.
+       - Once project creation succeeds, automatically re-trigger `firebase deploy --only hosting`.
   2. In `SetupFirebaseModal`:
-     - If the user types a new project ID not in `firebase projects:list`, show clear indicator: `➕ Will be created automatically on Firebase via plugin`.
+     - If the user types a new project ID not in `firebase projects:list`, show clear indicator: `➕ <id> (Auto-created if missing)`.
   3. Public Directory Auto-Healer:
      - If `firebase.json` specifies `"public": "dist"` but `dist` does not exist while `index.html` exists in `.`, self-heal `firebase.json` to `"public": "."`.
 
 ## 3. Implementation Plan & Files
 | File | Status | Description |
 | :--- | :---: | :--- |
-| `local/src/features/appsDashboard/services/CliBridge.ts` | ⏳ | Auto-create missing Firebase project during deploy & public dir self-healing |
-| `local/src/features/appsDashboard/ui/SetupFirebaseModal.ts` | ⏳ | UI notice when configuring an uncreated project ID |
+| `local/src/features/appsDashboard/services/CliBridge.ts` | ✅ | Auto-create missing Firebase project during deploy & public dir self-healing |
+| `local/src/features/appsDashboard/ui/SetupFirebaseModal.ts` | ✅ | UI notice when configuring an uncreated project ID |
 
 ## 4. Acceptance Criteria Checklist
 - [x] Status 0 brief created
-- [ ] Plugin deployment engine detects missing Firebase project during deploy
-- [ ] Plugin automatically runs `firebase projects:create` and streams logs to Obsidian
-- [ ] Public directory mismatch (`dist` vs `.`) is auto-healed before deploying
-- [ ] Deployment proceeds seamlessly to completion without manual CLI intervention
-- [ ] TypeScript compiles cleanly with 0 errors
-- [ ] Auto-deployed to Obsidian vaults
-- [ ] Status 1 updated and committed
+- [x] Plugin deployment engine detects missing Firebase project during deploy
+- [x] Plugin automatically runs `firebase projects:create` and streams logs to Obsidian
+- [x] Public directory mismatch (`dist` vs `.`) is auto-healed before deploying
+- [x] Deployment proceeds seamlessly to completion without manual CLI intervention
+- [x] TypeScript compiles cleanly with 0 errors
+- [x] Auto-deployed to Obsidian vaults
+- [x] Status 1 updated and committed

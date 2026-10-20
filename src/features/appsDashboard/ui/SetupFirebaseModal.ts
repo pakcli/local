@@ -13,6 +13,7 @@ export class SetupFirebaseModal extends BaseModal {
   private publicDir = ".";
   private projects: FirebaseProjectSummary[] = [];
   private isLoadingProjects = false;
+  private showCustomProjectInput = false;
   private fs = getNodeFs();
   private path = getNodePath();
 
@@ -101,28 +102,47 @@ export class SetupFirebaseModal extends BaseModal {
     // 2. Project Selection Setting
     const projSetting = new Setting(bodyEl)
       .setName("Firebase Project ID")
-      .setDesc("Select an existing project from your Firebase account or enter manually.");
+      .setDesc("Select an existing project from your Firebase account or enter a new one to auto-create.");
 
     if (this.isLoadingProjects) {
       projSetting.addText((t) => {
         t.setValue("Fetching projects from CLI...").setDisabled(true);
       });
-    } else if (this.projects.length > 0) {
+    } else if (this.projects.length > 0 && !this.showCustomProjectInput) {
       projSetting.addDropdown((drop) => {
+        const hasCurrent = this.projects.some((p) => p.projectId === this.selectedProject);
+        if (this.selectedProject && !hasCurrent) {
+          drop.addOption(this.selectedProject, `➕ ${this.selectedProject} (Auto-created if missing)`);
+        }
         for (const p of this.projects) {
           drop.addOption(p.projectId, `${p.displayName} (${p.projectId})`);
         }
-        drop.setValue(this.selectedProject);
+        drop.addOption("__custom__", "✏️ Enter custom / new project ID...");
+        drop.setValue(this.selectedProject || this.projects[0].projectId);
         drop.onChange((val) => {
-          this.selectedProject = val;
+          if (val === "__custom__") {
+            this.showCustomProjectInput = true;
+            this.renderBody(bodyEl);
+          } else {
+            this.selectedProject = val;
+            this.renderBody(bodyEl);
+          }
         });
       });
     } else {
       projSetting.addText((text) => {
-        text.setPlaceholder("e.g. pakcli").setValue(this.selectedProject).onChange((val) => {
+        text.setPlaceholder("e.g. radiansincostan").setValue(this.selectedProject).onChange((val) => {
           this.selectedProject = val.trim();
         });
       });
+      if (this.projects.length > 0) {
+        projSetting.addButton((btn) => {
+          btn.setButtonText("Select existing").onClick(() => {
+            this.showCustomProjectInput = false;
+            this.renderBody(bodyEl);
+          });
+        });
+      }
     }
 
     projSetting.addButton((btn) => {

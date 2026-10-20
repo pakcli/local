@@ -607,69 +607,191 @@ export class CliBridge {
       return { cancel: () => {} };
     }
 
-    let procCmd = "firebase";
-    let procArgs: string[] = [];
-
-    if (isGh) {
-      procCmd = "git";
-      procArgs = ["push", "origin", "HEAD:gh-pages", "--force"];
-    } else {
-      const isPreview = req.mode === "preview";
-      procArgs = isPreview
-        ? ["hosting:channel:deploy", req.previewChannel || "preview"]
-        : ["deploy", "--only", "hosting"];
+    // 1. Self-Healing: Check if firebase.json has public: "dist" but dist does not exist
+    if (!isGh && this.fs && this.path) {
+      try {
+        const fbJsonPath = this.path.join(appPath, "firebase.json");
+        if (this.fs.existsSync(fbJsonPath)) {
+          const cfg = JSON.parse(this.fs.readFileSync(fbJsonPath, "utf-8"));
+          const currentPub = cfg?.hosting?.public;
+          if (currentPub && currentPub !== ".") {
+            const pubDir = this.path.join(appPath, currentPub);
+            const rootIndex = this.path.join(appPath, "index.html");
+            if (!this.fs.existsSync(pubDir) && this.fs.existsSync(rootIndex)) {
+              cfg.hosting.public = ".";
+              this.fs.writeFileSync(fbJsonPath, JSON.stringify(cfg, null, 2), "utf-8");
+              onChunk({
+                timestamp: Date.now(),
+                appId: req.appId,
+                stream: "stdout",
+                line: `🔧 Self-Healing: Adjusted firebase.json 'public' from '${currentPub}' to '.' (root) because index.html is located in root.\n`,
+              });
+            }
+          }
+        }
+      } catch {}
     }
 
-    const proc = this.cp.spawn(procCmd, procArgs, {
-      cwd: appPath,
-      shell: true,
-    });
+    isCancelled = false;
+    let currentProc: any = null;
+    let hasAttemptedAutoCreate = false;
 
-    proc.stdout?.on("data", (data: any) => {
-      const text = data.toString();
-      onChunk({
-        timestamp: Date.now(),
-        appId: req.appId,
-        stream: "stdout",
-        line: text,
+    const executeDeploy = () => {
+      let procCmd = "firebase";
+      let procArgs: string[] = [];
+
+      if (isGh) {
+        procCmd = "git";
+        procArgs = ["push", "origin", "HEAD:gh-pages", "--force"];
+      } else {
+        const isPreview = req.mode === "preview";
+        procArgs = isPreview
+          ? ["hosting:channel:deploy", req.previewChannel || "preview"]
+          : ["deploy", "--only", "hosting"];
+      }
+
+      let detectedMissingProject = "";
+
+      const proc = this.cp.spawn(procCmd, procArgs, {
+        cwd: appPath,
+        shell: true,
       });
-    });
+      currentProc = proc;
 
-    proc.stderr?.on("data", (data: any) => {
-      const text = data.toString();
-      onChunk({
-        timestamp: Date.now(),
-        appId: req.appId,
-        stream: "stderr",
-        line: text,
+      proc.stdout?.on("data", (data: any) => {
+        onChunk({
+          timestamp: Date.now(),
+          appId: req.appId,
+          stream: "stdout",
+          line: data.toString(),
+        });
       });
 
-      if (text.includes("Failed to get Firebase project")) {
+      proc.stderr?.on("data", (data: any) => {
+        const text = data.toString();
         onChunk({
           timestamp: Date.now(),
           appId: req.appId,
           stream: "stderr",
-          line: `💡 Tip: Project '${req.appId}' does not exist on your Firebase account. Click [⚙️ Edit Config] in the Host Drawer to select a valid project (e.g. 'pakcli').`,
+          line: text,
         });
-      }
-    });
 
-    proc.on("close", (exitCode: number) => {
-      onChunk({
-        timestamp: Date.now(),
-        appId: req.appId,
-        stream: exitCode === 0 ? "stdout" : "stderr",
-        line: exitCode === 0 ? "✔ Deployment completed." : `Deployment failed with exit code ${exitCode}`,
-        isComplete: true,
-        exitCode,
+        const m = text.match(/Failed to get Firebase project\s+([^\s\r\n.]+)/i);
+        if (m && m[1]) {
+          detectedMissingProject = m[1].trim();
+        }
       });
-    });
+
+      proc.on("close", (exitCode: number) => {
+        if (isCancelled) {
+          onChunk({
+            timestamp: Date.now(),
+            appId: req.appId,
+            stream: "stderr",
+            line: "\n🛑 Deployment cancelled by user (Ctrl+C).",
+            isComplete: true,
+            exitCode: 1,
+          });
+          return;
+        }
+
+        // Auto-heal: If missing project detected on user's Firebase account, auto-create via Firebase CLI
+        if (exitCode !== 0 && detectedMissingProject && !hasAttemptedAutoCreate && !isGh) {
+          hasAttemptedAutoCreate = true;
+          onChunk({
+            timestamp: Date.now(),
+            appId: req.appId,
+            stream: "stdout",
+            line: `\n🚀 Detected missing Firebase project: '${detectedMissingProject}'.\n🔄 Auto-creating project on Firebase via plugin engine...\n> firebase projects:create ${detectedMissingProject} -n "${detectedMissingProject}"\n\n`,
+          });
+
+          const createProc = this.cp.spawn(
+            "firebase",
+            ["projects:create", detectedMissingProject, "-n", detectedMissingProject],
+            { cwd: appPath, shell: true }
+          );
+          currentProc = createProc;
+
+          createProc.stdout?.on("data", (d: any) => {
+            onChunk({
+              timestamp: Date.now(),
+              appId: req.appId,
+              stream: "stdout",
+              line: d.toString(),
+            });
+          });
+
+          createProc.stderr?.on("data", (d: any) => {
+            onChunk({
+              timestamp: Date.now(),
+              appId: req.appId,
+              stream: "stderr",
+              line: d.toString(),
+            });
+          });
+
+          createProc.on("close", (createCode: number) => {
+            if (isCancelled) return;
+            if (createCode === 0) {
+              onChunk({
+                timestamp: Date.now(),
+                appId: req.appId,
+                stream: "stdout",
+                line: `\n✔ Firebase project '${detectedMissingProject}' successfully created!\n🚀 Proceeding with deployment...\n\n`,
+              });
+              executeDeploy();
+            } else {
+              onChunk({
+                timestamp: Date.now(),
+                appId: req.appId,
+                stream: "stderr",
+                line: `\n❌ Failed to auto-create project '${detectedMissingProject}'. Exit code ${createCode}.\n💡 You can choose an existing project in [⚙️ Edit Config] or check your Google Cloud quota.\n`,
+                isComplete: true,
+                exitCode: createCode,
+              });
+            }
+          });
+
+          createProc.on("error", (err: any) => {
+            if (isCancelled) return;
+            onChunk({
+              timestamp: Date.now(),
+              appId: req.appId,
+              stream: "stderr",
+              line: `\n❌ Auto-create error: ${err.message || err}\n`,
+              isComplete: true,
+              exitCode: 1,
+            });
+          });
+
+          return;
+        }
+
+        onChunk({
+          timestamp: Date.now(),
+          appId: req.appId,
+          stream: exitCode === 0 ? "stdout" : "stderr",
+          line: exitCode === 0 ? "✔ Deployment completed." : `Deployment failed with exit code ${exitCode}`,
+          isComplete: true,
+          exitCode,
+        });
+      });
+    };
+
+    executeDeploy();
 
     return {
       cancel: () => {
         isCancelled = true;
         try {
-          proc.kill();
+          if (currentProc && currentProc.pid) {
+            const isWin = process.platform === "win32";
+            if (isWin) {
+              this.cp.exec(`taskkill /pid ${currentProc.pid} /t /f`, () => {});
+            } else {
+              currentProc.kill("SIGINT");
+            }
+          }
         } catch {}
       },
     };
