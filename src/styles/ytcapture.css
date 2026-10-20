@@ -1178,6 +1178,42 @@
   color: var(--text-normal);
 }
 
+.ytec-history-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 1px;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.ytec-mode-btn {
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  line-height: 1.2;
+}
+
+.ytec-mode-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.ytec-mode-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent, #fff);
+  font-weight: 600;
+}
+
 .ytec-history-clear-btn {
   padding: 2px 8px;
   font-size: 0.72rem;

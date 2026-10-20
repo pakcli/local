@@ -12,6 +12,8 @@ export interface DownloadHeroOptions {
   onDirectDownloadHistoryItem?: (preview: VideoPreview) => void;
   onSelectPlaylistHistoryItem?: (preview: VideoPreview) => void;
   onDirectDownloadPlaylistHistoryItem?: (preview: VideoPreview) => void;
+  initialViewMode?: "grouped" | "flat";
+  onViewModeChange?: (mode: "grouped" | "flat") => void;
   onClearHistory?: () => void;
 }
 
@@ -25,10 +27,12 @@ export class DownloadHero {
   private historyBtn!: HTMLButtonElement;
   private historyChevronEl!: HTMLElement;
   private isHistoryOpen = false;
+  private historyMode: "grouped" | "flat" = "grouped";
   private options: DownloadHeroOptions;
 
   constructor(parentEl: HTMLElement, options: DownloadHeroOptions = {}) {
     this.options = options;
+    this.historyMode = options.initialViewMode || "grouped";
 
     this.containerEl = parentEl.createDiv({ cls: "ytec-hero-container" });
     this.bgEl = this.containerEl.createDiv({ cls: "ytec-hero-bg" });
@@ -274,6 +278,39 @@ export class DownloadHero {
     const headerTitle = header.createSpan({ text: `🕒 Recent Fetches (${items.length})` });
     headerTitle.style.fontWeight = "600";
 
+    // View Mode Toggle (Grouped vs Flat)
+    const toggleWrap = header.createDiv({ cls: "ytec-history-mode-toggle" });
+
+    const groupedBtn = toggleWrap.createEl("button", {
+      cls: `ytec-mode-btn ${this.historyMode === "grouped" ? "is-active" : ""}`,
+      text: "📑 Grouped",
+      type: "button",
+      attr: { title: "Group playlists into expandable accordions (Default)" },
+    });
+    groupedBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.historyMode !== "grouped") {
+        this.historyMode = "grouped";
+        this.options.onViewModeChange?.("grouped");
+        this.renderHistoryDropdown();
+      }
+    });
+
+    const flatBtn = toggleWrap.createEl("button", {
+      cls: `ytec-mode-btn ${this.historyMode === "flat" ? "is-active" : ""}`,
+      text: "☰ Flat",
+      type: "button",
+      attr: { title: "Flat rows without accordion grouping" },
+    });
+    flatBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.historyMode !== "flat") {
+        this.historyMode = "flat";
+        this.options.onViewModeChange?.("flat");
+        this.renderHistoryDropdown();
+      }
+    });
+
     if (items.length > 0 && this.options.onClearHistory) {
       const clearBtn = header.createEl("button", {
         cls: "ytec-history-clear-btn",
@@ -298,8 +335,10 @@ export class DownloadHero {
       return;
     }
 
+    const isFlatMode = this.historyMode === "flat";
+
     for (const item of items) {
-      if (item.is_playlist && item.playlist_items && item.playlist_items.length > 0) {
+      if (!isFlatMode && item.is_playlist && item.playlist_items && item.playlist_items.length > 0) {
         // Grouped Accordion for Playlists
         const groupEl = listEl.createDiv({ cls: "ytec-history-group" });
         const groupHeader = groupEl.createDiv({ cls: "ytec-history-group-header" });
@@ -467,34 +506,45 @@ export class DownloadHero {
           });
         }
       } else {
-        // Standard single item row
+        // Standard single item row (or playlist in flat mode)
         const row = listEl.createDiv({ cls: "ytec-history-item" });
 
-        const thumbEl = row.createDiv({ cls: "ytec-history-thumb" });
+        const thumbEl = row.createDiv({
+          cls: `ytec-history-thumb ${item.is_playlist ? "ytec-history-thumb-playlist" : ""}`
+        });
         if (item.thumbnail) {
           const img = thumbEl.createEl("img", {
             attr: { src: item.thumbnail, referrerpolicy: "no-referrer" },
           });
           img.onerror = () => {
             img.style.display = "none";
-            setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
+            setIcon(thumbEl, item.is_playlist ? "list-video" : item.platform === "instagram" ? "camera" : "video");
           };
         } else {
-          setIcon(thumbEl, item.platform === "instagram" ? "camera" : "video");
+          setIcon(thumbEl, item.is_playlist ? "list-video" : item.platform === "instagram" ? "camera" : "video");
         }
 
-        if (item.duration > 0) {
+        if (item.is_playlist && item.playlist_items) {
+          thumbEl.createSpan({ cls: "ytec-history-thumb-dur", text: `${item.playlist_items.length} vids` });
+        } else if (item.duration > 0) {
           thumbEl.createSpan({ cls: "ytec-history-thumb-dur", text: formatTime(item.duration) });
         }
 
         const infoEl = row.createDiv({ cls: "ytec-history-info" });
-        const titleEl = infoEl.createSpan({ cls: "ytec-history-title", text: item.title || "Untitled Video" });
+        const titleText = item.is_playlist
+          ? `📑 ${item.title || "YouTube Playlist"} (${item.playlist_items?.length || 0} vids)`
+          : item.title || "Untitled Video";
+        const titleEl = infoEl.createSpan({ cls: "ytec-history-title", text: titleText });
         titleEl.title = item.title;
 
         const subEl = infoEl.createDiv({ cls: "ytec-history-sub" });
-        subEl.createSpan({
-          text: item.platform === "instagram" ? "📸 Instagram" : "🎬 YouTube",
-        });
+        if (item.is_playlist) {
+          subEl.createSpan({ text: `YouTube Playlist · ${item.playlist_items?.length || 0} items` });
+        } else {
+          subEl.createSpan({
+            text: item.platform === "instagram" ? "📸 Instagram" : "🎬 YouTube",
+          });
+        }
         if (item.channel) {
           subEl.createSpan({ text: `· ${item.channel}` });
         }
@@ -503,32 +553,44 @@ export class DownloadHero {
 
         const loadBtn = actionsEl.createEl("button", {
           cls: "ytec-history-btn-load",
-          text: "⚡ Load",
-          title: "Load into form (0s wait, no re-fetch)",
+          text: item.is_playlist ? "⚡ Load All" : "⚡ Load",
+          title: item.is_playlist ? "Load playlist queue into review (0s wait)" : "Load into form (0s wait, no re-fetch)",
           type: "button",
         });
         loadBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           this.closeHistoryDropdown();
-          this.options.onSelectHistoryItem?.(item);
+          if (item.is_playlist) {
+            this.options.onSelectPlaylistHistoryItem?.(item);
+          } else {
+            this.options.onSelectHistoryItem?.(item);
+          }
         });
 
         const dlBtn = actionsEl.createEl("button", {
           cls: "ytec-history-btn-dl",
-          text: "⬇ DL",
-          title: "Download immediately without fetch",
+          text: item.is_playlist ? "⬇ DL All" : "⬇ DL",
+          title: item.is_playlist ? "Download all videos in playlist sequentially" : "Download immediately without fetch",
           type: "button",
         });
         dlBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           this.closeHistoryDropdown();
-          this.options.onDirectDownloadHistoryItem?.(item);
+          if (item.is_playlist) {
+            this.options.onDirectDownloadPlaylistHistoryItem?.(item);
+          } else {
+            this.options.onDirectDownloadHistoryItem?.(item);
+          }
         });
 
         row.addEventListener("click", (e) => {
           if ((e.target as HTMLElement).closest(".ytec-history-actions")) return;
           this.closeHistoryDropdown();
-          this.options.onSelectHistoryItem?.(item);
+          if (item.is_playlist) {
+            this.options.onSelectPlaylistHistoryItem?.(item);
+          } else {
+            this.options.onSelectHistoryItem?.(item);
+          }
         });
       }
     }

@@ -224,6 +224,11 @@ export class YTDownloaderView extends ItemView {
         height: this.plugin.settings.ytCaptureEmbedHeight || "520",
       }),
       getHistoryItems: () => this.getCombinedHistoryItems(),
+      initialViewMode: this.plugin.settings.recentFetchesViewMode || "grouped",
+      onViewModeChange: (mode) => {
+        this.plugin.settings.recentFetchesViewMode = mode;
+        void this.plugin.saveSettings();
+      },
       onSelectHistoryItem: (preview) => this.loadPreviewFromHistory(preview),
       onDirectDownloadHistoryItem: (preview) => this.directDownloadFromHistory(preview),
       onSelectPlaylistHistoryItem: (preview) => {
