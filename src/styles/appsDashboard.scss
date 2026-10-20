@@ -416,10 +416,170 @@
 .pakcli-thumb-cell-wrap {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+}
 
-  .pakcli-thumb-icon {
-    font-size: 1.1rem;
-    cursor: default;
+/* Thumbnail Card (256px Height & Hover Overlay) */
+.pakcli-thumb-card {
+  position: relative;
+  width: 100%;
+  height: 256px;
+  min-height: 256px;
+  max-height: 256px;
+  border-radius: var(--radius-m, 6px);
+  overflow: hidden;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .pakcli-thumb-img {
+    width: 100%;
+    height: 256px;
+    object-fit: contain;
+    display: block;
+    background: transparent;
+  }
+
+  .pakcli-thumb-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+
+    .pakcli-placeholder-icon {
+      font-size: 1.8rem;
+    }
+  }
+
+  .pakcli-thumb-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  &:hover .pakcli-thumb-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .pakcli-thumb-center-top-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 4px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent, #fff);
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    margin-top: 4px;
+    transition: transform 0.15s ease, background 0.15s ease;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    &:hover {
+      transform: scale(1.04);
+      background: var(--interactive-accent-hover, var(--interactive-accent));
+    }
+  }
+
+  .pakcli-thumb-toggle-bar {
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    padding: 3px 4px;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+
+    .pakcli-thumb-mode-btn {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border: none;
+      border-radius: 3px;
+      background: transparent;
+      color: #e2e8f0;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+
+      &.is-active {
+        background: #ffffff;
+        color: #0f172a;
+        font-weight: 700;
+      }
+
+      &:hover:not(.is-active) {
+        background: rgba(255, 255, 255, 0.15);
+      }
+    }
+  }
+}
+
+.pakcli-btn-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--background-modifier-hover);
+    color: var(--interactive-accent);
+  }
+
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.pakcli-gh-preview-box {
+  font-size: 0.78rem;
+  background: var(--background-secondary);
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  margin-top: 8px;
+}
+
+.pakcli-check-status-row {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  padding-left: 2px;
+
+  &.is-success {
+    color: #48bb78;
+    font-weight: 500;
+  }
+
+  &.is-error {
+    color: #f56565;
+    font-weight: 500;
   }
 }
 

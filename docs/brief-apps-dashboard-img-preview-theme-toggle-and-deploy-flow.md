@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard Image Preview (256px), Theme Switcher, Git Init & Deployment Flow
 
-> **Feature Status**: `0` (Specification & Architecture)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop (Obsidian Desktop Plugin)  
 > **Date**: 2026-10-20  
@@ -10,11 +10,11 @@
 ## 1. Executive Summary & Problem Statement
 
 Berdasarkan hasil pengujian antarmuka dan *feedback* pengguna pada tangkapan layar `media_1792485974554_22b93804.png`:
-1. **Duplikasi Ikon Menu Hosting**: Menu dropdown `+ Host ▾` menampilkan ikon ganda (misal: ikon Obsidian flame + emoji `🔥 Firebase Hosting`, dan ikon github + emoji `🐙 GitHub Pages`). Ini terlihat redundant dan harus dibersihkan.
+1. **Duplikasi Ikon Menu Hosting**: Menu dropdown `+ Host ▾` menampilkan ikon ganda (misal: ikon Obsidian flame + emoji `🔥 Firebase Hosting`, dan ikon github + emoji `🐙 GitHub Pages`). Ini terlihat redundant dan telah dibersihkan.
 2. **Kebutuhan Pre-requisite GitHub Pages**: Untuk melakukan deployment atau inisialisasi **GitHub Pages**, aplikasi **wajib** memiliki remote Git terhubung terlebih dahulu (`app.git.remoteUrl`). Sedangkan untuk **Firebase Hosting**, remote Git tidak diwajibkan (bisa langsung deploy dari direktori publik lokal).
-3. **Saran Nama Remote Otomatis (Title Slug) & Validasi**: Saat inisialisasi / link remote GitHub, sistem harus memberikan *default suggestion* nama repositori berdasarkan **`title`** aplikasi yang telah di-slugify, dilengkapi tombol **`[ Check ]`** untuk validasi serta *textbox* yang dapat dikustomisasi secara bebas.
+3. **Saran Nama Remote Otomatis (Title Slug) & Validasi**: Saat inisialisasi / link remote GitHub, sistem memberikan *default suggestion* nama repositori berdasarkan **`title`** aplikasi yang telah di-slugify, dilengkapi tombol **`[ Check ]`** untuk validasi serta *textbox* yang dapat dikustomisasi secara bebas.
 4. **GitHub Pages Domain Prefix**: Menghasilkan dan menampilkan URL Pages berbasis prefix domain (contoh: `<prefix>.github.io/<repo>`).
-5. **Aksi Pembukaan Ganda**: Tombol aksi pada aplikasi harus mendukung:
+5. **Aksi Pembukaan Ganda**: Tombol aksi pada aplikasi mendukung:
    - **Open in Obsidian**: Membuka berkas HTML aplikasi langsung di dalam tab/leaf Obsidian.
    - **Open in Default Browser**: Membuka URL/berkas aplikasi di browser eksternal sistem operasi.
 6. **Kolom Image Preview 256px Aktif Secara Default**: Kolom `thumbnail` dimasukkan ke dalam `DEFAULT_VISIBLE_COLUMNS` dengan tinggi standar gambar **`256px`** (`object-fit: contain`).
@@ -23,7 +23,7 @@ Berdasarkan hasil pengujian antarmuka dan *feedback* pengguna pada tangkapan lay
    - Pada saat kursor *hover* di atas kartu gambar:
      - Area **Center Top**: Dapat diklik untuk langsung membuka HTML aplikasi di Obsidian.
      - Area **Bawah**: Menampilkan toggle tombol **`[ Light ]`** dan **`[ Dark ]`** untuk melihat pratinjau instan tampilan terang/gelap.
-8. **Sinkronisasi Markdown Metadata**: Menambahkan kolom referensi remote GitHub dan domain di berkas `index.md` aplikasi contoh (`radiansincostan`).
+8. **Sinkronisasi Markdown Metadata**: Menghilangkan `sector` dan `scope` (hanya `category` tunggal), serta merapikan format `tags` berbaris di berkas `index.md` aplikasi contoh (`radiansincostan`).
 
 ---
 
@@ -98,7 +98,7 @@ Ketika pengguna mengklik `+ Remote` atau saat GitHub Pages membutuhkan remote:
 
 ### 2.5 Aksi Terpadu: Open in Obsidian vs Open in Browser
 Pada kolom **Actions**:
-- Tombol **`[ 📖 App ]`** / **`[ 🌐 Obsidian ]`**: Membuka `index.html` menggunakan `workspace.openLinkText` atau `MarkdownView` / web leaf Obsidian.
+- Tombol **`[ 📖 App ]`**: Membuka `index.html` menggunakan `workspace.openLinkText` atau webview tab Obsidian.
 - Tombol **`[ ↗ Browser ]`**: Membuka via shell OS default browser (`window.open` atau `electron.shell.openExternal`).
 - Tombol **`[ 📂 Folder ]`**: Membuka direktori di OS file explorer.
 - Tombol **`[ ⧉ Row ]`**: Menyalin data baris sebagai TSV.
@@ -106,22 +106,20 @@ Pada kolom **Actions**:
 ---
 
 ### 2.6 Sinkronisasi Markdown Frontmatter (`radiansincostan/index.md`)
-Menambahkan metadata git dan domain ke `index.md`:
+Menghapus `sector` dan `scope`, memastikan hanya `category` dan `tags` berbaris:
 ```yaml
 ---
 title: 📐 Unit Circle Resolver
-sector: edu
 category: MATH & CANVAS
-scope: [edu]
-file-size: 6.8 KB
-tags: [SVG Arc, Math Engine, Zero-Backend]
+tags:
+  - SVG Arc
+  - Math Engine
+  - Zero-Backend
 overview: Interactive trigonometric unit circle calculator. Drag dynamic angle point to solve real-time sin, cos, and tan with exact radical fractions.
 badge: v2.4
 img: "[[img-lightmode.webp]], [[img-darkmode.webp]]"
-imgLight: img-lightmode.webp
-imgDark: img-darkmode.webp
-github: "https://github.com/fadhlisl/fadhlisl-my-id/blob/main/apps/radiansincostan/standalone.md"
-git-page: "fadhlisl.github.io"
+git-page: fadhlisl.github.io
+github: https://github.com/fadhlisl/fadhlisl-my-id/blob/main/apps/radiansincostan/standalone.md
 ---
 ```
 
@@ -129,13 +127,14 @@ git-page: "fadhlisl.github.io"
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Duplikasi ikon pada menu dropdown `+ Host ▾` dihilangkan (hanya satu ikon bersih per item).
-- [ ] **AC-2**: Dialog link remote memberikan saran nama repo default dari `title` yang di-slugify dan memiliki tombol `[ Check ]`.
-- [ ] **AC-3**: Alur GitHub Pages mewajibkan remote Git terlebih dahulu dan memicu dialog remote jika belum ada.
-- [ ] **AC-4**: Alur Firebase Hosting dapat berjalan mandiri tanpa mewajibkan remote Git.
-- [ ] **AC-5**: Kolom thumbnail tampil secara default dengan tinggi gambar tepat 256px.
-- [ ] **AC-6**: Thumbnail secara cerdas menampilkan versi Light/Dark sesuai tema aktif Obsidian.
-- [ ] **AC-7**: Hover pada thumbnail memunculkan overlay: tombol toggle Light/Dark di bawah dan area klik Center Top untuk membuka HTML di Obsidian.
-- [ ] **AC-8**: Tindakan membuka aplikasi menyediakan opsi `Open in Obsidian` dan `Open in Default Browser`.
-- [ ] **AC-9**: File `index.md` pada aplikasi `radiansincostan` diperbarui dengan kolom git & domain.
-- [ ] **AC-10**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+- [x] **AC-1**: Duplikasi ikon pada menu dropdown `+ Host ▾` dihilangkan (hanya satu ikon bersih per item).
+- [x] **AC-2**: Dialog link remote memberikan saran nama repo default dari `title` yang di-slugify dan memiliki tombol `[ Check ]`.
+- [x] **AC-3**: Alur GitHub Pages mewajibkan remote Git terlebih dahulu dan memicu dialog remote jika belum ada.
+- [x] **AC-4**: Alur Firebase Hosting dapat berjalan mandiri tanpa mewajibkan remote Git.
+- [x] **AC-5**: Kolom thumbnail tampil secara default dengan tinggi gambar tepat 256px.
+- [x] **AC-6**: Thumbnail secara cerdas menampilkan versi Light/Dark sesuai tema aktif Obsidian.
+- [x] **AC-7**: Hover pada thumbnail memunculkan overlay: tombol toggle Light/Dark di bawah dan tombol Center Top untuk membuka di Obsidian.
+- [x] **AC-8**: Tindakan membuka aplikasi menyediakan opsi `Open in Obsidian` dan `Open in Default Browser`.
+- [x] **AC-9**: File `index.md` pada aplikasi `radiansincostan` diperbarui (hanya category & tags berbaris, tanpa sector/scope).
+- [x] **AC-10**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+

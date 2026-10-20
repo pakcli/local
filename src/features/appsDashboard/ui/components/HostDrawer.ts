@@ -154,6 +154,10 @@ export class HostDrawer {
         text: "🐙 Setup GitHub Pages",
       });
       ghSetupBtn.addEventListener("click", async () => {
+        if (!app.git.remoteUrl) {
+          new Notice("⚠️ GitHub Pages requires a linked GitHub remote repository first.");
+          return;
+        }
         const res = await this.store.setupGitHubPagesForApp(app);
         new Notice(res.message);
         this.render(this.store.selectedApp || app);

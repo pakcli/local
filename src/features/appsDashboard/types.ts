@@ -43,6 +43,9 @@ export interface AppCatalogMeta {
   badge?: string;
   img?: string;
   thumbnail?: string;
+  imgLight?: string;
+  imgDark?: string;
+  gitPage?: string;
   linkLive?: string;
   linkPlayground?: string;
   linkGithub?: string;
@@ -118,6 +121,7 @@ export interface AppsDashboardSettings {
 
 export const DEFAULT_VISIBLE_COLUMNS: string[] = [
   "folderName",
+  "thumbnail",
   "path",
   "githubRepo",
   "staticHost",

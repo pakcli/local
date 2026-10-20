@@ -155,14 +155,34 @@ export class AppScanner {
           // Thumbnail / Img
           const imgMatch = fm.match(/^(?:img|thumbnail):\s*(.+)$/m);
           if (imgMatch) {
-            let rawImg = imgMatch[1].trim().replace(/^["']|["']$/g, "");
-            // If obsidian format [[img-lightmode.webp]], extract first file
-            const obsMatch = rawImg.match(/\[\[([^\]]+)\]\]/);
-            if (obsMatch && obsMatch[1]) {
-              rawImg = obsMatch[1].split(",")[0].trim();
+            const rawImg = imgMatch[1].trim().replace(/^["']|["']$/g, "");
+            const allWikilinks = Array.from(rawImg.matchAll(/\[\[([^\]]+)\]\]/g)).map((m) =>
+              m[1].split(",")[0].trim()
+            );
+            if (allWikilinks.length > 0) {
+              catalog.img = allWikilinks[0];
+              for (const w of allWikilinks) {
+                if (w.includes("light")) catalog.imgLight = w;
+                if (w.includes("dark")) catalog.imgDark = w;
+              }
+            } else {
+              catalog.img = rawImg;
             }
-            catalog.img = rawImg;
           }
+
+          // Explicit imgLight & imgDark
+          const lightMatch = fm.match(/^(?:imgLight|img-light):\s*(.+)$/m);
+          if (lightMatch) catalog.imgLight = lightMatch[1].trim().replace(/^["']|["']$/g, "");
+
+          const darkMatch = fm.match(/^(?:imgDark|img-dark):\s*(.+)$/m);
+          if (darkMatch) catalog.imgDark = darkMatch[1].trim().replace(/^["']|["']$/g, "");
+
+          // Git Page & GitHub Remote
+          const gitPageMatch = fm.match(/^(?:git-page|gitPage):\s*(.+)$/m);
+          if (gitPageMatch) catalog.gitPage = gitPageMatch[1].trim().replace(/^["']|["']$/g, "");
+
+          const githubMatch = fm.match(/^(?:github|linkGithub):\s*(.+)$/m);
+          if (githubMatch) catalog.linkGithub = githubMatch[1].trim().replace(/^["']|["']$/g, "");
 
           // Tags: supports BOTH multi-line list (- tag) AND inline array ([tag1, tag2])
           const tagsBlockMatch = fm.match(/^tags:\s*\r?\n((?:\s*-\s*.+\r?\n?)+)/m);
@@ -223,6 +243,23 @@ export class AppScanner {
     const htmlPlayground = this.path.join(appPath, "index_playground.html");
     if (this.fs.existsSync(htmlPlayground) && !catalog.linkPlayground) {
       catalog.linkPlayground = "index_playground.html";
+      found = true;
+    }
+
+    // 4. File-based image detection fallback
+    const lightFile = this.path.join(appPath, "img-lightmode.webp");
+    if (this.fs.existsSync(lightFile) && !catalog.imgLight) {
+      catalog.imgLight = "img-lightmode.webp";
+      found = true;
+    }
+    const darkFile = this.path.join(appPath, "img-darkmode.webp");
+    if (this.fs.existsSync(darkFile) && !catalog.imgDark) {
+      catalog.imgDark = "img-darkmode.webp";
+      found = true;
+    }
+    const defaultImgFile = this.path.join(appPath, "img.webp");
+    if (this.fs.existsSync(defaultImgFile) && !catalog.img) {
+      catalog.img = "img.webp";
       found = true;
     }
 

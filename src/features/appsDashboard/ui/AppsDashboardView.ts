@@ -16,31 +16,96 @@ import {
 import { getNodeChildProcess, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
 
 class LinkRemoteModal extends BaseModal {
-  private url = "";
+  private repoName = "";
+  private remoteUrl = "";
+  private prefix = "fadhlisl";
   private onConfirm: (url: string) => void;
+  private checkStatusEl?: HTMLElement;
 
-  constructor(app: App, defaultName: string, onConfirm: (url: string) => void) {
+  constructor(
+    app: App,
+    defaultTitle: string,
+    onConfirm: (url: string) => void,
+    existingPrefix?: string
+  ) {
     super(app, {
-      title: "Link GitHub Remote",
-      subtitle: `Connect "${defaultName}" to remote repository.`,
+      title: "Link GitHub Remote Repository",
+      subtitle: `Connect "${defaultTitle}" to remote repository.`,
       badgeText: "Git",
       badgeCls: "is-info",
-      width: "460px",
+      width: "500px",
     });
     this.onConfirm = onConfirm;
+    if (existingPrefix) this.prefix = existingPrefix;
+
+    // Clean slug from title
+    this.repoName = defaultTitle
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-");
+    this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
   }
 
   renderBody(bodyEl: HTMLElement): void {
     bodyEl.empty();
+
+    let urlInput: any;
+
+    // 1. Repo Name with Check Button
+    new Setting(bodyEl)
+      .setName("Repository Name")
+      .setDesc("Default suggestion from title. Click [ Check ] to validate.")
+      .addText((text) => {
+        text.setValue(this.repoName).onChange((val) => {
+          this.repoName = val.trim();
+          this.remoteUrl = `https://github.com/${this.prefix}/${this.repoName}.git`;
+          if (urlInput) urlInput.setValue(this.remoteUrl);
+        });
+        text.inputEl.style.width = "180px";
+      })
+      .addButton((btn) => {
+        btn.setButtonText("Check").onClick(() => {
+          this.validateRepoName();
+        });
+      });
+
+    this.checkStatusEl = bodyEl.createDiv({ cls: "pakcli-check-status-row text-muted" });
+
+    // 2. Full Remote URL
     new Setting(bodyEl)
       .setName("Remote Origin URL")
-      .setDesc("e.g. https://github.com/username/my-app.git")
+      .setDesc("Full Git remote URL that will be configured as 'origin'.")
       .addText((text) => {
-        text.setPlaceholder("https://github.com/...").onChange((val) => {
-          this.url = val.trim();
+        urlInput = text;
+        text.setValue(this.remoteUrl).onChange((val) => {
+          this.remoteUrl = val.trim();
         });
         text.inputEl.style.width = "260px";
       });
+
+    // 3. GitHub Pages Domain Preview
+    const previewBox = bodyEl.createDiv({ cls: "pakcli-gh-preview-box" });
+    previewBox.createSpan({ cls: "text-muted", text: "GitHub Pages domain: " });
+    previewBox.createEl("strong", { text: `https://${this.prefix}.github.io/${this.repoName}` });
+  }
+
+  private validateRepoName() {
+    if (!this.checkStatusEl) return;
+    this.checkStatusEl.empty();
+    if (!this.repoName) {
+      this.checkStatusEl.setText("❌ Repo name cannot be empty.");
+      this.checkStatusEl.className = "pakcli-check-status-row is-error";
+      return;
+    }
+    const isValidSlug = /^[a-zA-Z0-9_-]+$/.test(this.repoName);
+    if (!isValidSlug) {
+      this.checkStatusEl.setText("❌ Invalid characters. Use alphanumeric, dashes, or underscores.");
+      this.checkStatusEl.className = "pakcli-check-status-row is-error";
+      return;
+    }
+    this.checkStatusEl.setText(`✔ Valid name format: "${this.repoName}". Ready to link.`);
+    this.checkStatusEl.className = "pakcli-check-status-row is-success";
   }
 
   renderFooter(footerEl: HTMLElement): void {
@@ -56,11 +121,11 @@ class LinkRemoteModal extends BaseModal {
       text: "Link Remote",
     });
     confirmBtn.addEventListener("click", () => {
-      if (!this.url) {
+      if (!this.remoteUrl) {
         new Notice("Please enter a valid remote URL");
         return;
       }
-      this.onConfirm(this.url);
+      this.onConfirm(this.remoteUrl);
       this.close();
     });
   }
@@ -307,7 +372,8 @@ export class AppsDashboardView extends ItemView {
             });
             linkBtn.addEventListener("click", (e) => {
               e.stopPropagation();
-              new LinkRemoteModal(this.app, app.folderName, async (url) => {
+              const defaultTitle = app.catalog?.title || app.folderName;
+              new LinkRemoteModal(this.app, defaultTitle, async (url) => {
                 const res = await this.store.linkRemoteForApp(app, url);
                 new Notice(res.message);
               }).open();
@@ -520,18 +586,90 @@ export class AppsDashboardView extends ItemView {
       },
       {
         key: "thumbnail",
-        title: "Thumb",
-        width: "80px",
+        title: "Preview",
+        width: "280px",
         render: (app) => {
-          const wrap = createDiv({ cls: "pakcli-thumb-cell-wrap" });
-          const img = app.catalog?.img || app.catalog?.thumbnail;
-          if (img) {
-            const thumb = wrap.createSpan({ cls: "pakcli-thumb-icon", text: "🖼" });
-            thumb.title = img;
-          } else {
-            wrap.createSpan({ cls: "text-muted", text: "-" });
-          }
-          return wrap;
+          const card = createDiv({ cls: "pakcli-thumb-card" });
+
+          const isDark = document.body.classList.contains("theme-dark");
+          let currentMode: "light" | "dark" = isDark ? "dark" : "light";
+
+          const lightImgName = app.catalog?.imgLight || app.catalog?.img || "img-lightmode.webp";
+          const darkImgName = app.catalog?.imgDark || app.catalog?.img || "img-darkmode.webp";
+
+          const resolveImgUri = (fileName: string) => {
+            if (!fileName) return "";
+            if (fileName.startsWith("http://") || fileName.startsWith("https://")) return fileName;
+            const fullPath = this.path?.isAbsolute(fileName)
+              ? fileName
+              : this.path?.join(app.absolutePath, fileName) || fileName;
+            const normalized = fullPath.replace(/\\/g, "/");
+            return `app://local/${normalized.startsWith("/") ? normalized.slice(1) : normalized}`;
+          };
+
+          const imgEl = card.createEl("img", {
+            cls: "pakcli-thumb-img",
+            attr: {
+              src: resolveImgUri(currentMode === "dark" ? darkImgName : lightImgName),
+              alt: app.catalog?.title || app.folderName,
+            },
+          });
+
+          imgEl.onerror = () => {
+            imgEl.style.display = "none";
+            const placeholder = card.createDiv({ cls: "pakcli-thumb-placeholder" });
+            placeholder.createSpan({ cls: "pakcli-placeholder-icon", text: "🖼" });
+            placeholder.createSpan({ cls: "text-muted", text: "No preview image" });
+          };
+
+          // Overlay (Hover controls)
+          const overlay = card.createDiv({ cls: "pakcli-thumb-overlay" });
+
+          // 1. Center Top Button: Open HTML in Obsidian
+          const centerTopBtn = overlay.createEl("button", {
+            cls: "pakcli-thumb-center-top-btn",
+            attr: { type: "button", title: "Open HTML inside Obsidian" },
+          });
+          const iconSpan = centerTopBtn.createSpan();
+          setIcon(iconSpan, "layout");
+          centerTopBtn.createSpan({ text: "Open in Obsidian" });
+          centerTopBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.openHtmlInObsidian(app);
+          });
+
+          // 2. Bottom Theme Switcher Bar
+          const toggleBar = overlay.createDiv({ cls: "pakcli-thumb-toggle-bar" });
+
+          const lightBtn = toggleBar.createEl("button", {
+            cls: `pakcli-thumb-mode-btn ${currentMode === "light" ? "is-active" : ""}`,
+            text: "☀️ Light",
+            attr: { type: "button", title: "Preview light mode" },
+          });
+          lightBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            currentMode = "light";
+            imgEl.src = resolveImgUri(lightImgName);
+            imgEl.style.display = "block";
+            lightBtn.addClass("is-active");
+            darkBtn.removeClass("is-active");
+          });
+
+          const darkBtn = toggleBar.createEl("button", {
+            cls: `pakcli-thumb-mode-btn ${currentMode === "dark" ? "is-active" : ""}`,
+            text: "🌙 Dark",
+            attr: { type: "button", title: "Preview dark mode" },
+          });
+          darkBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            currentMode = "dark";
+            imgEl.src = resolveImgUri(darkImgName);
+            imgEl.style.display = "block";
+            darkBtn.addClass("is-active");
+            lightBtn.removeClass("is-active");
+          });
+
+          return card;
         },
       },
       {
@@ -554,8 +692,7 @@ export class AppsDashboardView extends ItemView {
               if (link.startsWith("http://") || link.startsWith("https://")) {
                 window.open(link, "_blank");
               } else {
-                const target = this.path?.join(app.absolutePath, link) || app.absolutePath;
-                this.openInOsExplorer(target);
+                this.openHtmlInObsidian(app);
               }
             });
           } else {
@@ -567,15 +704,37 @@ export class AppsDashboardView extends ItemView {
       {
         key: "actions",
         title: "Actions",
-        width: "190px",
+        width: "250px",
         align: "right",
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-row-action-wrap" });
 
-          // 1. Open Folder button
+          // 1. Open HTML inside Obsidian
+          const openObsidianBtn = wrap.createEl("button", {
+            cls: "pakcli-btn-action-icon clickable-icon",
+            attr: { type: "button", title: "Open HTML inside Obsidian" },
+          });
+          setIcon(openObsidianBtn, "layout");
+          openObsidianBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.openHtmlInObsidian(app);
+          });
+
+          // 2. Open in Default Browser
+          const openBrowserBtn = wrap.createEl("button", {
+            cls: "pakcli-btn-action-icon clickable-icon",
+            attr: { type: "button", title: "Open in default browser" },
+          });
+          setIcon(openBrowserBtn, "external-link");
+          openBrowserBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.openInDefaultBrowser(app);
+          });
+
+          // 3. Open Folder button
           const openFolderBtn = wrap.createEl("button", {
             cls: "pakcli-btn-open-folder",
-            text: "Open folder →",
+            text: "Folder →",
             attr: { type: "button", title: "Open in file explorer" },
           });
           openFolderBtn.addEventListener("click", (e) => {
@@ -583,7 +742,7 @@ export class AppsDashboardView extends ItemView {
             this.openInOsExplorer(app.absolutePath);
           });
 
-          // 2. Row TSV Copy button (merged cleanly into this single action column)
+          // 4. Row TSV Copy button
           new CopyButton(wrap, {
             text: () => this.generateRowTsv(app),
             label: "Row",
@@ -596,6 +755,46 @@ export class AppsDashboardView extends ItemView {
         },
       },
     ];
+  }
+
+  private openHtmlInObsidian(app: AppScanRecord) {
+    const htmlFileName = app.catalog?.linkLive || "index.html";
+    const fullHtmlPath = this.path?.join(app.absolutePath, htmlFileName) || app.absolutePath;
+
+    // Check if inside vault
+    const adapter = this.app.vault.adapter as any;
+    const vaultRoot = adapter?.getBasePath?.() || adapter?.basePath || "";
+    let relativeVaultPath = fullHtmlPath;
+    if (vaultRoot && fullHtmlPath.startsWith(vaultRoot)) {
+      relativeVaultPath = fullHtmlPath.slice(vaultRoot.length).replace(/^[\\\/]/, "").replace(/\\/g, "/");
+    }
+
+    const tfile = this.app.vault.getAbstractFileByPath(relativeVaultPath);
+    if (tfile) {
+      void this.app.workspace.openLinkText(tfile.path, "", false);
+      new Notice(`Opened ${htmlFileName} in Obsidian.`);
+    } else {
+      window.open(`file:///${fullHtmlPath.replace(/\\/g, "/")}`, "_blank");
+    }
+  }
+
+  private openInDefaultBrowser(app: AppScanRecord) {
+    const liveUrl =
+      app.hosting.firebase?.liveUrl ||
+      app.hosting.githubPages?.url ||
+      app.catalog?.linkLive;
+
+    if (liveUrl && (liveUrl.startsWith("http://") || liveUrl.startsWith("https://"))) {
+      window.open(liveUrl, "_blank");
+      return;
+    }
+
+    const fullHtmlPath = this.path?.join(app.absolutePath, "index.html") || app.absolutePath;
+    if ((window as any).electron?.shell?.openExternal) {
+      (window as any).electron.shell.openExternal(`file:///${fullHtmlPath.replace(/\\/g, "/")}`);
+    } else {
+      window.open(`file:///${fullHtmlPath.replace(/\\/g, "/")}`, "_blank");
+    }
   }
 
   private generateRowTsv(app: AppScanRecord): string {
@@ -619,10 +818,34 @@ export class AppsDashboardView extends ItemView {
     return values.join("\t");
   }
 
+  private handleSetupGitHubPages(app: AppScanRecord) {
+    if (!app.git.remoteUrl) {
+      new Notice("⚠️ GitHub Pages requires a linked GitHub remote repository first.");
+      const defaultTitle = app.catalog?.title || app.folderName;
+      new LinkRemoteModal(this.app, defaultTitle, async (url) => {
+        const res = await this.store.linkRemoteForApp(app, url);
+        new Notice(res.message);
+        const ghRes = await this.store.setupGitHubPagesForApp(app);
+        new Notice(ghRes.message);
+        this.store.selectApp(app);
+        this.hostDrawer.open(app);
+      }).open();
+      return;
+    }
+
+    void (async () => {
+      const res = await this.store.setupGitHubPagesForApp(app);
+      new Notice(res.message);
+      this.store.selectApp(app);
+      this.hostDrawer.open(app);
+    })();
+  }
+
   private openHostProviderMenu(e: MouseEvent, app: AppScanRecord) {
     const menu = new Menu();
     menu.addItem((item) => {
-      item.setTitle("🔥 Firebase Hosting").setIcon("flame").onClick(async () => {
+      // Clean title, no duplicate emoji
+      item.setTitle("Firebase Hosting").setIcon("flame").onClick(async () => {
         const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
         const res = await this.store.setupFirebaseForApp(app, siteId, "dist");
         new Notice(res.message);
@@ -631,11 +854,9 @@ export class AppsDashboardView extends ItemView {
       });
     });
     menu.addItem((item) => {
-      item.setTitle("🐙 GitHub Pages").setIcon("github").onClick(async () => {
-        const res = await this.store.setupGitHubPagesForApp(app);
-        new Notice(res.message);
-        this.store.selectApp(app);
-        this.hostDrawer.open(app);
+      // Clean title, no duplicate emoji
+      item.setTitle("GitHub Pages").setIcon("github").onClick(() => {
+        this.handleSetupGitHubPages(app);
       });
     });
     menu.showAtMouseEvent(e);
