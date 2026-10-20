@@ -1,9 +1,11 @@
-import { getNodeChildProcess } from "../../../utils/nodeHelpers";
+import { getNodeChildProcess, getNodeFs, getNodePath } from "../../../utils/nodeHelpers";
 import type { HealthStatusResponse, DeployRequest, DeployLogChunk, GitCommitRecord } from "../types";
 import { MOCK_HEALTH_STATUS, MOCK_COMMITS } from "./MockData";
 
 export class CliBridge {
   private cp = getNodeChildProcess();
+  private fs = getNodeFs();
+  private path = getNodePath();
 
   public async checkHealth(isDemoMode = false): Promise<HealthStatusResponse> {
     if (isDemoMode) {
@@ -75,6 +77,131 @@ export class CliBridge {
     }
   }
 
+  public async initGitRepo(appPath: string): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) {
+      return { success: false, message: "Node child_process API not available." };
+    }
+
+    try {
+      // 1. git init
+      await this.execAsync("git init", appPath);
+
+      // 2. create .gitignore if not present
+      if (this.fs && this.path) {
+        const gitignorePath = this.path.join(appPath, ".gitignore");
+        if (!this.fs.existsSync(gitignorePath)) {
+          const defaultIgnore = [
+            "node_modules/",
+            "dist/",
+            ".DS_Store",
+            "Thumbs.db",
+            "*.log",
+            ".env",
+            ".cache/",
+          ].join("\n");
+          this.fs.writeFileSync(gitignorePath, defaultIgnore, "utf8");
+        }
+      }
+
+      // 3. git add & initial commit
+      await this.execAsync("git add -A", appPath);
+      try {
+        await this.execAsync('git commit -m "chore: initial release (status 1)"', appPath);
+      } catch (commitErr: any) {
+        // If nothing to commit, continue
+        console.warn("[CliBridge] git commit notice:", commitErr?.message);
+      }
+
+      // 4. Ensure branch is main
+      try {
+        await this.execAsync("git branch -M main", appPath);
+      } catch {}
+
+      return { success: true, message: "Git repository initialized successfully with initial commit." };
+    } catch (err: any) {
+      return { success: false, message: `Failed to initialize git repository: ${err?.message || err}` };
+    }
+  }
+
+  public async linkGitHubRemote(
+    appPath: string,
+    remoteUrl: string
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) {
+      return { success: false, message: "Node child_process API not available." };
+    }
+
+    try {
+      const cleanUrl = remoteUrl.trim();
+      // Remove existing origin if any
+      try {
+        await this.execAsync("git remote remove origin", appPath);
+      } catch {}
+
+      await this.execAsync(`git remote add origin "${cleanUrl}"`, appPath);
+      return { success: true, message: `Remote origin set to ${cleanUrl}` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to link remote: ${err?.message || err}` };
+    }
+  }
+
+  public async setupFirebaseHosting(
+    appPath: string,
+    siteId: string,
+    publicDir = "dist"
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.fs || !this.path) {
+      return { success: false, message: "Node filesystem API not available." };
+    }
+
+    try {
+      const firebaseJsonPath = this.path.join(appPath, "firebase.json");
+      if (!this.fs.existsSync(firebaseJsonPath)) {
+        const config = {
+          hosting: {
+            public: publicDir,
+            ignore: ["firebase.json", "**/.*", "**/node_modules/**"],
+          },
+        };
+        this.fs.writeFileSync(firebaseJsonPath, JSON.stringify(config, null, 2), "utf8");
+      }
+
+      const firebasercPath = this.path.join(appPath, ".firebaserc");
+      if (!this.fs.existsSync(firebasercPath)) {
+        const rc = {
+          projects: {
+            default: siteId,
+          },
+        };
+        this.fs.writeFileSync(firebasercPath, JSON.stringify(rc, null, 2), "utf8");
+      }
+
+      return { success: true, message: `Firebase hosting configured for site: ${siteId}` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to setup Firebase config: ${err?.message || err}` };
+    }
+  }
+
+  public async setupGitHubPages(
+    appPath: string,
+    branch = "gh-pages"
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) {
+      return { success: false, message: "Node child_process API not available." };
+    }
+
+    try {
+      // Check if branch exists
+      const branches = await this.execAsync("git branch --list", appPath);
+      if (!branches.includes(branch)) {
+        await this.execAsync(`git branch ${branch}`, appPath);
+      }
+      return { success: true, message: `GitHub Pages branch '${branch}' prepared.` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to prepare Pages branch: ${err?.message || err}` };
+    }
+  }
+
   public streamDeploy(
     req: DeployRequest,
     appPath: string,
@@ -82,20 +209,32 @@ export class CliBridge {
     onChunk: (chunk: DeployLogChunk) => void
   ): { cancel: () => void } {
     let isCancelled = false;
+    const isGh = req.provider === "github_pages";
 
     if (isDemoMode) {
       // Simulate realistic streaming deploy
-      const mockLines = [
-        `=== Deploying to '${req.appId}'...`,
-        "i  hosting: checking build directory and files...",
-        `✔  hosting: found target public directory`,
-        "i  hosting: beginning upload [====================] 100%",
-        "✔  hosting: upload complete!",
-        "i  hosting: releasing new version...",
-        "✔  Deploy complete!",
-        `\nProject Console: https://console.firebase.google.com/project/${req.appId}/overview`,
-        `Hosting URL: https://${req.appId}.web.app`,
-      ];
+      const mockLines = isGh
+        ? [
+            `=== Deploying to GitHub Pages (${req.appId})...`,
+            "i  git: checking working tree status...",
+            "✔  git: working tree clean (0 uncommitted)",
+            "i  git: pushing HEAD to origin/gh-pages...",
+            "✔  git: branch gh-pages updated successfully!",
+            "i  pages: triggering GitHub Pages static build...",
+            "✔  Deploy complete!",
+            `Hosting URL: https://${req.appId}.github.io`,
+          ]
+        : [
+            `=== Deploying to '${req.appId}'...`,
+            "i  hosting: checking build directory and files...",
+            `✔  hosting: found target public directory`,
+            "i  hosting: beginning upload [====================] 100%",
+            "✔  hosting: upload complete!",
+            "i  hosting: releasing new version...",
+            "✔  Deploy complete!",
+            `\nProject Console: https://console.firebase.google.com/project/${req.appId}/overview`,
+            `Hosting URL: https://${req.appId}.web.app`,
+          ];
 
       let idx = 0;
       const interval = setInterval(() => {
@@ -109,7 +248,9 @@ export class CliBridge {
               line: "✔ Process finished successfully.",
               isComplete: true,
               exitCode: 0,
-              liveUrl: `https://${req.appId}.web.app`,
+              liveUrl: isGh
+                ? `https://${req.appId}.github.io`
+                : `https://${req.appId}.web.app`,
             });
           }
           return;
@@ -145,12 +286,20 @@ export class CliBridge {
       return { cancel: () => {} };
     }
 
-    const isPreview = req.mode === "preview";
-    const args = isPreview
-      ? ["hosting:channel:deploy", req.previewChannel || "preview"]
-      : ["deploy", "--only", "hosting"];
+    let procCmd = "firebase";
+    let procArgs: string[] = [];
 
-    const proc = this.cp.spawn("firebase", args, {
+    if (isGh) {
+      procCmd = "git";
+      procArgs = ["push", "origin", "HEAD:gh-pages", "--force"];
+    } else {
+      const isPreview = req.mode === "preview";
+      procArgs = isPreview
+        ? ["hosting:channel:deploy", req.previewChannel || "preview"]
+        : ["deploy", "--only", "hosting"];
+    }
+
+    const proc = this.cp.spawn(procCmd, procArgs, {
       cwd: appPath,
       shell: true,
     });

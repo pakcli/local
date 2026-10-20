@@ -189,6 +189,47 @@ export class AppDashboardStore {
     this.notify();
   }
 
+  public async initGitForApp(app: AppScanRecord): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.initGitRepo(app.absolutePath);
+    if (res.success) {
+      await this.rescan();
+    }
+    return res;
+  }
+
+  public async linkRemoteForApp(
+    app: AppScanRecord,
+    remoteUrl: string
+  ): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.linkGitHubRemote(app.absolutePath, remoteUrl);
+    if (res.success) {
+      await this.rescan();
+    }
+    return res;
+  }
+
+  public async setupFirebaseForApp(
+    app: AppScanRecord,
+    siteId: string,
+    publicDir?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.setupFirebaseHosting(app.absolutePath, siteId, publicDir);
+    if (res.success) {
+      await this.rescan();
+    }
+    return res;
+  }
+
+  public async setupGitHubPagesForApp(
+    app: AppScanRecord
+  ): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.setupGitHubPages(app.absolutePath);
+    if (res.success) {
+      await this.rescan();
+    }
+    return res;
+  }
+
   public async getHistoryForSelectedApp() {
     if (!this.selectedApp) return [];
     return this.bridge.getGitHistory(this.selectedApp.absolutePath, this.settings.demoMode);

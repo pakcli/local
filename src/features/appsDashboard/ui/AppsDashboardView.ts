@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Notice, Menu } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Notice, Menu, Setting, App } from "obsidian";
 import type { AppScanRecord } from "../types";
 import { ALL_AVAILABLE_COLUMNS, DEFAULT_VISIBLE_COLUMNS } from "../types";
 import { AppDashboardStore } from "../store/AppDashboardStore";
@@ -10,9 +10,61 @@ import {
   SearchFilterBar,
   ConfirmModal,
   CopyButton,
+  BaseModal,
   type ColumnDef,
 } from "../../../uiComponents";
 import { getNodeChildProcess, getNodeOs, getNodePath } from "../../../utils/nodeHelpers";
+
+class LinkRemoteModal extends BaseModal {
+  private url = "";
+  private onConfirm: (url: string) => void;
+
+  constructor(app: App, defaultName: string, onConfirm: (url: string) => void) {
+    super(app, {
+      title: "Link GitHub Remote",
+      subtitle: `Connect "${defaultName}" to remote repository.`,
+      badgeText: "Git",
+      badgeCls: "is-info",
+      width: "460px",
+    });
+    this.onConfirm = onConfirm;
+  }
+
+  renderBody(bodyEl: HTMLElement): void {
+    bodyEl.empty();
+    new Setting(bodyEl)
+      .setName("Remote Origin URL")
+      .setDesc("e.g. https://github.com/username/my-app.git")
+      .addText((text) => {
+        text.setPlaceholder("https://github.com/...").onChange((val) => {
+          this.url = val.trim();
+        });
+        text.inputEl.style.width = "260px";
+      });
+  }
+
+  renderFooter(footerEl: HTMLElement): void {
+    footerEl.empty();
+    const cancelBtn = footerEl.createEl("button", {
+      cls: "pakcli-btn-secondary",
+      text: "Cancel",
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    const confirmBtn = footerEl.createEl("button", {
+      cls: "mod-cta pakcli-btn-primary",
+      text: "Link Remote",
+    });
+    confirmBtn.addEventListener("click", () => {
+      if (!this.url) {
+        new Notice("Please enter a valid remote URL");
+        return;
+      }
+      this.onConfirm(this.url);
+      this.close();
+    });
+  }
+}
 
 export const APPS_DASHBOARD_VIEW_TYPE = "pakcli-apps-dashboard-view";
 
@@ -224,9 +276,11 @@ export class AppsDashboardView extends ItemView {
         width: "220px",
         copyable: true,
         sortable: true,
-        tsvValue: (app) => app.git.remoteUrl || "",
+        tsvValue: (app) => app.git.remoteUrl || (app.git.isRepo ? "local repo" : "uninitialized"),
         render: (app) => {
           const wrap = createDiv({ cls: "pakcli-repo-cell-wrap" });
+
+          // 1. Has Remote URL
           if (app.git.remoteUrl) {
             const urlText = wrap.createSpan({ cls: "pakcli-repo-link-text", text: app.git.remoteUrl });
             urlText.title = app.git.remoteUrl;
@@ -240,9 +294,41 @@ export class AppsDashboardView extends ItemView {
               e.stopPropagation();
               window.open(`https://${app.git.remoteUrl}`, "_blank");
             });
-          } else {
-            wrap.createSpan({ cls: "text-muted", text: "~ no remote ~" });
+            return wrap;
           }
+
+          // 2. Git is initialized locally, but no remote
+          if (app.git.isRepo) {
+            wrap.createSpan({ cls: "text-muted", text: "local" });
+            const linkBtn = wrap.createEl("button", {
+              cls: "pakcli-btn-link-remote",
+              text: "+ Remote",
+              attr: { type: "button", title: "Add GitHub remote repository URL" },
+            });
+            linkBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              new LinkRemoteModal(this.app, app.folderName, async (url) => {
+                const res = await this.store.linkRemoteForApp(app, url);
+                new Notice(res.message);
+              }).open();
+            });
+            return wrap;
+          }
+
+          // 3. Git not initialized (0 -> 1)
+          const initBtn = wrap.createEl("button", {
+            cls: "pakcli-btn-init-git",
+            text: "⚡ Init Git",
+            attr: { type: "button", title: "Initialize Git repository (Status 0 → 1)" },
+          });
+          initBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            initBtn.disabled = true;
+            initBtn.setText("Init...");
+            const res = await this.store.initGitForApp(app);
+            new Notice(res.message);
+          });
+
           return wrap;
         },
       },
@@ -536,19 +622,22 @@ export class AppsDashboardView extends ItemView {
   private openHostProviderMenu(e: MouseEvent, app: AppScanRecord) {
     const menu = new Menu();
     menu.addItem((item) => {
-      item.setTitle("Firebase Hosting").setIcon("flame").onClick(() => {
-        new Notice(`🔗 Link Firebase wizard for "${app.folderName}" (Coming in Phase 3)`);
+      item.setTitle("🔥 Firebase Hosting").setIcon("flame").onClick(async () => {
+        const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
+        const res = await this.store.setupFirebaseForApp(app, siteId, "dist");
+        new Notice(res.message);
+        this.store.selectApp(app);
+        this.hostDrawer.open(app);
       });
     });
     menu.addItem((item) => {
-      item.setTitle("GitHub Pages").setIcon("github").onClick(() => {
-        new Notice(`🔗 Link GitHub Pages for "${app.folderName}" (Coming in Phase 3)`);
+      item.setTitle("🐙 GitHub Pages").setIcon("github").onClick(async () => {
+        const res = await this.store.setupGitHubPagesForApp(app);
+        new Notice(res.message);
+        this.store.selectApp(app);
+        this.hostDrawer.open(app);
       });
     });
-    menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Vercel (soon)").setDisabled(true));
-    menu.addItem((item) => item.setTitle("Netlify (soon)").setDisabled(true));
-    menu.addItem((item) => item.setTitle("Render (soon)").setDisabled(true));
     menu.showAtMouseEvent(e);
   }
 

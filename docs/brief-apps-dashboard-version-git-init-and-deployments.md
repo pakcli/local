@@ -1,6 +1,6 @@
 # 📌 Master Brief: Apps Dashboard Git Initialization, Version Viewing & Dual Deployments
 
-> **Feature Status**: `0` (Specification & Architecture)  
+> **Feature Status**: `1` (Implemented & Verified)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop (Node.js OS Bridge)  
 > **Date**: 2026-10-20  
@@ -26,9 +26,10 @@ Ketika suatu aplikasi belum memiliki repository Git (`app.git.isRepo === false`)
 - Mengklik tombol menjalankan operasi inisialisasi:
   1. `git init` di direktori aplikasi.
   2. Pembuatan `.gitignore` standar (mengabaikan `node_modules/`, `.DS_Store`, `dist/` jika belum ada).
-  3. Komit inisial: `git commit -m "chore: initial release"`.
+  3. Komit inisial: `git commit -m "chore: initial release (status 1)"`.
+  4. Cabang default diset ke `main`.
 - Jika repo sudah ada tetapi belum terhubung ke remote:
-  - Tampilkan tombol **`[ 🔗 Link GitHub ]`** untuk menginput remote URL atau menggunakan GitHub CLI (`gh repo create`).
+  - Tampilkan tombol **`[ + Remote ]`** untuk menginput remote URL melalui `LinkRemoteModal`.
   - Menghubungkan remote: `git remote add origin <url>`.
 
 ---
@@ -36,8 +37,8 @@ Ketika suatu aplikasi belum memiliki repository Git (`app.git.isRepo === false`)
 ### 2.2 Penayangan Riwayat Versi (Version Viewing)
 Di tab **Version history** pada `HostDrawer`:
 - Menampilkan daftar commit dan rilis/tag yang ada di repositori lokal.
-- Menyediakan status visual apakah commit tersebut saat ini *Live* di hosting atau berstatus *Local build*.
-- Tidak melakukan komit otomatis atau modifikasi berulang ke repositori (hanya inspeksi dan penayangan versi secara transparan).
+- Menyediakan status visual apakah commit tersebut saat ini *Live (HEAD)* atau berstatus *Local build*.
+- Tidak melakukan komit otomatis atau modifikasi berulang ke repositori (hanya inspeksi dan penayangan versi secara transparan melalui tombol `View details`).
 
 ---
 
@@ -45,21 +46,13 @@ Di tab **Version history** pada `HostDrawer`:
 Dukungan konfigurasi dan deployment difokuskan pada 2 provider:
 
 1. **Firebase Hosting**:
-   - Jika `firebase.json` belum ada, sediakan wizard inisialisasi konfigurasi dasar:
-     ```json
-     {
-       "hosting": {
-         "public": "dist",
-         "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
-       }
-     }
-     ```
+   - Jika `firebase.json` belum ada, wizard inisialisasi konfigurasi dasar membuat `firebase.json` dan `.firebaserc`.
    - Deployment: `firebase deploy --only hosting` (Production) atau `firebase hosting:channel:deploy <channel>` (Preview).
    - Streaming log output secara real-time ke console drawer.
 
 2. **GitHub Pages**:
    - Inisialisasi branch `gh-pages` jika belum aktif.
-   - Deployment: push folder publik atau commit target ke branch `gh-pages` (`git push origin HEAD:gh-pages`).
+   - Deployment: push commit target ke branch `gh-pages` (`git push origin HEAD:gh-pages --force`).
    - Verifikasi URL Pages: `https://<user>.github.io/<repo>`.
    - Streaming log proses deployment langsung ke console drawer.
 
@@ -67,10 +60,10 @@ Dukungan konfigurasi dan deployment difokuskan pada 2 provider:
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Tombol `[ ⚡ Init Git ]` muncul otomatis di tabel untuk folder yang belum memiliki git repository.
-- [ ] **AC-2**: Fitur `initGit` berhasil menginisialisasi repo dan commit pertama tanpa merusak file yang ada.
-- [ ] **AC-3**: Tombol `[ 🔗 Link GitHub ]` memungkinkan penambahan remote URL repositori.
-- [ ] **AC-4**: Tab **Version history** menyajikan daftar commit & versi yang ada secara informatif tanpa membuat komit otomatis.
-- [ ] **AC-5**: Konfigurasi dan deploy Firebase Hosting berfungsi dengan streaming log.
-- [ ] **AC-6**: Konfigurasi dan deploy GitHub Pages berfungsi dengan streaming log.
-- [ ] **AC-7**: Kompilasi plugin `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+- [x] **AC-1**: Tombol `[ ⚡ Init Git ]` muncul otomatis di tabel untuk folder yang belum memiliki git repository.
+- [x] **AC-2**: Fitur `initGit` berhasil menginisialisasi repo dan commit pertama tanpa merusak file yang ada.
+- [x] **AC-3**: Tombol `[ + Remote ]` memungkinkan penambahan remote URL repositori.
+- [x] **AC-4**: Tab **Version history** menyajikan daftar commit & versi yang ada secara informatif tanpa membuat komit otomatis.
+- [x] **AC-5**: Konfigurasi dan deploy Firebase Hosting berfungsi dengan streaming log.
+- [x] **AC-6**: Konfigurasi dan deploy GitHub Pages berfungsi dengan streaming log.
+- [x] **AC-7**: Kompilasi plugin `npm --prefix local run build` berhasil dengan 0 error TypeScript.

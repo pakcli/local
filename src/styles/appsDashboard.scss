@@ -206,13 +206,45 @@
 .pakcli-repo-cell-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 
   .pakcli-repo-link-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 180px;
+  }
+
+  .pakcli-btn-init-git {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: var(--radius-s, 3px);
+    background: var(--interactive-accent);
+    color: var(--text-on-accent, #fff);
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover {
+      opacity: 0.9;
+    }
+  }
+
+  .pakcli-btn-link-remote {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-s, 3px);
+    border: 1px dashed var(--background-modifier-border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover {
+      color: var(--text-normal);
+      border-color: var(--interactive-accent);
+    }
   }
 }
 
@@ -614,5 +646,58 @@
     font-size: 0.7rem;
     padding: 2px 6px;
     cursor: pointer;
+  }
+}
+
+.pakcli-setup-providers-box {
+  background: var(--background-primary);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m, 6px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+
+  h4 {
+    margin: 0;
+    font-size: 0.85rem;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.75rem;
+  }
+
+  .pakcli-provider-btn-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .pakcli-btn-provider-setup {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: var(--radius-s, 4px);
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
+
+    &.is-fb {
+      background: #ffca28;
+      color: #000;
+      border-color: #f59e0b;
+    }
+
+    &.is-gh {
+      background: #24292e;
+      color: #fff;
+      border-color: #374151;
+    }
+
+    &:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
   }
 }

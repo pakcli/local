@@ -102,8 +102,72 @@ export class HostDrawer {
   }
 
   private renderConfigTab(body: HTMLElement, app: AppScanRecord) {
-    const isFirebase = app.hosting.firebase?.configured;
-    const statusText = app.hosting.firebase?.status === "live" ? "live · last deploy 2d ago" : "configured";
+    const isFirebase = !!app.hosting.firebase?.configured;
+    const isGitHubPages = !!app.hosting.githubPages?.configured;
+    const hasHost = isFirebase || isGitHubPages;
+
+    // 1. Git Initialization Alert (0 -> 1)
+    if (!app.git.isRepo) {
+      const gitAlert = body.createDiv({ cls: "pakcli-drawer-alert is-warning" });
+      const gitIcon = gitAlert.createSpan();
+      setIcon(gitIcon, "alert-circle");
+      gitAlert.createSpan({ text: " Git repository not initialized (Status 0). " });
+      const initGitBtn = gitAlert.createEl("button", {
+        cls: "pakcli-btn-init-git",
+        text: "⚡ Initialize Git Repo (0 → 1)",
+      });
+      initGitBtn.addEventListener("click", async () => {
+        initGitBtn.disabled = true;
+        initGitBtn.setText("Initializing...");
+        const res = await this.store.initGitForApp(app);
+        new Notice(res.message);
+        this.render(this.store.selectedApp || app);
+      });
+    }
+
+    // 2. Unconfigured Provider Setup
+    if (!hasHost) {
+      const setupBox = body.createDiv({ cls: "pakcli-setup-providers-box" });
+      setupBox.createEl("h4", { text: "Select Deployment Provider" });
+      setupBox.createEl("p", {
+        cls: "text-muted",
+        text: "Initialize static hosting configuration for this application (Firebase or GitHub Pages).",
+      });
+
+      const btnGroup = setupBox.createDiv({ cls: "pakcli-provider-btn-group" });
+
+      // Firebase setup button
+      const fbSetupBtn = btnGroup.createEl("button", {
+        cls: "pakcli-btn-provider-setup is-fb",
+        text: "🔥 Setup Firebase Hosting",
+      });
+      fbSetupBtn.addEventListener("click", async () => {
+        const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
+        const res = await this.store.setupFirebaseForApp(app, siteId, "dist");
+        new Notice(res.message);
+        this.render(this.store.selectedApp || app);
+      });
+
+      // GitHub Pages setup button
+      const ghSetupBtn = btnGroup.createEl("button", {
+        cls: "pakcli-btn-provider-setup is-gh",
+        text: "🐙 Setup GitHub Pages",
+      });
+      ghSetupBtn.addEventListener("click", async () => {
+        const res = await this.store.setupGitHubPagesForApp(app);
+        new Notice(res.message);
+        this.render(this.store.selectedApp || app);
+      });
+    }
+
+    const statusText = isFirebase
+      ? app.hosting.firebase?.status === "live"
+        ? "live · active deployment"
+        : "configured"
+      : isGitHubPages
+      ? "gh-pages branch ready"
+      : "not configured";
+
     const changesCount = app.git.uncommittedCount;
 
     // Metadata list
@@ -115,48 +179,60 @@ export class HostDrawer {
       metaList,
       "Target",
       isFirebase
-        ? `${app.hosting.firebase?.siteId} (hosting site)`
-        : `${app.hosting.githubPages?.branch || "gh-pages"}`
+        ? `${app.hosting.firebase?.siteId} (Firebase Hosting)`
+        : isGitHubPages
+        ? `${app.hosting.githubPages?.branch || "gh-pages"} (GitHub Pages)`
+        : "None"
     );
     this.createMetaRow(
       metaList,
-      "Changes",
-      changesCount > 0 ? `${changesCount} uncommitted files` : "clean (0 uncommitted)"
+      "Git Status",
+      !app.git.isRepo
+        ? "uninitialized"
+        : changesCount > 0
+        ? `${changesCount} uncommitted files`
+        : "clean (0 uncommitted)"
     );
 
     // Warning notice
     const noticeEl = body.createDiv({ cls: "pakcli-drawer-alert text-muted" });
     const noticeIcon = noticeEl.createSpan();
     setIcon(noticeIcon, "info");
-    noticeEl.createSpan({ text: " Deploys folder contents, not last commit." });
+    noticeEl.createSpan({ text: " Deploys folder contents and public directory." });
 
     // Action Buttons
-    const actionsRow = body.createDiv({ cls: "pakcli-drawer-actions-row" });
+    if (hasHost) {
+      const actionsRow = body.createDiv({ cls: "pakcli-drawer-actions-row" });
 
-    const deployBtn = actionsRow.createEl("button", {
-      cls: "mod-cta pakcli-btn-deploy",
-      text: this.store.isDeploying ? "Deploying..." : isFirebase ? "Deploy now →" : "Push to Pages →",
-    });
-    deployBtn.disabled = this.store.isDeploying;
-    deployBtn.addEventListener("click", () => {
-      this.store.startDeploy(app, "production");
-    });
+      const deployBtn = actionsRow.createEl("button", {
+        cls: "mod-cta pakcli-btn-deploy",
+        text: this.store.isDeploying
+          ? "Deploying..."
+          : isFirebase
+          ? "Deploy to Firebase →"
+          : "Push to GitHub Pages →",
+      });
+      deployBtn.disabled = this.store.isDeploying;
+      deployBtn.addEventListener("click", () => {
+        this.store.startDeploy(app, "production");
+      });
 
-    if (isFirebase) {
-      const previewBtn = actionsRow.createEl("button", {
-        cls: "pakcli-btn-preview",
-        text: "Preview channel",
-      });
-      previewBtn.disabled = this.store.isDeploying;
-      previewBtn.addEventListener("click", () => {
-        this.store.startDeploy(app, "preview");
-      });
+      if (isFirebase) {
+        const previewBtn = actionsRow.createEl("button", {
+          cls: "pakcli-btn-preview",
+          text: "Preview channel",
+        });
+        previewBtn.disabled = this.store.isDeploying;
+        previewBtn.addEventListener("click", () => {
+          this.store.startDeploy(app, "preview");
+        });
+      }
     }
 
     // Mini Live Terminal Log Box
     const terminalBox = body.createDiv({ cls: "pakcli-drawer-terminal" });
     const termHeader = terminalBox.createDiv({ cls: "pakcli-term-header" });
-    termHeader.createSpan({ text: "Console Log Output" });
+    termHeader.createSpan({ text: "Deployment Console Logs" });
 
     new CopyButton(termHeader, {
       text: () => this.store.activeDeployLogs.map((l) => l.line).join("\n"),
@@ -168,17 +244,19 @@ export class HostDrawer {
     this.logContainerEl = terminalBox.createDiv({ cls: "pakcli-term-logs" });
     this.flushLogsToTerminal();
 
-    // Danger Zone
-    const dangerZone = body.createDiv({ cls: "pakcli-drawer-danger-zone" });
-    dangerZone.createSpan({ cls: "pakcli-danger-label", text: "Danger" });
+    // Danger Zone (Only if host configured)
+    if (hasHost) {
+      const dangerZone = body.createDiv({ cls: "pakcli-drawer-danger-zone" });
+      dangerZone.createSpan({ cls: "pakcli-danger-label", text: "Management" });
 
-    const stopBtn = dangerZone.createEl("button", {
-      cls: "pakcli-btn-stop mod-warning",
-      text: isFirebase ? "Stop hosting…" : "Unpublish…",
-    });
-    stopBtn.addEventListener("click", () => {
-      this.onStopHosting(app);
-    });
+      const stopBtn = dangerZone.createEl("button", {
+        cls: "pakcli-btn-stop mod-warning",
+        text: isFirebase ? "Stop hosting…" : "Reset Pages…",
+      });
+      stopBtn.addEventListener("click", () => {
+        this.onStopHosting(app);
+      });
+    }
   }
 
   private renderHistoryTab(body: HTMLElement, app: AppScanRecord) {
@@ -226,14 +304,15 @@ export class HostDrawer {
       // Action
       const tdAct = tr.createEl("td", { cls: "pakcli-col-act" });
       if (commit.isLive) {
-        tdAct.createSpan({ cls: "text-muted", text: "~ is live ~" });
+        tdAct.createSpan({ cls: "text-muted", text: "✓ active (HEAD)" });
       } else {
-        const jumpBtn = tdAct.createEl("button", {
+        const inspectBtn = tdAct.createEl("button", {
           cls: "pakcli-btn-jump",
-          text: "Jump here →",
+          text: "View details",
+          attr: { type: "button", title: "View version details" },
         });
-        jumpBtn.addEventListener("click", () => {
-          new Notice(`⚡ Switched live release pointer to ${commit.shortHash}`);
+        inspectBtn.addEventListener("click", () => {
+          new Notice(`[Version ${commit.shortHash}]\n${commit.message}\nAuthor: ${commit.author}\nDate: ${commit.date}`);
         });
       }
     });
