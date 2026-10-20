@@ -68,6 +68,23 @@ export interface CliHealth {
   userEmail?: string;
 }
 
+export interface SystemAccountsInfo {
+  firebase: {
+    activeEmail?: string;
+    availableEmails: string[];
+  };
+  github: {
+    username?: string;
+    email?: string;
+  };
+}
+
+export interface FirebaseProjectSummary {
+  projectId: string;
+  displayName: string;
+  hostingSite?: string;
+}
+
 export interface HealthStatusResponse {
   server: {
     status: "connected" | "disconnected";
@@ -147,6 +164,7 @@ export interface AppsDashboardSettings {
 export const DEFAULT_VISIBLE_COLUMNS: string[] = [
   "folderName",
   "thumbnail",
+  "accounts",
   "path",
   "githubRepo",
   "staticHost",
@@ -161,6 +179,7 @@ export interface ColumnMetadataChoice {
 
 export const ALL_AVAILABLE_COLUMNS: ColumnMetadataChoice[] = [
   { id: "folderName", label: "Folder", category: "core" },
+  { id: "accounts", label: "Accounts", category: "core" },
   { id: "path", label: "Path", category: "core" },
   { id: "githubRepo", label: "GitHub Repo", category: "core" },
   { id: "staticHost", label: "Static Host", category: "core" },

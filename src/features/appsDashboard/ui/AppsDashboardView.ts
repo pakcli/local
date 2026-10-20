@@ -5,6 +5,8 @@ import { AppDashboardStore } from "../store/AppDashboardStore";
 import { DiagnosticBar } from "./components/DiagnosticBar";
 import { HostDrawer } from "./components/HostDrawer";
 import { AppsDashboardSettingsModal } from "./AppsDashboardSettingsModal";
+import { SetupFirebaseModal } from "./SetupFirebaseModal";
+import { AccountManagerModal, maskAccountIdentifier } from "./AccountManagerModal";
 import {
   GenericTable,
   SearchFilterBar,
@@ -18,7 +20,7 @@ import { getNodeChildProcess, getNodeFs, getNodeOs, getNodePath } from "../../..
 class LinkRemoteModal extends BaseModal {
   private repoName = "";
   private remoteUrl = "";
-  private prefix = "fadhlisl";
+  private prefix = "pakcli";
   private onConfirm: (url: string) => void;
   private checkStatusEl?: HTMLElement;
 
@@ -223,9 +225,14 @@ export class AppsDashboardView extends ItemView {
     });
 
     // 4. Right Overlay Host Drawer
-    this.hostDrawer = new HostDrawer(layoutWrapper, this.store, (app) => {
-      this.promptStopHosting(app);
-    });
+    this.hostDrawer = new HostDrawer(
+      layoutWrapper,
+      this.store,
+      (app) => {
+        this.promptStopHosting(app);
+      },
+      this.app
+    );
 
     // Subscribe to store updates
     this.unsubscribeStore = this.store.subscribe(() => {
@@ -755,6 +762,73 @@ export class AppsDashboardView extends ItemView {
         },
       },
       {
+        key: "accounts",
+        title: "Accounts",
+        width: "220px",
+        render: (app) => {
+          const wrap = createDiv({ cls: "pakcli-accounts-cell-wrap" });
+          let isCellUnmasked = false;
+
+          const renderContent = () => {
+            wrap.empty();
+
+            const rowsWrap = wrap.createDiv({ cls: "pakcli-accounts-rows" });
+
+            // 1. GitHub Account
+            const ghUser = this.store.health?.cli.gh.userEmail || "pakcli";
+            const ghRow = rowsWrap.createDiv({ cls: "pakcli-account-item" });
+            ghRow.createSpan({ cls: "pakcli-acct-icon", text: "🐙" });
+            const ghLabel = ghRow.createSpan({
+              cls: "pakcli-acct-name",
+              text: maskAccountIdentifier(ghUser, isCellUnmasked),
+            });
+            ghLabel.title = isCellUnmasked ? ghUser : "Click eye icon to reveal full name";
+
+            // 2. Google Firebase Account
+            const fbEmail = this.store.health?.cli.firebase.userEmail || "dcalibri@gmail.com";
+            const fbRow = rowsWrap.createDiv({ cls: "pakcli-account-item" });
+            fbRow.createSpan({ cls: "pakcli-acct-icon", text: "🔥" });
+            const fbLabel = fbRow.createSpan({
+              cls: "pakcli-acct-name",
+              text: maskAccountIdentifier(fbEmail, isCellUnmasked),
+            });
+            fbLabel.title = isCellUnmasked ? fbEmail : "Click eye icon to reveal full name";
+
+            // Action buttons
+            const btnsWrap = wrap.createDiv({ cls: "pakcli-acct-actions" });
+
+            // Reveal button
+            const eyeBtn = btnsWrap.createEl("button", {
+              cls: "pakcli-icon-btn clickable-icon",
+              attr: {
+                type: "button",
+                title: isCellUnmasked ? "Mask account identifiers (2 letters)" : "Reveal full account names",
+              },
+            });
+            setIcon(eyeBtn, isCellUnmasked ? "eye-off" : "eye");
+            eyeBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              isCellUnmasked = !isCellUnmasked;
+              renderContent();
+            });
+
+            // Config / Switch button
+            const cfgBtn = btnsWrap.createEl("button", {
+              cls: "pakcli-icon-btn clickable-icon",
+              attr: { type: "button", title: "Manage / switch local accounts (zero browser)" },
+            });
+            setIcon(cfgBtn, "user-cog");
+            cfgBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              new AccountManagerModal(this.app, this.store, app).open();
+            });
+          };
+
+          renderContent();
+          return wrap;
+        },
+      },
+      {
         key: "liveLink",
         title: "Live Link",
         width: "100px",
@@ -904,14 +978,20 @@ export class AppsDashboardView extends ItemView {
     if (!app.git.remoteUrl) {
       new Notice("⚠️ GitHub Pages requires a linked GitHub remote repository first.");
       const defaultTitle = app.catalog?.title || app.folderName;
-      new LinkRemoteModal(this.app, defaultTitle, async (url) => {
-        const res = await this.store.linkRemoteForApp(app, url);
-        new Notice(res.message);
-        const ghRes = await this.store.setupGitHubPagesForApp(app);
-        new Notice(ghRes.message);
-        this.store.selectApp(app);
-        this.hostDrawer.open(app);
-      }).open();
+      const ghUser = this.store.health?.cli.gh.userEmail || "pakcli";
+      new LinkRemoteModal(
+        this.app,
+        defaultTitle,
+        async (url) => {
+          const res = await this.store.linkRemoteForApp(app, url);
+          new Notice(res.message);
+          const ghRes = await this.store.setupGitHubPagesForApp(app);
+          new Notice(ghRes.message);
+          this.store.selectApp(app);
+          this.hostDrawer.open(app);
+        },
+        ghUser
+      ).open();
       return;
     }
 
@@ -927,12 +1007,11 @@ export class AppsDashboardView extends ItemView {
     const menu = new Menu();
     menu.addItem((item) => {
       // Clean title, no duplicate emoji
-      item.setTitle("Firebase Hosting").setIcon("flame").onClick(async () => {
-        const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
-        const res = await this.store.setupFirebaseForApp(app, siteId, "dist");
-        new Notice(res.message);
-        this.store.selectApp(app);
-        this.hostDrawer.open(app);
+      item.setTitle("Firebase Hosting").setIcon("flame").onClick(() => {
+        new SetupFirebaseModal(this.app, this.store, app, () => {
+          this.store.selectApp(app);
+          this.hostDrawer.open(app);
+        }).open();
       });
     });
     menu.addItem((item) => {

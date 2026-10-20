@@ -1,6 +1,6 @@
 # 📌 Master Brief: Self-Contained Accounts Manager, Interactive PowerShell Login Console & Firebase Project Setup
 
-> **Feature Status**: `0` (Specification & Architecture)  
+> **Feature Status**: `1` (Verified & Completed)  
 > **Target Module**: `local` (`pakcli-local`)  
 > **Platform**: Windows Desktop (Obsidian Desktop Plugin)  
 > **Date**: 2026-10-20  
@@ -101,11 +101,11 @@
 
 ## 3. Checklist Kriteria Penerimaan (Acceptance Criteria)
 
-- [ ] **AC-1**: Plugin berjalan 100% self-contained tanpa dependensi file eksternal dari `all-lads-tool`.
-- [ ] **AC-2**: Terdapat kolom **Accounts** yang menampilkan akun GitHub dan Google Firebase dalam satu cell.
-- [ ] **AC-3**: Akun disensor 2 huruf pertama secara default (`pa****`, `dc******@gmail.com`) dengan tombol **`👁️`** untuk expose/reveal.
-- [ ] **AC-4**: Tombol **`[ ⚙️ ]`** membuka modal manajemen akun untuk switch akun lokal PC secara instan (zero browser).
-- [ ] **AC-5**: Tersedia tombol **`[ 💻 Buka PowerShell Login ]`** yang membuka terminal PowerShell interaktif transparan untuk proses login.
-- [ ] **AC-6**: `SetupFirebaseModal` menampilkan dropdown 10 project nyata (`pakcli`, dll.) dan auto-deteksi direktori publik (`.` untuk `radiansincostan`).
-- [ ] **AC-7**: Host Drawer menyediakan tombol `[ ⚙️ Edit Config ]` untuk mengganti project kapan saja.
-- [ ] **AC-8**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.
+- [x] **AC-1**: Plugin berjalan 100% self-contained tanpa dependensi file eksternal dari `all-lads-tool`.
+- [x] **AC-2**: Terdapat kolom **Accounts** yang menampilkan akun GitHub dan Google Firebase dalam satu cell.
+- [x] **AC-3**: Akun disensor 2 huruf pertama secara default (`pa****`, `dc******@gmail.com`) dengan tombol **`👁️`** untuk expose/reveal.
+- [x] **AC-4**: Tombol **`[ ⚙️ ]`** membuka modal manajemen akun untuk switch akun lokal PC secara instan (zero browser).
+- [x] **AC-5**: Tersedia tombol **`[ 💻 Buka PowerShell Login ]`** yang membuka terminal PowerShell interaktif transparan untuk proses login.
+- [x] **AC-6**: `SetupFirebaseModal` menampilkan dropdown 10 project nyata (`pakcli`, dll.) dan auto-deteksi direktori publik (`.` untuk `radiansincostan`).
+- [x] **AC-7**: Host Drawer menyediakan tombol `[ ⚙️ Edit Config ]` untuk mengganti project kapan saja.
+- [x] **AC-8**: Kompilasi `npm --prefix local run build` berhasil dengan 0 error TypeScript.

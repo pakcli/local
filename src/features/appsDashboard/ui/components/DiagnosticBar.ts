@@ -74,18 +74,20 @@ export class DiagnosticBar {
     });
 
     // Firebase CLI badge
+    const fbEmail = this.store.health?.cli.firebase.userEmail;
     const fbBadge = row2.createSpan({
       cls: `pakcli-status-badge ${fbInstalled ? "is-ok" : "is-warning"}`,
     });
     fbBadge.createSpan({ cls: "pakcli-status-dot" });
-    fbBadge.createSpan({ text: `firebase-cli (${fbInstalled ? "ok" : "missing"})` });
+    fbBadge.createSpan({ text: fbInstalled ? `firebase: ${fbEmail || "ok"}` : "firebase-cli (missing)" });
 
-    // Git CLI badge
+    // Git / GitHub CLI badge
+    const ghUser = this.store.health?.cli.gh.userEmail || this.store.health?.cli.git.userEmail;
     const gitBadge = row2.createSpan({
       cls: `pakcli-status-badge ${gitInstalled ? "is-ok" : "is-warning"}`,
     });
     gitBadge.createSpan({ cls: "pakcli-status-dot" });
-    gitBadge.createSpan({ text: `git (${gitInstalled ? "ok" : "missing"})` });
+    gitBadge.createSpan({ text: gitInstalled ? `github: ${ghUser || "ok"}` : "git (missing)" });
   }
 
   public destroy() {

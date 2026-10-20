@@ -1,5 +1,12 @@
 import { getNodeChildProcess, getNodeFs, getNodePath } from "../../../utils/nodeHelpers";
-import type { HealthStatusResponse, DeployRequest, DeployLogChunk, GitCommitRecord } from "../types";
+import type {
+  HealthStatusResponse,
+  DeployRequest,
+  DeployLogChunk,
+  GitCommitRecord,
+  SystemAccountsInfo,
+  FirebaseProjectSummary,
+} from "../types";
 import { MOCK_HEALTH_STATUS, MOCK_COMMITS } from "./MockData";
 
 export class CliBridge {
@@ -30,22 +37,37 @@ export class CliBridge {
       return health;
     }
 
-    // 1. Git version
+    // 1. Git version & user
     try {
       const gitVer = await this.execAsync("git --version");
       health.cli.git = { installed: true, version: gitVer.replace("git version", "").trim() };
+      try {
+        const gitEmail = await this.execAsync("git config user.email");
+        if (gitEmail.trim()) health.cli.git.userEmail = gitEmail.trim();
+      } catch {}
     } catch {}
 
-    // 2. Firebase version
+    // 2. Firebase version & user
     try {
       const fbVer = await this.execAsync("firebase --version");
       health.cli.firebase = { installed: true, version: fbVer.trim() };
+      try {
+        const fbLoginOut = await this.execAsync("firebase login:list");
+        const m = fbLoginOut.match(/Logged in as\s+([^\s\r\n]+)/i);
+        if (m && m[1]) health.cli.firebase.userEmail = m[1].trim();
+      } catch {}
     } catch {}
 
-    // 3. GitHub CLI version
+    // 3. GitHub CLI version & user
     try {
       const ghVer = await this.execAsync("gh --version");
       health.cli.gh = { installed: true, version: ghVer.split("\n")[0].replace("gh version", "").trim() };
+      try {
+        const ghUser = await this.execAsync("gh api user --jq .login");
+        if (ghUser.trim() && !ghUser.toLowerCase().includes("error")) {
+          health.cli.gh.userEmail = ghUser.trim();
+        }
+      } catch {}
     } catch {}
 
     return health;
@@ -148,7 +170,7 @@ export class CliBridge {
   public async setupFirebaseHosting(
     appPath: string,
     siteId: string,
-    publicDir = "dist"
+    publicDir = "."
   ): Promise<{ success: boolean; message: string }> {
     if (!this.fs || !this.path) {
       return { success: false, message: "Node filesystem API not available." };
@@ -156,30 +178,182 @@ export class CliBridge {
 
     try {
       const firebaseJsonPath = this.path.join(appPath, "firebase.json");
-      if (!this.fs.existsSync(firebaseJsonPath)) {
-        const config = {
-          hosting: {
-            public: publicDir,
-            ignore: ["firebase.json", "**/.*", "**/node_modules/**"],
-          },
-        };
-        this.fs.writeFileSync(firebaseJsonPath, JSON.stringify(config, null, 2), "utf8");
-      }
+      const config = {
+        hosting: {
+          public: publicDir,
+          ignore: ["firebase.json", "**/.*", "**/node_modules/**"],
+        },
+      };
+      this.fs.writeFileSync(firebaseJsonPath, JSON.stringify(config, null, 2), "utf8");
 
       const firebasercPath = this.path.join(appPath, ".firebaserc");
-      if (!this.fs.existsSync(firebasercPath)) {
-        const rc = {
-          projects: {
-            default: siteId,
-          },
-        };
-        this.fs.writeFileSync(firebasercPath, JSON.stringify(rc, null, 2), "utf8");
-      }
+      const rc = {
+        projects: {
+          default: siteId,
+        },
+      };
+      this.fs.writeFileSync(firebasercPath, JSON.stringify(rc, null, 2), "utf8");
 
-      return { success: true, message: `Firebase hosting configured for site: ${siteId}` };
+      return { success: true, message: `Firebase hosting configured for project: ${siteId} (public: ${publicDir})` };
     } catch (err: any) {
       return { success: false, message: `Failed to setup Firebase config: ${err?.message || err}` };
     }
+  }
+
+  public async getSystemAccountsInfo(isDemoMode = false): Promise<SystemAccountsInfo> {
+    if (isDemoMode) {
+      return {
+        firebase: {
+          activeEmail: "demo@gmail.com",
+          availableEmails: ["demo@gmail.com", "second@gmail.com"],
+        },
+        github: {
+          username: "demo-dev",
+          email: "demo@users.noreply.github.com",
+        },
+      };
+    }
+
+    const info: SystemAccountsInfo = {
+      firebase: {
+        activeEmail: undefined,
+        availableEmails: [],
+      },
+      github: {
+        username: undefined,
+        email: undefined,
+      },
+    };
+
+    if (!this.cp?.exec) return info;
+
+    // 1. Parse Firebase accounts from firebase login:list
+    try {
+      const fbOut = await this.execAsync("firebase login:list");
+      const activeMatch = fbOut.match(/Logged in as\s+([^\s\r\n]+)/i);
+      if (activeMatch && activeMatch[1]) {
+        info.firebase.activeEmail = activeMatch[1].trim();
+        info.firebase.availableEmails.push(info.firebase.activeEmail);
+      }
+      const otherMatches = Array.from(fbOut.matchAll(/^\s*-\s+([^\s\r\n]+@[^\s\r\n]+)/gm));
+      for (const om of otherMatches) {
+        const em = om[1].trim();
+        if (!info.firebase.availableEmails.includes(em)) {
+          info.firebase.availableEmails.push(em);
+        }
+      }
+    } catch {}
+
+    // 2. Parse GitHub account from gh and git
+    try {
+      const ghUser = await this.execAsync("gh api user --jq .login");
+      const login = ghUser.trim();
+      if (login && !login.toLowerCase().includes("error")) {
+        info.github.username = login;
+      }
+    } catch {}
+
+    try {
+      const gitEmail = await this.execAsync("git config user.email");
+      if (gitEmail.trim()) info.github.email = gitEmail.trim();
+      if (!info.github.username) {
+        const gitUser = await this.execAsync("git config user.name");
+        if (gitUser.trim()) info.github.username = gitUser.trim();
+      }
+    } catch {}
+
+    return info;
+  }
+
+  public async listFirebaseProjects(isDemoMode = false): Promise<FirebaseProjectSummary[]> {
+    if (isDemoMode) {
+      return [
+        { projectId: "demo-static-1", displayName: "Demo Static App" },
+        { projectId: "demo-portfolio", displayName: "Demo Portfolio" },
+      ];
+    }
+
+    if (!this.cp?.exec) return [];
+
+    try {
+      const raw = await this.execAsync("firebase projects:list --json");
+      const parsed = JSON.parse(raw);
+      const list = parsed.result || (Array.isArray(parsed) ? parsed : []);
+      return list.map((item: any) => ({
+        projectId: item.projectId,
+        displayName: item.displayName || item.projectId,
+        hostingSite: item.resources?.hostingSite || item.projectId,
+      }));
+    } catch (err) {
+      console.warn("[CliBridge] Failed to list Firebase projects:", err);
+      return [];
+    }
+  }
+
+  public async switchFirebaseAccount(email: string): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) return { success: false, message: "Node child_process not available" };
+    try {
+      await this.execAsync(`firebase login:use "${email}"`);
+      return { success: true, message: `Active Firebase account switched to: ${email}` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to switch account: ${err?.message || err}` };
+    }
+  }
+
+  public async logoutFirebaseAccount(email?: string): Promise<{ success: boolean; message: string }> {
+    if (!this.cp?.exec) return { success: false, message: "Node child_process not available" };
+    try {
+      const cmd = email ? `firebase logout "${email}"` : `firebase logout`;
+      await this.execAsync(cmd);
+      return { success: true, message: `Logged out ${email || "account"} successfully.` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to logout: ${err?.message || err}` };
+    }
+  }
+
+  public openInteractiveFirebaseLogin(): void {
+    if (!this.cp?.spawn) return;
+    const psScript = [
+      '$host.UI.RawUI.WindowTitle = "PakCLI - Firebase Authentication Manager"',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host " 🔥 PAKCLI - FIREBASE AUTHENTICATION (Interactive Console)" -ForegroundColor Yellow',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host "[*] Launching browser for Google Firebase authorization..." -ForegroundColor White',
+      'Write-Host "[*] Executing: firebase login" -ForegroundColor Gray',
+      'Write-Host ""',
+      'firebase login',
+      'Write-Host ""',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host "[OK] Process finished! You can close this window and return to Obsidian." -ForegroundColor Green',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+    ].join("\n");
+
+    this.cp.spawn("cmd.exe", ["/c", "start", "powershell.exe", "-NoExit", "-Command", psScript], {
+      detached: true,
+      stdio: "ignore",
+    });
+  }
+
+  public openInteractiveGitHubLogin(): void {
+    if (!this.cp?.spawn) return;
+    const psScript = [
+      '$host.UI.RawUI.WindowTitle = "PakCLI - GitHub Authentication Manager"',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host " 🐙 PAKCLI - GITHUB AUTHENTICATION (Interactive Console)  " -ForegroundColor Yellow',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host "[*] Executing: gh auth login" -ForegroundColor White',
+      'Write-Host ""',
+      'gh auth login',
+      'Write-Host ""',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+      'Write-Host "[OK] Process finished! You can close this window and return to Obsidian." -ForegroundColor Green',
+      'Write-Host "==========================================================" -ForegroundColor Cyan',
+    ].join("\n");
+
+    this.cp.spawn("cmd.exe", ["/c", "start", "powershell.exe", "-NoExit", "-Command", psScript], {
+      detached: true,
+      stdio: "ignore",
+    });
   }
 
   public async setupGitHubPages(
@@ -322,6 +496,15 @@ export class CliBridge {
         stream: "stderr",
         line: text,
       });
+
+      if (text.includes("Failed to get Firebase project")) {
+        onChunk({
+          timestamp: Date.now(),
+          appId: req.appId,
+          stream: "stderr",
+          line: `💡 Tip: Project '${req.appId}' does not exist on your Firebase account. Click [⚙️ Edit Config] in the Host Drawer to select a valid project (e.g. 'pakcli').`,
+        });
+      }
     });
 
     proc.on("close", (exitCode: number) => {

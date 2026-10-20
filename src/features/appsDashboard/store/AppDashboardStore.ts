@@ -6,6 +6,8 @@ import {
   DeployLogChunk,
   AppsDashboardSettings,
   DEFAULT_VISIBLE_COLUMNS,
+  SystemAccountsInfo,
+  FirebaseProjectSummary,
 } from "../types";
 
 export type StoreListener = () => void;
@@ -234,5 +236,33 @@ export class AppDashboardStore {
   public async getHistoryForSelectedApp() {
     if (!this.selectedApp) return [];
     return this.bridge.getGitHistory(this.selectedApp.absolutePath, this.settings.demoMode);
+  }
+
+  public async getSystemAccounts(): Promise<SystemAccountsInfo> {
+    return this.bridge.getSystemAccountsInfo(this.settings.demoMode);
+  }
+
+  public async listFirebaseProjects(): Promise<FirebaseProjectSummary[]> {
+    return this.bridge.listFirebaseProjects(this.settings.demoMode);
+  }
+
+  public async switchFirebaseAccount(email: string): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.switchFirebaseAccount(email);
+    await this.rescan();
+    return res;
+  }
+
+  public async logoutFirebaseAccount(email?: string): Promise<{ success: boolean; message: string }> {
+    const res = await this.bridge.logoutFirebaseAccount(email);
+    await this.rescan();
+    return res;
+  }
+
+  public openInteractiveFirebaseLogin(): void {
+    this.bridge.openInteractiveFirebaseLogin();
+  }
+
+  public openInteractiveGitHubLogin(): void {
+    this.bridge.openInteractiveGitHubLogin();
   }
 }

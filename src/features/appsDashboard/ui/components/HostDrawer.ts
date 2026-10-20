@@ -1,11 +1,14 @@
-import { setIcon, Notice } from "obsidian";
+import { setIcon, Notice, App } from "obsidian";
 import type { AppDashboardStore } from "../../store/AppDashboardStore";
 import type { AppScanRecord, GitCommitRecord } from "../../types";
 import { CopyButton } from "../../../../uiComponents";
+import { SetupFirebaseModal } from "../SetupFirebaseModal";
+import { AccountManagerModal } from "../AccountManagerModal";
 
 export class HostDrawer {
   public containerEl: HTMLElement;
   private store: AppDashboardStore;
+  private appInstance?: App;
   private activeTab: "config" | "history" = "config";
   private historyCommits: GitCommitRecord[] = [];
   private logContainerEl?: HTMLElement;
@@ -15,9 +18,11 @@ export class HostDrawer {
   constructor(
     parentEl: HTMLElement,
     store: AppDashboardStore,
-    onStopHosting: (app: AppScanRecord) => void
+    onStopHosting: (app: AppScanRecord) => void,
+    appInstance?: App
   ) {
     this.store = store;
+    this.appInstance = appInstance;
     this.onStopHosting = onStopHosting;
     this.containerEl = parentEl.createDiv({ cls: "pakcli-host-drawer is-closed" });
   }
@@ -141,11 +146,18 @@ export class HostDrawer {
         cls: "pakcli-btn-provider-setup is-fb",
         text: "🔥 Setup Firebase Hosting",
       });
-      fbSetupBtn.addEventListener("click", async () => {
-        const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
-        const res = await this.store.setupFirebaseForApp(app, siteId, "dist");
-        new Notice(res.message);
-        this.render(this.store.selectedApp || app);
+      fbSetupBtn.addEventListener("click", () => {
+        if (this.appInstance) {
+          new SetupFirebaseModal(this.appInstance, this.store, app, () => {
+            this.render(this.store.selectedApp || app);
+          }).open();
+        } else {
+          const siteId = app.folderName.toLowerCase().replace(/[^a-z0-9-]/g, "");
+          void this.store.setupFirebaseForApp(app, siteId, ".").then((res) => {
+            new Notice(res.message);
+            this.render(this.store.selectedApp || app);
+          });
+        }
       });
 
       // GitHub Pages setup button
@@ -179,7 +191,7 @@ export class HostDrawer {
 
     this.createMetaRow(metaList, "Status", statusText);
     this.createMetaRow(metaList, "Source", app.absolutePath);
-    this.createMetaRow(
+    const targetRow = this.createMetaRow(
       metaList,
       "Target",
       isFirebase
@@ -188,6 +200,38 @@ export class HostDrawer {
         ? `${app.hosting.githubPages?.branch || "gh-pages"} (GitHub Pages)`
         : "None"
     );
+
+    if (isFirebase && this.appInstance) {
+      const editBtn = targetRow.createEl("button", {
+        cls: "pakcli-btn-secondary mod-small",
+        text: "⚙️ Edit Config",
+        attr: { type: "button", title: "Change Firebase project or public directory" },
+      });
+      editBtn.style.marginLeft = "8px";
+      editBtn.style.padding = "2px 6px";
+      editBtn.style.fontSize = "0.72rem";
+      editBtn.addEventListener("click", () => {
+        new SetupFirebaseModal(this.appInstance!, this.store, app, () => {
+          this.render(this.store.selectedApp || app);
+        }).open();
+      });
+    }
+
+    const fbUser = this.store.health?.cli.firebase.userEmail || "Local PC";
+    const acctRow = this.createMetaRow(metaList, "Account", fbUser);
+    if (this.appInstance) {
+      const acctBtn = acctRow.createEl("button", {
+        cls: "pakcli-btn-secondary mod-small",
+        text: "⇄ Switch",
+        attr: { type: "button", title: "Switch / manage local PC accounts" },
+      });
+      acctBtn.style.marginLeft = "8px";
+      acctBtn.style.padding = "2px 6px";
+      acctBtn.style.fontSize = "0.72rem";
+      acctBtn.addEventListener("click", () => {
+        new AccountManagerModal(this.appInstance!, this.store, app).open();
+      });
+    }
     this.createMetaRow(
       metaList,
       "Git Status",
@@ -322,10 +366,11 @@ export class HostDrawer {
     });
   }
 
-  private createMetaRow(parent: HTMLElement, label: string, value: string) {
+  private createMetaRow(parent: HTMLElement, label: string, value: string): HTMLElement {
     const row = parent.createDiv({ cls: "pakcli-drawer-meta-row" });
     row.createSpan({ cls: "pakcli-meta-label text-muted", text: label });
     row.createSpan({ cls: "pakcli-meta-val", text: value });
+    return row;
   }
 
   public appendLogChunk() {
