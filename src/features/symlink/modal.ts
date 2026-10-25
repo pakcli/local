@@ -7,6 +7,7 @@ import {
 	Setting,
 	TextComponent,
 	normalizePath,
+	TFolder,
 } from 'obsidian';
 import { PathUtils } from '../../utils/nodeHelpers';
 import { detectLink, suggestLinkType } from './detect';
@@ -22,6 +23,7 @@ import { browseFolder } from './dialog';
 import { SymlinkConflictModal } from './conflictModal';
 import { reindexVaultFolder } from './reindex';
 import { applyResponsivePath } from './truncate';
+import { FolderPickerModal } from '../scriptSync/ui/FolderPicker';
 import type { LinkInfo, LinkType } from './types';
 
 export interface SymlinkModalOptions {
@@ -33,6 +35,7 @@ export interface SymlinkModalOptions {
 
 export class SymlinkModal extends Modal {
 	private opts: SymlinkModalOptions;
+	private selectedVaultPath: string;
 	private info!: LinkInfo;
 	private vaultPathInput!: TextComponent;
 	private statusEl!: HTMLElement;
@@ -43,25 +46,15 @@ export class SymlinkModal extends Modal {
 	constructor(app: App, opts: SymlinkModalOptions) {
 		super(app);
 		this.opts = opts;
+		this.selectedVaultPath = opts.initialVaultPath ? normalizePath(opts.initialVaultPath) : '';
 	}
 
 	onOpen(): void {
 		this.modalEl.addClass('symlink-manager-modal');
-		this.titleEl.setText('Symlink Manager');
+		this.titleEl.setText('🔗 Symlink & Junction Manager');
 		this.contentEl.empty();
 
-		const headerWrap = this.contentEl.createDiv({ cls: 'sm-section' });
-		new Setting(headerWrap)
-			.setName('Folder (vault)')
-			.setDesc('Editable — relative to vault root')
-			.addText((t) => {
-				this.vaultPathInput = t;
-				t.setPlaceholder('_project/MyProject');
-				t.setValue(this.opts.initialVaultPath);
-				t.onChange(() => this.refresh());
-			});
-
-		this.statusEl = this.contentEl.createDiv({ cls: 'sm-status' });
+		this.statusEl = this.contentEl.createDiv({ cls: 'sm-status-wrap' });
 		this.bodyEl = this.contentEl.createDiv({ cls: 'sm-body' });
 		this.debugEl = this.contentEl.createDiv({ cls: 'sm-debug' });
 
@@ -80,51 +73,314 @@ export class SymlinkModal extends Modal {
 		this.disposers = [];
 	}
 
-	private refresh(): void {
-		const raw = this.vaultPathInput.getValue().trim();
-		const vaultPath = normalizePath(raw || this.opts.initialVaultPath || '/');
-		const absPath = PathUtils.join(this.opts.vaultRoot, vaultPath);
-		this.info = { absPath, vaultPath, state: detectLink(absPath) };
+	private getVaultSymlinks(): Array<{ vaultPath: string; absPath: string; state: LinkInfo['state'] }> {
+		const result: Array<{ vaultPath: string; absPath: string; state: LinkInfo['state'] }> = [];
+		const allFiles = this.app.vault.getAllLoadedFiles();
+		for (const file of allFiles) {
+			if (file instanceof TFolder && !file.isRoot()) {
+				const absPath = PathUtils.join(this.opts.vaultRoot, file.path);
+				const state = detectLink(absPath);
+				if (state.kind !== 'none') {
+					result.push({ vaultPath: file.path, absPath, state });
+				}
+			}
+		}
 
-		this.hideDebug();
-		this.renderStatus();
-		this.renderBody();
+		// Also check root folder entries directly via node fs in case of broken/dangling symlinks
+		try {
+			const fs = (window as any).require?.('fs');
+			if (fs && fs.existsSync(this.opts.vaultRoot)) {
+				const entries = fs.readdirSync(this.opts.vaultRoot, { withFileTypes: true });
+				for (const ent of entries) {
+					if (ent.isDirectory() || ent.isSymbolicLink()) {
+						const absPath = PathUtils.join(this.opts.vaultRoot, ent.name);
+						const state = detectLink(absPath);
+						if (state.kind !== 'none' && !result.some(r => r.vaultPath === ent.name)) {
+							result.push({ vaultPath: ent.name, absPath, state });
+						}
+					}
+				}
+			}
+		} catch {
+			// ignore
+		}
+
+		result.sort((a, b) => a.vaultPath.localeCompare(b.vaultPath));
+		return result;
 	}
 
-	private renderStatus(): void {
-		// New status DOM removes any prior ResizeObservers it may have hooked up.
+	private refresh(): void {
+		this.hideDebug();
+
+		if (!this.selectedVaultPath) {
+			this.renderOverview();
+			return;
+		}
+
+		const absPath = PathUtils.join(this.opts.vaultRoot, this.selectedVaultPath);
+		this.info = { absPath, vaultPath: this.selectedVaultPath, state: detectLink(absPath) };
+
+		this.renderInspector();
+	}
+
+	// ── VIEW 1: Overview Mode (All Vault Symlinks + Create Form) ──────────────
+	private renderOverview(): void {
 		this.disposeAll();
 		this.statusEl.empty();
+		this.bodyEl.empty();
 
-		const s = this.info.state;
+		// 1. Hero banner with quick action toolbar
+		const hero = this.statusEl.createDiv({ cls: 'sm-hero-banner' });
+		const heroText = hero.createDiv({ cls: 'sm-hero-text' });
+		heroText.createSpan({
+			text: 'Link external hard drives, secondary folders, or shared directories directly into your vault without duplicating disk space.'
+		});
 
-		const line = this.statusEl.createDiv({ cls: 'sm-status-line' });
-		const dotKind = s.kind === 'active' ? s.type : s.kind === 'broken' ? 'broken' : 'none';
-		line.createSpan({ cls: `sm-dot sm-dot-${dotKind}` });
+		const heroActions = hero.createDiv({ cls: 'sm-hero-actions' });
+		const rescanAllBtn = heroActions.createEl('button', {
+			cls: 'mod-cta',
+			text: '🔄 Re-scan All Vault Links'
+		});
+		rescanAllBtn.onclick = async () => {
+			const t0 = performance.now();
+			rescanAllBtn.disabled = true;
+			rescanAllBtn.setText('Scanning…');
+			try {
+				const symlinks = this.getVaultSymlinks();
+				for (const s of symlinks) {
+					await reindexVaultFolder(this.app, s.vaultPath);
+				}
+				this.opts.onChange?.();
+				new Notice(`✓ Re-indexed ${symlinks.length} symlink folder(s) in ${elapsed(t0)}.`);
+			} catch (err: any) {
+				new Notice(`Error scanning: ${err.message}`);
+			} finally {
+				rescanAllBtn.disabled = false;
+				rescanAllBtn.setText('🔄 Re-scan All Vault Links');
+				this.refresh();
+			}
+		};
 
-		const label = line.createSpan({ cls: 'sm-status-label' });
-		label.setText(statusLabel(s));
+		// 2. Section: Detected Symlinks in Vault
+		const symlinks = this.getVaultSymlinks();
+		const sectionTitle = this.bodyEl.createDiv({ cls: 'sm-section-title' });
+		sectionTitle.createSpan({ text: '🔗 Active & Broken Links in Vault' });
+		sectionTitle.createSpan({ cls: 'sm-count-badge', text: `${symlinks.length} link${symlinks.length === 1 ? '' : 's'}` });
 
-		if (s.kind === 'none') return;
-
-		const targetRow = this.statusEl.createDiv({ cls: 'sm-target-row' });
-		targetRow.createSpan({ cls: 'sm-target-arrow', text: '→' });
-		const pathEl = targetRow.createSpan({ cls: 'sm-target-path' });
-		this.disposers.push(applyResponsivePath(pathEl, s.target));
-
-		if (s.kind === 'broken') {
-			this.statusEl.createDiv({
-				cls: 'sm-warn',
-				text: '⚠️ Target not found / drive offline.',
+		const listWrap = this.bodyEl.createDiv({ cls: 'sm-symlinks-list' });
+		if (symlinks.length === 0) {
+			listWrap.createDiv({
+				cls: 'sm-empty-box',
+				text: 'No active symlinks or junctions found in this vault. Use the form below to link an external folder.'
 			});
+		} else {
+			for (const item of symlinks) {
+				const row = listWrap.createDiv({ cls: 'sm-symlink-row' });
+				const left = row.createDiv({ cls: 'sm-row-left' });
+
+				const pillCls = item.state.kind === 'active'
+					? (item.state.type === 'junction' ? 'sm-pill-junction' : 'sm-pill-symlink')
+					: 'sm-pill-broken';
+				const pillText = item.state.kind === 'active'
+					? (item.state.type === 'junction' ? '🟢 Junction' : '🟠 Symlink')
+					: '🔴 Broken';
+
+				left.createSpan({ cls: `sm-pill ${pillCls}`, text: pillText });
+
+				const pathsCol = left.createDiv({ cls: 'sm-paths-col' });
+				const targetPath = item.state.kind !== 'none' ? item.state.target : '';
+				pathsCol.createSpan({ cls: 'sm-vault-path', text: `📂 ${item.vaultPath}` });
+				pathsCol.createSpan({ cls: 'sm-target-path-sub', text: `→ ${targetPath}` });
+
+				const actions = row.createDiv({ cls: 'sm-row-actions' });
+
+				const inspectBtn = actions.createEl('button', { text: '⚙️ Inspect' });
+				inspectBtn.onclick = () => {
+					this.selectedVaultPath = item.vaultPath;
+					this.refresh();
+				};
+
+				const rescanBtn = actions.createEl('button', { text: '🔄 Re-index' });
+				rescanBtn.onclick = async () => {
+					rescanBtn.disabled = true;
+					await reindexVaultFolder(this.app, item.vaultPath);
+					this.opts.onChange?.();
+					rescanBtn.disabled = false;
+					new Notice(`✓ Re-indexed "${item.vaultPath}"`);
+				};
+
+				const disconnectBtn = actions.createEl('button', { text: '🔌 Disconnect', cls: 'mod-warning' });
+				disconnectBtn.onclick = () => {
+					if (!this.confirm(`Remove link "${item.vaultPath}"? Target files remain untouched.`)) return;
+					void this.guard(async () => {
+						await removeLink(item.absPath);
+						new Notice(`Link "${item.vaultPath}" removed.`);
+					});
+				};
+			}
 		}
+
+		// 3. Section: Create New Link
+		const createTitle = this.bodyEl.createDiv({ cls: 'sm-section-title' });
+		createTitle.createSpan({ text: '➕ Link External Folder (New Link)' });
+
+		this.renderCreateForm();
 	}
 
-	private renderBody(): void {
+	private renderCreateForm(): void {
+		const formCard = this.bodyEl.createDiv({ cls: 'sm-card' });
+
+		let vaultInput!: TextComponent;
+		let targetInput!: TextComponent;
+		let typeDropdown!: DropdownComponent;
+		let typeRow!: Setting;
+		let chosenType: LinkType = 'junction';
+
+		new Setting(formCard)
+			.setName('Vault folder')
+			.setDesc('Where this folder appears inside your Obsidian vault')
+			.addText((t) => {
+				vaultInput = t;
+				t.setPlaceholder('_project/MyFolder');
+			})
+			.addButton((b) =>
+				b.setButtonText('📂 Browse Vault').onClick(() => {
+					new FolderPickerModal(this.app, (chosen) => {
+						if (chosen && chosen !== '/') {
+							vaultInput.setValue(chosen);
+						}
+					}).open();
+				})
+			);
+
+		const setType = (t: LinkType): void => {
+			chosenType = t;
+			typeDropdown.setValue(t);
+			typeRow.setDesc(typeHint(t));
+		};
+
+		new Setting(formCard)
+			.setName('External target path')
+			.setDesc('Absolute path to folder on hard drive or secondary disk')
+			.addText((t) => {
+				targetInput = t;
+				t.setPlaceholder('D:\\Projects\\MyFolder');
+				t.onChange((v) => {
+					if (!v.trim()) return;
+					const vp = vaultInput?.getValue()?.trim() || '';
+					const absLink = PathUtils.join(this.opts.vaultRoot, vp || '_symlink_temp');
+					setType(suggestLinkType(absLink, v.trim()));
+				});
+			})
+			.addButton((b) =>
+				b.setButtonText('📁 Browse Disk').onClick(async () => {
+					const picked = await browseFolder();
+					if (picked) {
+						targetInput.setValue(picked);
+						const vp = vaultInput?.getValue()?.trim() || '';
+						const absLink = PathUtils.join(this.opts.vaultRoot, vp || '_symlink_temp');
+						setType(suggestLinkType(absLink, picked));
+					}
+				})
+			);
+
+		typeRow = new Setting(formCard)
+			.setName('Link type')
+			.setDesc(typeHint(chosenType))
+			.addDropdown((d) => {
+				typeDropdown = d;
+				d.addOption('junction', 'Junction (Windows · same drive · no admin required)');
+				d.addOption('symlink', 'Symlink (cross-drive / POSIX · admin on Windows)');
+				d.setValue(chosenType);
+				d.onChange((v) => {
+					chosenType = v as LinkType;
+					typeRow.setDesc(typeHint(chosenType));
+				});
+			});
+
+		const actions = formCard.createDiv({ cls: 'sm-actions' });
+		new ButtonComponent(actions)
+			.setButtonText('Create Link')
+			.setCta()
+			.onClick(() => {
+				const vp = vaultInput.getValue().trim();
+				const target = targetInput.getValue().trim();
+				if (!vp) {
+					new Notice('Please enter a vault folder path.');
+					return;
+				}
+				if (!target) {
+					new Notice('Please choose an external target folder.');
+					return;
+				}
+				const absLink = PathUtils.join(this.opts.vaultRoot, normalizePath(vp));
+				const handleCreate = async (resolution?: ConflictResolutionOption) => {
+					void this.guard(async () => {
+						try {
+							await createLink(absLink, target, chosenType, resolution);
+							new Notice(`✓ Created link: "${vp}" → ${target}`);
+						} catch (err) {
+							if (err instanceof SymlinkConflictError) {
+								new SymlinkConflictModal(this.app, {
+									linkPath: err.linkPath,
+									targetPath: err.targetPath,
+									linkItemCount: err.linkItemCount,
+									targetItemCount: err.targetItemCount,
+									onResolve: async (choice) => {
+										await handleCreate(choice);
+									}
+								}).open();
+								return;
+							}
+							throw err;
+						}
+					});
+				};
+				handleCreate();
+			});
+	}
+
+	// ── VIEW 2: Inspector Mode (Inspecting a Single Folder) ────────────────────
+	private renderInspector(): void {
+		this.disposeAll();
+		this.statusEl.empty();
 		this.bodyEl.empty();
+
+		const nav = this.statusEl.createDiv({ cls: 'sm-inspector-nav' });
+		const backBtn = nav.createEl('button', { text: '← Back to All Links' });
+		backBtn.onclick = () => {
+			this.selectedVaultPath = '';
+			this.refresh();
+		};
+
+		const headerWrap = this.statusEl.createDiv({ cls: 'sm-section' });
+		new Setting(headerWrap)
+			.setName('Folder (vault)')
+			.setDesc('Folder path relative to vault root')
+			.addText((t) => {
+				this.vaultPathInput = t;
+				t.setValue(this.selectedVaultPath);
+				t.onChange((v) => {
+					this.selectedVaultPath = v.trim();
+					this.refresh();
+				});
+			})
+			.addButton((b) =>
+				b.setButtonText('📂 Browse').onClick(() => {
+					new FolderPickerModal(this.app, (chosen) => {
+						if (chosen && chosen !== '/') {
+							this.selectedVaultPath = chosen;
+							this.refresh();
+						}
+					}).open();
+				})
+			);
+
+		this.renderStatus();
+
 		switch (this.info.state.kind) {
 			case 'none':
-				this.renderCreate();
+				this.renderCreateDirect();
 				return;
 			case 'active':
 				this.renderActive();
@@ -135,8 +391,33 @@ export class SymlinkModal extends Modal {
 		}
 	}
 
-	// ── State A: create ────────────────────────────────────────────────
-	private renderCreate(): void {
+	private renderStatus(): void {
+		const s = this.info.state;
+		const statusCard = this.statusEl.createDiv({ cls: 'sm-status' });
+
+		const line = statusCard.createDiv({ cls: 'sm-status-line' });
+		const dotKind = s.kind === 'active' ? s.type : s.kind === 'broken' ? 'broken' : 'none';
+		line.createSpan({ cls: `sm-dot sm-dot-${dotKind}` });
+
+		const label = line.createSpan({ cls: 'sm-status-label' });
+		label.setText(statusLabel(s));
+
+		if (s.kind === 'none') return;
+
+		const targetRow = statusCard.createDiv({ cls: 'sm-target-row' });
+		targetRow.createSpan({ cls: 'sm-target-arrow', text: '→' });
+		const pathEl = targetRow.createSpan({ cls: 'sm-target-path' });
+		this.disposers.push(applyResponsivePath(pathEl, s.target));
+
+		if (s.kind === 'broken') {
+			statusCard.createDiv({
+				cls: 'sm-warn',
+				text: '⚠️ Target folder not found or external drive is offline.',
+			});
+		}
+	}
+
+	private renderCreateDirect(): void {
 		let targetInput!: TextComponent;
 		let typeDropdown!: DropdownComponent;
 		let typeRow!: Setting;
@@ -160,7 +441,7 @@ export class SymlinkModal extends Modal {
 				});
 			})
 			.addButton((b) =>
-				b.setButtonText('Browse').onClick(async () => {
+				b.setButtonText('📁 Browse').onClick(async () => {
 					const picked = await browseFolder();
 					if (picked) {
 						targetInput.setValue(picked);
@@ -174,8 +455,8 @@ export class SymlinkModal extends Modal {
 			.setDesc(typeHint(chosenType))
 			.addDropdown((d) => {
 				typeDropdown = d;
-				d.addOption('junction', 'Junction (Windows · same drive · no admin)');
-				d.addOption('symlink', 'Symlink (cross-drive / POSIX · admin on Win)');
+				d.addOption('junction', 'Junction (Windows · same drive · no admin required)');
+				d.addOption('symlink', 'Symlink (cross-drive / POSIX · admin on Windows)');
 				d.setValue(chosenType);
 				d.onChange((v) => {
 					chosenType = v as LinkType;
@@ -184,21 +465,24 @@ export class SymlinkModal extends Modal {
 			});
 
 		const actions = this.bodyEl.createDiv({ cls: 'sm-actions' });
-		new ButtonComponent(actions).setButtonText('Cancel').onClick(() => this.close());
+		new ButtonComponent(actions).setButtonText('Cancel').onClick(() => {
+			this.selectedVaultPath = '';
+			this.refresh();
+		});
 		new ButtonComponent(actions)
-			.setButtonText('Create link')
+			.setButtonText('Create Link')
 			.setCta()
 			.onClick(() => {
 				const target = targetInput.getValue().trim();
 				if (!target) {
-					new Notice('Pick a target folder first.');
+					new Notice('Please choose a target folder first.');
 					return;
 				}
 				const handleCreate = async (resolution?: ConflictResolutionOption) => {
 					void this.guard(async () => {
 						try {
 							await createLink(this.info.absPath, target, chosenType, resolution);
-							new Notice(`Link created → ${target}`);
+							new Notice(`✓ Created link: "${this.info.vaultPath}" → ${target}`);
 						} catch (err) {
 							if (err instanceof SymlinkConflictError) {
 								new SymlinkConflictModal(this.app, {
@@ -220,7 +504,6 @@ export class SymlinkModal extends Modal {
 			});
 	}
 
-	// ── State B: active ────────────────────────────────────────────────
 	private renderActive(): void {
 		const s = this.info.state;
 		if (s.kind !== 'active') return;
@@ -241,13 +524,13 @@ export class SymlinkModal extends Modal {
 		disconnectCard.createDiv({ cls: 'sm-card-title', text: '🔌 Disconnect' });
 		disconnectCard.createDiv({
 			cls: 'sm-card-desc',
-			text: 'Remove the link only — files at the target are untouched.',
+			text: 'Remove the link only — files at the external target are untouched.',
 		});
 		new ButtonComponent(disconnectCard)
 			.setButtonText('Disconnect')
 			.setWarning()
 			.onClick(() => {
-				if (!this.confirm('Remove the link? Files at the target stay where they are.')) return;
+				if (!this.confirm('Remove the link? Files at the external target stay where they are.')) return;
 				void this.guard(async () => {
 					const t0 = performance.now();
 					this.showDebug('Disconnecting…');
@@ -270,11 +553,11 @@ export class SymlinkModal extends Modal {
 				void this.guard(async () => {
 					const t0 = performance.now();
 					this.showDebug('Copying… ⏳');
-					new Notice('Copying — this may take a while…');
+					new Notice('Copying files into vault — this may take a while…');
 					await copyAndDisconnect(this.info.absPath);
 					const dur = elapsed(t0);
 					this.showDebug(`Copied and detached. (${dur})`);
-					new Notice(`Copied and detached. (${dur})`);
+					new Notice(`✓ Copied and detached. (${dur})`);
 				});
 			});
 
@@ -292,7 +575,7 @@ export class SymlinkModal extends Modal {
 				new Notice('Scanning and indexing linked files…');
 				await reindexVaultFolder(this.app, this.info.vaultPath);
 				this.opts.onChange?.();
-				new Notice(`Linked files indexed in ${elapsed(t0)}.`);
+				new Notice(`✓ Linked files indexed in ${elapsed(t0)}.`);
 			});
 
 		const close = this.bodyEl.createDiv({ cls: 'sm-actions' });
@@ -314,7 +597,7 @@ export class SymlinkModal extends Modal {
 				});
 			})
 			.addButton((b) =>
-				b.setButtonText('Browse').onClick(async () => {
+				b.setButtonText('📁 Browse').onClick(async () => {
 					const picked = await browseFolder(targetInput.getValue() || undefined);
 					if (picked) {
 						targetInput.setValue(picked);
@@ -360,7 +643,6 @@ export class SymlinkModal extends Modal {
 			});
 	}
 
-	// ── State C: broken ────────────────────────────────────────────────
 	private renderBroken(): void {
 		this.bodyEl.createEl('h4', { text: 'Actions', cls: 'sm-actions-title' });
 
@@ -397,7 +679,7 @@ export class SymlinkModal extends Modal {
 				});
 			})
 			.addButton((b) =>
-				b.setButtonText('Browse').onClick(async () => {
+				b.setButtonText('📁 Browse').onClick(async () => {
 					const picked = await browseFolder(targetInput.getValue() || undefined);
 					if (picked) {
 						targetInput.setValue(picked);
@@ -462,7 +744,9 @@ export class SymlinkModal extends Modal {
 	private async guard(fn: () => Promise<void>): Promise<void> {
 		try {
 			await fn();
-			await reindexVaultFolder(this.app, this.info.vaultPath);
+			if (this.selectedVaultPath) {
+				await reindexVaultFolder(this.app, this.selectedVaultPath);
+			}
 			this.opts.onChange?.();
 			this.refresh();
 		} catch (err: unknown) {
@@ -474,8 +758,8 @@ export class SymlinkModal extends Modal {
 }
 
 function typeHint(type: LinkType): string {
-	if (type === 'junction') return 'Same drive — junction, no admin required.';
-	return 'Cross-drive or POSIX — symlink (admin required on Windows).';
+	if (type === 'junction') return 'Same drive — Windows NTFS Junction (no administrator required).';
+	return 'Cross-drive or POSIX — Directory Symbolic Link (may require administrator on Windows).';
 }
 
 function statusLabel(s: LinkInfo['state']): string {

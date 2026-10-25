@@ -251,6 +251,24 @@ export default class PakCLILocalPlugin extends Plugin {
 			).open();
 		});
 
+		// 9b. Register Symlink Manager Ribbon
+		addIcon(
+			'folder-symlink',
+			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M2 9V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H2"/>
+				<path d="m8 16 3-3-3-3"/>
+				<path d="M11 13h4a2 2 0 0 1 2 2v1"/>
+			</svg>`
+		);
+		this.addRibbonIcon('folder-symlink', 'Symlink & Junction Manager', () => {
+			new SymlinkModal(this.app, {
+				vaultRoot: this.vaultRoot,
+				initialVaultPath: '',
+				confirmDisconnect: this.settings.confirmDisconnect,
+				onChange: () => this.applyBadgeSetting()
+			}).open();
+		});
+
 		// 10. Initialize Git Sentinel & Local Snapshot Manager
 		this.gitManager = registerGitManager(this);
 
@@ -494,6 +512,36 @@ export default class PakCLILocalPlugin extends Plugin {
 					confirmDisconnect: this.settings.confirmDisconnect,
 					onChange: () => this.applyBadgeSetting()
 				}).open();
+			},
+		});
+
+		// Command: Open Symlink & Junction Manager
+		this.addCommand({
+			id: 'pl-open-symlink-manager',
+			name: 'Symlink: Open Symlink & Junction Manager',
+			callback: () => {
+				new SymlinkModal(this.app, {
+					vaultRoot: this.vaultRoot,
+					initialVaultPath: '',
+					confirmDisconnect: this.settings.confirmDisconnect,
+					onChange: () => this.applyBadgeSetting()
+				}).open();
+			},
+		});
+
+		// Command: Rescan All Symlinks & Reindex Vault
+		this.addCommand({
+			id: 'pl-rescan-all-symlinks',
+			name: 'Symlink: Re-scan All Vault Symlinks & Junctions',
+			callback: async () => {
+				new Notice('🔄 Re-scanning all vault symlinks and junctions...');
+				try {
+					await reindexVaultFolder(this.app, '');
+					this.applyBadgeSetting();
+					new Notice('✅ All vault symlinks rescanned & re-indexed successfully!');
+				} catch (err: any) {
+					new Notice(`❌ Failed to re-scan symlinks: ${err?.message || err}`);
+				}
 			},
 		});
 
