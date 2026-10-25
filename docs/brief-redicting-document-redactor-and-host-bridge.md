@@ -17,12 +17,17 @@
    - Jika dibuat *hanya di dalam Plugin Desktop*: UI canvas interaktif yang kompleks harus ditulis ulang dan sulit dijadikan portofolio/alat mandiri yang bisa dicoba publik secara instan.
 
 ### Solusi (The Solution)
-Membangun **Redicting** dengan arsitektur **Progressive Capability Handshake**:
-- **Front-end Web (`digital-media-creative`)**: Website mandiri berisi antarmuka dual-panel (Tabel Data + Canvas Struk) berbasis Vanilla JS/Canvas 2D. Sangat ringan, gratis, dan berfungsi sebagai alat sensor manual untuk siapapun di internet.
-- **Host Bridge (`pakcli-local`)**: Begitu website dibuka atau dihubungkan ke Obsidian melalui `pakcli-local`, website melakukan *handshake* melalui protokol `postMessage` dua arah. Seketika itu juga, fitur-fitur bertenaga super terbuka:
-  - **Windows Native OCR (`Windows.Media.Ocr.OcrEngine`)** via PowerShell runner tanpa install binary pihak ketiga.
-  - **AI Header-First Mass Redaction** (sensor otomatis seluruh baris di bawah kolom sensitif).
-  - **Direct Vault Read/Write** (buka gambar dari vault dan simpan hasil *hard-bake* langsung ke folder `_redacted/`).
+Membangun **Redicting** dengan arsitektur **Zero-Auth Static NPM-Style Distribution & Local-First Disk Cache**:
+- **Front-end Web (`digital-media-creative`)**: Menggunakan multi-target build di folder `dist/`:
+  1. `dist/index.html`: Website publik yang dibuka biasa di browser, berfungsi manual tanpa modul plugin.
+  2. `dist/redicting-component.js`: Modul JS mandiri (ala NPM library / UMD `window.Redicting`), di-host di static CDN tanpa autentikasi (no auth, no token, pure static `GET`).
+- **Host Bridge (`pakcli-local`)**:
+  1. **Fetch Sekali & Simpan Lokal**: Mengunduh `redicting-component.js` sekali saja dan menyimpannya di disk vault sebagai `.obsidian/plugins/pakcli-local/cache/module-temporary.js`.
+  2. **100% Offline-First**: Peluncuran berikutnya langsung membaca `module-temporary.js` dari disk lokal tanpa butuh koneksi internet sama sekali.
+  3. **Injeksi Local Bridge**: `pakcli-local` meng-inject bridge lokal:
+     - **Windows Native OCR (`Windows.Media.Ocr.OcrEngine`)** via PowerShell runner tanpa install binary pihak ketiga.
+     - **AI Header-First Mass Redaction** (sensor otomatis seluruh baris di bawah kolom sensitif).
+     - **Direct Vault Read/Write** (buka gambar dari vault dan simpan hasil *hard-bake* langsung ke folder `_redacted/`).
 
 ---
 
