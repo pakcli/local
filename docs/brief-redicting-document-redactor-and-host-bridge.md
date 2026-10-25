@@ -17,14 +17,16 @@
    - Jika dibuat *hanya di dalam Plugin Desktop*: UI canvas interaktif yang kompleks harus ditulis ulang dan sulit dijadikan portofolio/alat mandiri yang bisa dicoba publik secara instan.
 
 ### Solusi (The Solution)
-Membangun **Redicting** dengan arsitektur **Zero-Auth Static NPM-Style Distribution & Local-First Disk Cache**:
-- **Front-end Web (`digital-media-creative`)**: Menggunakan multi-target build di folder `dist/`:
-  1. `dist/index.html`: Website publik yang dibuka biasa di browser, berfungsi manual tanpa modul plugin.
-  2. `dist/redicting-component.js`: Modul JS mandiri (ala NPM library / UMD `window.Redicting`), di-host di static CDN tanpa autentikasi (no auth, no token, pure static `GET`).
+Membangun **Redicting** dengan arsitektur **GitHub Release Direct Distribution & Local-First Disk Cache**:
+- **Front-end Web (`digital-media-creative`)**:
+  1. `dist/index.html`: Website publik yang dibuka langsung di browser untuk mode interaktif manual.
+  2. `dist/redicting-component.js`: Modul JS mandiri (ala NPM library / UMD `window.Redicting`), yang otomatis di-upload sebagai asset rilis di **GitHub Releases** (`releases/latest/download/redicting-component.js`) setiap kali rilis versi baru.
 - **Host Bridge (`pakcli-local`)**:
-  1. **Fetch Sekali & Simpan Lokal**: Mengunduh `redicting-component.js` sekali saja dan menyimpannya di disk vault sebagai `.obsidian/plugins/pakcli-local/cache/module-temporary.js`.
-  2. **100% Offline-First**: Peluncuran berikutnya langsung membaca `module-temporary.js` dari disk lokal tanpa butuh koneksi internet sama sekali.
-  3. **Injeksi Local Bridge**: `pakcli-local` meng-inject bridge lokal:
+  1. **Direct GitHub Release Fetch (No Custom Server)**: Plugin langsung men-download asset `redicting-component.js` dari GitHub Release publik tanpa perlu sewa domain atau static server terpisah.
+  2. **Fetch Sekali & Simpan Lokal**: Disimpan di `.obsidian/plugins/pakcli-local/cache/redicting/module-temporary.js` beserta `version.json` (tag rilis e.g. `v1.0.0`).
+  3. **100% Offline-First**: Pada peluncuran berikutnya, plugin membaca langsung dari disk lokal tanpa request internet sama sekali.
+  4. **Git Clone / Dev Mode Synergy**: Karena `pakcli-local` sudah memiliki `GitHubFetcherManager` dan integrasi Git, developer juga dapat memilih opsi *"Link Local Repo / Git Clone"* untuk live editing.
+  5. **Injeksi Local Bridge**: `pakcli-local` meng-inject bridge lokal:
      - **Windows Native OCR (`Windows.Media.Ocr.OcrEngine`)** via PowerShell runner tanpa install binary pihak ketiga.
      - **AI Header-First Mass Redaction** (sensor otomatis seluruh baris di bawah kolom sensitif).
      - **Direct Vault Read/Write** (buka gambar dari vault dan simpan hasil *hard-bake* langsung ke folder `_redacted/`).
