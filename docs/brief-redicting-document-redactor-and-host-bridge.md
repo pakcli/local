@@ -17,12 +17,21 @@
    - Jika dibuat *hanya di dalam Plugin Desktop*: UI canvas interaktif yang kompleks harus ditulis ulang dan sulit dijadikan portofolio/alat mandiri yang bisa dicoba publik secara instan.
 
 ### Solusi (The Solution)
-Membangun **Redicting** dengan arsitektur **GitHub Release Direct Distribution & Local-First Disk Cache**:
+Membangun **Redicting** dengan arsitektur **Dual-Target Build & GitHub Release Local-First Cache**:
 - **Front-end Web (`digital-media-creative`)**:
-  1. `dist/index.html`: Website publik yang dibuka langsung di browser untuk mode interaktif manual.
-  2. `dist/redicting-component.js`: Modul JS mandiri (ala NPM library / UMD `window.Redicting`), yang otomatis di-upload sebagai asset rilis di **GitHub Releases** (`releases/latest/download/redicting-component.js`) setiap kali rilis versi baru.
+  Struktur output build (`dist/`):
+  ```text
+  src/
+  dist/
+  ├── public/       <-- Untuk Website URL Publik (Vercel / Cloudflare Pages)
+  │   ├── index.html
+  │   └── assets/   (UI standalone, jalan manual di browser publik)
+  └── obsidian/     <-- Untuk Obsidian to Fetch (Release Asset di GitHub)
+      ├── redicting-component.js (Standalone UMD/IIFE Component)
+      └── version.json           (Metadata & version tag)
+  ```
 - **Host Bridge (`pakcli-local`)**:
-  1. **Direct GitHub Release Fetch (No Custom Server)**: Plugin langsung men-download asset `redicting-component.js` dari GitHub Release publik tanpa perlu sewa domain atau static server terpisah.
+  1. **Direct GitHub Release Fetch (No Custom Server)**: Plugin langsung men-download asset `dist/obsidian/redicting-component.js` dari GitHub Release publik (`releases/latest/download/redicting-component.js`) tanpa perlu sewa domain atau static server terpisah.
   2. **Fetch Sekali & Simpan Lokal**: Disimpan di `.obsidian/plugins/pakcli-local/cache/redicting/module-temporary.js` beserta `version.json` (tag rilis e.g. `v1.0.0`).
   3. **100% Offline-First**: Pada peluncuran berikutnya, plugin membaca langsung dari disk lokal tanpa request internet sama sekali.
   4. **Git Clone / Dev Mode Synergy**: Karena `pakcli-local` sudah memiliki `GitHubFetcherManager` dan integrasi Git, developer juga dapat memilih opsi *"Link Local Repo / Git Clone"* untuk live editing.
